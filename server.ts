@@ -1,13 +1,17 @@
 import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'erus_super_secret_jwt_key_2026';
 
 app.use(express.json());
 
@@ -337,15 +341,437 @@ let liveTranscripts: BackendTranscript[] = [
   },
 ];
 
-// Health Check
+// Database Setup & Connection (PostgreSQL with Prisma + In-Memory Fallback)
+let prisma: PrismaClient | null = null;
+let isDbConnected = false;
+
+if (process.env.DATABASE_URL) {
+  try {
+    prisma = new PrismaClient();
+    prisma.$connect()
+      .then(() => {
+        isDbConnected = true;
+        console.log('[Database] Connected to PostgreSQL via Prisma');
+        seedDatabaseIfEmpty();
+      })
+      .catch((err: any) => {
+        console.warn('[Database] Prisma connection error (using in-memory fallback):', err.message);
+      });
+  } catch (err: any) {
+    console.warn('[Database] Prisma initialization error:', err);
+  }
+} else {
+  console.log('[Database] No DATABASE_URL configured. Running with in-memory persistence.');
+}
+
+async function seedDatabaseIfEmpty() {
+  if (!prisma || !isDbConnected) return;
+  try {
+    const count = await prisma.user.count();
+    if (count > 0) return;
+
+    console.log('[Database] Seeding default student and faculty demo accounts in PostgreSQL...');
+    const hashedStudentPass = await bcrypt.hash('password123', 10);
+    const hashedFacultyPass = await bcrypt.hash('faculty123', 10);
+
+    // Seed Rahul (Student)
+    await prisma.user.create({
+      data: {
+        email: 'rahul.kumar@dit.edu.in',
+        passwordHash: hashedStudentPass,
+        name: 'Rahul Kumar',
+        role: 'student',
+        college: 'Delhi Institute of Technology',
+        avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
+        studentProfile: {
+          create: {
+            studentId: 'STU-2022-041',
+            course: 'B.Tech CSE',
+            batch: '2022-2026',
+            seatNumber: 1,
+          },
+        },
+      },
+    });
+
+    // Seed Priya (Student)
+    await prisma.user.create({
+      data: {
+        email: 'priya.sharma@sxec.edu.in',
+        passwordHash: hashedStudentPass,
+        name: 'Priya Sharma',
+        role: 'student',
+        college: 'St. Xavier Engineering College',
+        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80',
+        studentProfile: {
+          create: {
+            studentId: 'STU-2022-089',
+            course: 'B.Tech IT',
+            batch: '2022-2026',
+            seatNumber: 2,
+          },
+        },
+      },
+    });
+
+    // Seed Dr. Sunita Rao (Faculty)
+    await prisma.user.create({
+      data: {
+        email: 'sunita.rao@dit.edu.in',
+        passwordHash: hashedFacultyPass,
+        name: 'Dr. Sunita Rao',
+        role: 'faculty',
+        college: 'Delhi Institute of Technology',
+        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+        facultyProfile: {
+          create: {
+            facultyId: 'FAC-CSE-102',
+            department: 'Computer Science & Engineering',
+            designation: 'Professor & Head of Department',
+          },
+        },
+      },
+    });
+
+    // Seed Prof. Aravind Swamy (Faculty)
+    await prisma.user.create({
+      data: {
+        email: 'aravind.swamy@iitb.ac.in',
+        passwordHash: hashedFacultyPass,
+        name: 'Prof. Aravind Swamy',
+        role: 'faculty',
+        college: 'Indian Institute of Technology Bombay',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+        facultyProfile: {
+          create: {
+            facultyId: 'FAC-AI-204',
+            department: 'Artificial Intelligence & Robotics',
+            designation: 'Associate Professor',
+          },
+        },
+      },
+    });
+
+    console.log('[Database] Seeding completed.');
+  } catch (err: any) {
+    console.warn('[Database] Seeding warning:', err);
+  }
+}
+
+interface InMemUser {
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  role: 'student' | 'faculty';
+  college: string;
+  avatar?: string;
+  studentId?: string;
+  course?: string;
+  batch?: string;
+  seatNumber?: number;
+  facultyId?: string;
+  department?: string;
+  designation?: string;
+}
+
+const IN_MEM_USERS: InMemUser[] = [
+  {
+    id: 's1',
+    name: 'Rahul Kumar',
+    email: 'rahul.kumar@dit.edu.in',
+    role: 'student',
+    studentId: 'STU-2022-041',
+    college: 'Delhi Institute of Technology',
+    course: 'B.Tech CSE',
+    batch: '2022-2026',
+    seatNumber: 1,
+    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
+    passwordHash: bcrypt.hashSync('password123', 10),
+  },
+  {
+    id: 's2',
+    name: 'Priya Sharma',
+    email: 'priya.sharma@sxec.edu.in',
+    role: 'student',
+    studentId: 'STU-2022-089',
+    college: 'St. Xavier Engineering College',
+    course: 'B.Tech IT',
+    batch: '2022-2026',
+    seatNumber: 2,
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80',
+    passwordHash: bcrypt.hashSync('password123', 10),
+  },
+  {
+    id: 'f1',
+    name: 'Dr. Sunita Rao',
+    email: 'sunita.rao@dit.edu.in',
+    role: 'faculty',
+    facultyId: 'FAC-CSE-102',
+    college: 'Delhi Institute of Technology',
+    department: 'Computer Science & Engineering',
+    designation: 'Professor & Head of Department',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+    passwordHash: bcrypt.hashSync('faculty123', 10),
+  },
+  {
+    id: 'f2',
+    name: 'Prof. Aravind Swamy',
+    email: 'aravind.swamy@iitb.ac.in',
+    role: 'faculty',
+    facultyId: 'FAC-AI-204',
+    college: 'Indian Institute of Technology Bombay',
+    department: 'Artificial Intelligence & Robotics',
+    designation: 'Associate Professor',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+    passwordHash: bcrypt.hashSync('faculty123', 10),
+  },
+];
+
+function formatUserResponse(u: any) {
+  if (u.role === 'student') {
+    const prof = u.studentProfile || {};
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: 'student' as const,
+      college: u.college,
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+      studentId: prof.studentId || u.studentId || 'STU-001',
+      course: prof.course || u.course || 'General Engineering',
+      batch: prof.batch || u.batch || '2024-2028',
+      seatNumber: prof.seatNumber || u.seatNumber || 1,
+    };
+  } else {
+    const prof = u.facultyProfile || {};
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: 'faculty' as const,
+      college: u.college,
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+      facultyId: prof.facultyId || u.facultyId || 'FAC-001',
+      department: prof.department || u.department || 'Computer Science',
+      designation: prof.designation || u.designation || 'Faculty Evaluator',
+    };
+  }
+}
+
+// Health Check (Deployment & Railway liveness probe)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'ERUS AI Group Discussion Facilitator (ERUS-AIGDF)',
+    database: isDbConnected ? 'postgresql' : 'in-memory',
     hasGeminiKey: !!process.env.GEMINI_API_KEY,
     activeSessionId: currentLiveSession.id,
     participants: currentLiveSession.students.length,
+    timestamp: new Date().toISOString(),
   });
+});
+
+// Authentication: Register new student or faculty
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const {
+      email,
+      password,
+      name,
+      role = 'student',
+      college,
+      avatar,
+      studentId,
+      course,
+      batch,
+      facultyId,
+      department,
+      designation,
+    } = req.body;
+
+    if (!email || !password || !name || !college) {
+      return res.status(400).json({ success: false, error: 'Name, email, college, and password are required.' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check PostgreSQL
+    if (isDbConnected && prisma) {
+      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existing) {
+        return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const user = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          passwordHash,
+          name: name.trim(),
+          role,
+          college: college.trim(),
+          avatar: avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+          ...(role === 'student'
+            ? {
+                studentProfile: {
+                  create: {
+                    studentId: studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
+                    course: course?.trim() || 'General Engineering',
+                    batch: batch?.trim() || '2024-2028',
+                    seatNumber: 1,
+                  },
+                },
+              }
+            : {
+                facultyProfile: {
+                  create: {
+                    facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
+                    department: department?.trim() || 'Engineering',
+                    designation: designation?.trim() || 'Faculty Evaluator',
+                  },
+                },
+              }),
+        },
+        include: { studentProfile: true, facultyProfile: true },
+      });
+
+      const formatted = formatUserResponse(user);
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ success: true, user: formatted, token });
+    }
+
+    // In-memory fallback
+    const exists = IN_MEM_USERS.some((u) => u.email.toLowerCase() === cleanEmail);
+    if (exists) {
+      return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newId = `${role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`;
+    const newMemUser: InMemUser = {
+      id: newId,
+      email: cleanEmail,
+      passwordHash,
+      name: name.trim(),
+      role: role as any,
+      college: college.trim(),
+      avatar: avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+      studentId: studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
+      course: course?.trim() || 'General Engineering',
+      batch: batch?.trim() || '2024-2028',
+      seatNumber: 1,
+      facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
+      department: department?.trim() || 'Engineering',
+      designation: designation?.trim() || 'Faculty Evaluator',
+    };
+
+    IN_MEM_USERS.push(newMemUser);
+    const formatted = formatUserResponse(newMemUser);
+    const token = jwt.sign({ id: newMemUser.id, email: newMemUser.email, role: newMemUser.role }, JWT_SECRET, { expiresIn: '7d' });
+    return res.json({ success: true, user: formatted, token });
+  } catch (err: any) {
+    console.error('[Auth Register Error]:', err);
+    res.status(500).json({ success: false, error: 'Server error during registration.' });
+  }
+});
+
+// Authentication: Login student or faculty
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { role = 'student', identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, error: 'Identifier and password are required.' });
+    }
+
+    const cleanId = identifier.trim().toLowerCase();
+
+    // Check PostgreSQL
+    if (isDbConnected && prisma) {
+      const user = await prisma.user.findFirst({
+        where: {
+          role,
+          OR: [
+            { email: { equals: cleanId, mode: 'insensitive' } },
+            role === 'student'
+              ? { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } }
+              : { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } },
+          ],
+        },
+        include: { studentProfile: true, facultyProfile: true },
+      });
+
+      if (!user) {
+        return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!isMatch) {
+        return res.status(401).json({ success: false, error: 'Invalid password. Please try again.' });
+      }
+
+      const formatted = formatUserResponse(user);
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ success: true, user: formatted, token });
+    }
+
+    // In-memory fallback
+    const memUser = IN_MEM_USERS.find(
+      (u) =>
+        u.role === role &&
+        (u.email.toLowerCase() === cleanId ||
+          (role === 'student' && u.studentId?.toLowerCase() === cleanId) ||
+          (role === 'faculty' && u.facultyId?.toLowerCase() === cleanId))
+    );
+
+    if (!memUser) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, memUser.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, error: 'Invalid password. Please try again.' });
+    }
+
+    const formatted = formatUserResponse(memUser);
+    const token = jwt.sign({ id: memUser.id, email: memUser.email, role: memUser.role }, JWT_SECRET, { expiresIn: '7d' });
+    return res.json({ success: true, user: formatted, token });
+  } catch (err: any) {
+    console.error('[Auth Login Error]:', err);
+    res.status(500).json({ success: false, error: 'Server error during login.' });
+  }
+});
+
+// Authentication: Verify session token
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+
+    if (isDbConnected && prisma) {
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        include: { studentProfile: true, facultyProfile: true },
+      });
+      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+      return res.json({ success: true, user: formatUserResponse(user) });
+    }
+
+    const memUser = IN_MEM_USERS.find((u) => u.id === decoded.id);
+    if (!memUser) return res.status(404).json({ success: false, error: 'User not found' });
+    return res.json({ success: true, user: formatUserResponse(memUser) });
+  } catch (err) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  }
 });
 
 // Endpoint: GET Current Session & Transcripts

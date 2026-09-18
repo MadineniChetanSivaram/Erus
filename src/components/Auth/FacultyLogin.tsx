@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { FacultyUser } from '../../types/auth';
 import { MOCK_FACULTY, authenticateUser, registerNewUser } from '../../data/mockAuthData';
+import { loginUser, registerUser } from '../../utils/authApi';
 
 interface FacultyLoginProps {
   onLogin: (user: FacultyUser) => void;
@@ -48,7 +49,7 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -59,18 +60,17 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const user = authenticateUser('faculty', identifier, password);
-      if (user && user.role === 'faculty') {
-        onLogin(user);
-      } else {
-        setError('Invalid Faculty credentials. Try entering sunita.rao@dit.edu.in with faculty123, use 1-click login below, or register as a new faculty member.');
-      }
-      setIsLoading(false);
-    }, 300);
+    const res = await loginUser('faculty', identifier, password);
+    setIsLoading(false);
+
+    if (res.success && res.user && res.user.role === 'faculty') {
+      onLogin(res.user as FacultyUser);
+    } else {
+      setError(res.error || 'Invalid Faculty credentials. Try entering sunita.rao@dit.edu.in with faculty123, or register as a new faculty.');
+    }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -91,27 +91,27 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const newFaculty: FacultyUser = {
-        id: `fac-reg-${Date.now().toString().slice(-4)}`,
-        name: regName.trim(),
-        email: regEmail.trim(),
-        role: 'faculty',
-        facultyId: regFacultyId.trim() || `FAC-${Date.now().toString().slice(-4)}`,
-        college: regCollege.trim(),
-        department: regDepartment.trim(),
-        designation: regDesignation.trim() || 'Faculty Evaluator',
-        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-      };
+    const res = await registerUser({
+      name: regName.trim(),
+      email: regEmail.trim(),
+      role: 'faculty',
+      facultyId: regFacultyId.trim() || `FAC-${Date.now().toString().slice(-4)}`,
+      college: regCollege.trim(),
+      department: regDepartment.trim(),
+      designation: regDesignation.trim() || 'Faculty Evaluator',
+      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+      password: regPassword,
+    });
+    setIsLoading(false);
 
-      registerNewUser(newFaculty, regPassword);
+    if (res.success && res.user && res.user.role === 'faculty') {
       setSuccessMsg('Faculty account registered successfully! Logging in to Faculty Analytics...');
-
       setTimeout(() => {
-        onLogin(newFaculty);
+        onLogin(res.user as FacultyUser);
       }, 700);
-      setIsLoading(false);
-    }, 400);
+    } else {
+      setError(res.error || 'Registration failed. Please check your information and try again.');
+    }
   };
 
   const handleQuickLogin = (faculty: typeof MOCK_FACULTY[0]) => {

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { StudentUser } from '../../types/auth';
 import { MOCK_STUDENTS, authenticateUser, registerNewUser } from '../../data/mockAuthData';
+import { loginUser, registerUser } from '../../utils/authApi';
 
 interface StudentLoginProps {
   onLogin: (user: StudentUser) => void;
@@ -46,7 +47,7 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -57,18 +58,17 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const user = authenticateUser('student', identifier, password);
-      if (user && user.role === 'student') {
-        onLogin(user);
-      } else {
-        setError('Invalid Student credentials. Try entering rahul.kumar@dit.edu.in with password123, use 1-click login below, or register as a new student.');
-      }
-      setIsLoading(false);
-    }, 300);
+    const res = await loginUser('student', identifier, password);
+    setIsLoading(false);
+
+    if (res.success && res.user && res.user.role === 'student') {
+      onLogin(res.user as StudentUser);
+    } else {
+      setError(res.error || 'Invalid Student credentials. Try entering rahul.kumar@dit.edu.in with password123, or register as a new student.');
+    }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -89,28 +89,28 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const newStudent: StudentUser = {
-        id: `s-reg-${Date.now().toString().slice(-4)}`,
-        name: regName.trim(),
-        email: regEmail.trim(),
-        role: 'student',
-        studentId: regStudentId.trim() || `STU-${Date.now().toString().slice(-4)}`,
-        college: regCollege.trim(),
-        course: regCourse.trim() || 'General Engineering',
-        batch: '2024-2028',
-        seatNumber: 1, // assigned to room
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
-      };
+    const res = await registerUser({
+      name: regName.trim(),
+      email: regEmail.trim(),
+      role: 'student',
+      studentId: regStudentId.trim() || `STU-${Date.now().toString().slice(-4)}`,
+      college: regCollege.trim(),
+      course: regCourse.trim() || 'General Engineering',
+      batch: '2024-2028',
+      seatNumber: 1,
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+      password: regPassword,
+    });
+    setIsLoading(false);
 
-      registerNewUser(newStudent, regPassword);
+    if (res.success && res.user && res.user.role === 'student') {
       setSuccessMsg('Account created successfully! Logging you into the GD Conference Room...');
-      
       setTimeout(() => {
-        onLogin(newStudent);
+        onLogin(res.user as StudentUser);
       }, 700);
-      setIsLoading(false);
-    }, 400);
+    } else {
+      setError(res.error || 'Registration failed. Please check your information and try again.');
+    }
   };
 
   const handleQuickLogin = (student: typeof MOCK_STUDENTS[0]) => {

@@ -23,6 +23,7 @@ import {
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
+import { clearStoredAuth, verifyCurrentSession } from './utils/authApi';
 
 function GDAppContent() {
   // Authentication State
@@ -185,10 +186,17 @@ function GDAppContent() {
   // Handle Logout Event
   const handleLogout = () => {
     setCurrentUser(null);
-    try {
-      localStorage.removeItem('erus_auth_user');
-    } catch {}
+    clearStoredAuth();
   };
+
+  // Verify stored JWT session token with Backend on mount
+  useEffect(() => {
+    verifyCurrentSession().then((verifiedUser) => {
+      if (verifiedUser) {
+        setCurrentUser(verifiedUser);
+      }
+    });
+  }, []);
 
   // Sync voice engine mute state
   useEffect(() => {
