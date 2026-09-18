@@ -7,19 +7,47 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model College {
+  id           String      @id @default(cuid())
+  name         String
+  code         String      @unique // e.g. "DIT", "IITB"
+  contactEmail String
+  phone        String?
+  address      String?
+  status       String      @default("active") // "active" | "trial" | "suspended"
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  users        User[]
+  sessions     GDSession[]
+}
+
 model User {
   id           String          @id @default(cuid())
   email        String          @unique
   passwordHash String
   name         String
-  role         String          // "student" | "faculty"
+  role         String          // "super_admin" | "college_admin" | "faculty" | "student"
   college      String
+  collegeId    String?
   avatar       String?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  studentProfile StudentProfile?
-  facultyProfile FacultyProfile?
+  collegeOrg   College?        @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  studentProfile      StudentProfile?
+  facultyProfile      FacultyProfile?
+  collegeAdminProfile CollegeAdminProfile?
+}
+
+model CollegeAdminProfile {
+  id          String   @id @default(cuid())
+  adminId     String   @unique // e.g. CADM-DIT-001
+  department  String?  @default("Academic Administration")
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
 }
 
 model StudentProfile {
@@ -44,19 +72,25 @@ model FacultyProfile {
 }
 
 model GDSession {
-  id              String            @id @default(cuid())
-  topic           String
-  description     String?
-  durationMinutes Int               @default(15)
-  difficulty      String            @default("Intermediate")
-  status          String            @default("active") // "scheduled" | "active" | "completed"
-  scheduledTime   String?
-  maxCapacity     Int               @default(15)
-  enrolledCount   Int               @default(0)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  transcripts     TranscriptEntry[]
-  reports         AssessmentReport[]
+  id                  String            @id @default(cuid())
+  topic               String
+  description         String?
+  durationMinutes     Int               @default(15)
+  difficulty          String            @default("Intermediate")
+  status              String            @default("active") // "scheduled" | "active" | "completed"
+  scheduledTime       String?
+  slotTiming          String?
+  slotName            String?
+  maxCapacity         Int               @default(15)
+  enrolledCount       Int               @default(0)
+  assignedFacultyId   String?
+  assignedFacultyName String?
+  collegeId           String?
+  college             College?          @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  transcripts         TranscriptEntry[]
+  reports             AssessmentReport[]
 }
 
 model TranscriptEntry {

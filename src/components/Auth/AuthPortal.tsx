@@ -3,12 +3,16 @@ import {
   Sparkles, 
   GraduationCap, 
   ShieldCheck, 
+  Building2,
+  Crown,
   Sun, 
   Moon 
 } from 'lucide-react';
 import { AuthUser, UserRole } from '../../types/auth';
 import { StudentLogin } from './StudentLogin';
 import { FacultyLogin } from './FacultyLogin';
+import { CollegeAdminLogin } from './CollegeAdminLogin';
+import { SuperAdminLogin } from './SuperAdminLogin';
 import { useTheme } from '../../context/ThemeContext';
 
 interface AuthPortalProps {
@@ -41,7 +45,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                 ERUS-AIGDF
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
-                PORTAL LOGIN
+                MULTI-ROLE PLATFORM
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:block">
@@ -70,48 +74,85 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       </header>
 
       {/* Main Login Interface */}
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-10 max-w-7xl mx-auto w-full relative z-10">
+      <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-8 max-w-7xl mx-auto w-full relative z-10">
         
         {/* Role Selector Segmented Tabs */}
-        <div className="mb-8 flex items-center p-1.5 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-inner">
+        <div className="mb-8 flex flex-wrap items-center justify-center gap-1 p-1.5 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-inner max-w-2xl">
           <button
             type="button"
             onClick={() => setActiveTab('student')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeTab === 'student'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <GraduationCap className="w-4 h-4" />
-            <span>Student Login</span>
+            <span>Student</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('faculty')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeTab === 'faculty'
                 ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/30'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Faculty Login</span>
+            <span>Faculty</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('college_admin')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'college_admin'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/30'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>College Admin</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('super_admin')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'super_admin'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-600/30'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Crown className="w-4 h-4" />
+            <span>Super Admin</span>
           </button>
         </div>
 
         {/* Dynamic Login Component */}
         <div className="w-full">
-          {activeTab === 'student' ? (
+          {activeTab === 'student' && (
             <StudentLogin
               onLogin={onLogin}
               onSwitchToFaculty={() => setActiveTab('faculty')}
             />
-          ) : (
+          )}
+          {activeTab === 'faculty' && (
             <FacultyLogin
               onLogin={onLogin}
               onSwitchToStudent={() => setActiveTab('student')}
+            />
+          )}
+          {activeTab === 'college_admin' && (
+            <CollegeAdminLogin
+              onLogin={onLogin}
+            />
+          )}
+          {activeTab === 'super_admin' && (
+            <SuperAdminLogin
+              onLogin={onLogin}
             />
           )}
         </div>

@@ -13,15 +13,19 @@ import {
   Moon,
   LogOut,
   GraduationCap,
-  ShieldCheck
+  ShieldCheck,
+  Building2,
+  Crown
 } from 'lucide-react';
 import { GDSession } from '../types/gd';
 import { AuthUser } from '../types/auth';
 import { useTheme } from '../context/ThemeContext';
 
+export type NavTabType = 'room' | 'report' | 'faculty' | 'manager' | 'college_admin' | 'super_admin';
+
 interface HeaderProps {
-  currentTab: 'room' | 'report' | 'faculty' | 'manager';
-  setCurrentTab: (tab: 'room' | 'report' | 'faculty' | 'manager') => void;
+  currentTab: NavTabType;
+  setCurrentTab: (tab: NavTabType) => void;
   session: GDSession;
   voiceMuted: boolean;
   setVoiceMuted: (muted: boolean) => void;
@@ -52,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isStudent = currentUser?.role === 'student';
   const isFaculty = currentUser?.role === 'faculty';
+  const isCollegeAdmin = currentUser?.role === 'college_admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3 transition-colors duration-200 no-print shadow-xs dark:shadow-none">
@@ -66,8 +72,16 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-heading font-bold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white">ERUS-AIGDF</span>
-                <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200 dark:border-indigo-700/50">
-                  {isStudent ? 'STUDENT' : isFaculty ? 'FACULTY' : 'AI MODERATOR'}
+                <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-semibold border ${
+                  isStudent
+                    ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                    : isFaculty
+                    ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800'
+                    : isCollegeAdmin
+                    ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    : 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                }`}>
+                  {isStudent ? 'STUDENT' : isFaculty ? 'FACULTY' : isCollegeAdmin ? 'COLLEGE ADMIN' : 'SUPER ADMIN'}
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium truncate max-w-[200px] sm:max-w-[280px]">
@@ -105,6 +119,36 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Center: Role-Tailored Main Navigation */}
         <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-slate-950/70 p-1 rounded-xl border border-slate-200 dark:border-slate-800 w-full md:w-auto overflow-x-auto justify-start sm:justify-center shadow-inner dark:shadow-none scrollbar-none">
           
+          {/* SUPER ADMIN TAB */}
+          {isSuperAdmin && (
+            <button
+              onClick={() => setCurrentTab('super_admin')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'super_admin'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-300" />
+              <span>Institutions & Platform</span>
+            </button>
+          )}
+
+          {/* COLLEGE ADMIN TAB */}
+          {isCollegeAdmin && (
+            <button
+              onClick={() => setCurrentTab('college_admin')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'college_admin'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5 text-amber-300" />
+              <span>Campus Management</span>
+            </button>
+          )}
+
           {/* Faculty Primary Tab: Faculty Analytics */}
           {isFaculty && (
             <button
@@ -132,24 +176,26 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Radio className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 animate-pulse" />
-            <span>{isFaculty ? 'GD Room (Observer)' : 'GD Conference Room'}</span>
+            <span>{isFaculty || isCollegeAdmin ? 'GD Room (Observer)' : 'GD Conference Room'}</span>
           </button>
 
           {/* Student Assessment Reports Tab */}
-          <button
-            id="tab-report-btn"
-            onClick={() => setCurrentTab('report')}
-            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-              currentTab === 'report'
-                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-            <span>{isStudent ? 'My Assessment Report' : 'Student Reports'}</span>
-          </button>
+          {(isStudent || isFaculty || isCollegeAdmin) && (
+            <button
+              id="tab-report-btn"
+              onClick={() => setCurrentTab('report')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'report'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+              <span>{isStudent ? 'My Assessment Report' : 'Student Reports'}</span>
+            </button>
+          )}
 
-          {/* New Session (Faculty / Admin Only) */}
+          {/* New Session (Faculty Only) */}
           {isFaculty && (
             <button
               id="tab-manager-btn"
@@ -240,9 +286,25 @@ export const Header: React.FC<HeaderProps> = ({
                         Faculty
                       </span>
                     )}
+                    {isCollegeAdmin && (
+                      <span className="text-[9px] font-semibold px-1 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
+                        Admin
+                      </span>
+                    )}
+                    {isSuperAdmin && (
+                      <span className="text-[9px] font-semibold px-1 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                        Root
+                      </span>
+                    )}
                   </div>
                   <span className="text-[10px] text-slate-400 leading-none block truncate max-w-[120px]">
-                    {isStudent && 'course' in currentUser ? currentUser.course : isFaculty && 'department' in currentUser ? currentUser.department : currentUser.role}
+                    {isStudent && 'course' in currentUser
+                      ? currentUser.course
+                      : isFaculty && 'department' in currentUser
+                      ? currentUser.department
+                      : isCollegeAdmin && 'department' in currentUser
+                      ? currentUser.department
+                      : currentUser.role}
                   </span>
                 </div>
               </div>

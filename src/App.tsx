@@ -4,10 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Header } from './components/Header';
+import { Header, NavTabType } from './components/Header';
 import { RealisticGDRoom } from './components/GDRoom/RealisticGDRoom';
 import { StudentReportView } from './components/AssessmentReport/StudentReportView';
 import { FacultyDashboardView } from './components/FacultyDashboard/FacultyDashboardView';
+import { CollegeAdminDashboard } from './components/CollegeAdmin/CollegeAdminDashboard';
+import { SuperAdminDashboard } from './components/SuperAdmin/SuperAdminDashboard';
 import { SessionCreationModal } from './components/SessionManager/SessionCreationModal';
 import { AuthPortal } from './components/Auth/AuthPortal';
 import { GDSession, Student, TranscriptEntry, StudentAssessmentReport } from './types/gd';
@@ -65,7 +67,18 @@ function GDAppContent() {
     return INITIAL_SLOTS;
   };
 
-  const [currentTab, setCurrentTab] = useState<'room' | 'report' | 'faculty' | 'manager'>('room');
+  const [currentTab, setCurrentTab] = useState<NavTabType>(() => {
+    try {
+      const saved = localStorage.getItem('erus_auth_user');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.role === 'super_admin') return 'super_admin';
+        if (u.role === 'college_admin') return 'college_admin';
+        if (u.role === 'faculty') return 'faculty';
+      }
+    } catch {}
+    return 'room';
+  });
   const [availableSlots, setAvailableSlots] = useState<GDSession[]>(loadInitialSlots);
   const [session, setSession] = useState<GDSession>(() => {
     const slots = loadInitialSlots();
@@ -79,16 +92,22 @@ function GDAppContent() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const { theme } = useTheme();
 
-  // Guard: Students are strictly restricted to their own portal and cannot view Faculty Analytics
+  // Guard: Role-based navigation restrictions
   useEffect(() => {
-    if (currentUser?.role === 'student' && currentTab === 'faculty') {
+    if (currentUser?.role === 'student' && (currentTab === 'faculty' || currentTab === 'college_admin' || currentTab === 'super_admin')) {
+      setCurrentTab('room');
+    }
+    if (currentUser?.role !== 'super_admin' && currentTab === 'super_admin') {
+      setCurrentTab('room');
+    }
+    if (currentUser?.role !== 'college_admin' && currentTab === 'college_admin') {
       setCurrentTab('room');
     }
   }, [currentUser, currentTab]);
 
-  // Guard: When currentUser is faculty, ensure all students have isUser: false so faculty is purely an observer
+  // Guard: When currentUser is faculty or admin, ensure all students have isUser: false so observer mode is respected
   useEffect(() => {
-    if (currentUser?.role === 'faculty') {
+    if (currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin') {
       setSession((prev) => ({
         ...prev,
         students: prev.students.map((s) => (s.isUser ? { ...s, isUser: false } : s)),
@@ -167,7 +186,7 @@ function GDAppContent() {
         })),
       }));
       setCurrentTab('room');
-    } else {
+    } else if (user.role === 'faculty') {
       // Faculty evaluator starts at the Faculty Analytics dashboard and observes sessions
       setSession((prev) => ({
         ...prev,
@@ -180,6 +199,14 @@ function GDAppContent() {
         }))
       );
       setCurrentTab('faculty');
+    } else if (user.role === 'college_admin') {
+      setSession((prev) => ({
+        ...prev,
+        students: prev.students.map((s) => ({ ...s, isUser: false })),
+      }));
+      setCurrentTab('college_admin');
+    } else if (user.role === 'super_admin') {
+      setCurrentTab('super_admin');
     }
   };
 
@@ -507,6 +534,22 @@ function GDAppContent() {
             transcripts={transcripts}
             onViewStudentReport={handleViewStudentReport}
             onBackToRoom={() => setCurrentTab('room')}
+          />
+        )}
+
+        {currentTab === 'super_admin' && currentUser?.role === 'super_admin' && (
+          <SuperAdminDashboard
+            currentUser={currentUser}
+          />
+        )}
+
+        {currentTab === 'college_admin' && currentUser?.role === 'college_admin' && (
+          <CollegeAdminDashboard
+            currentUser={currentUser}
+            onEnterGDRoom={(slot) => {
+              if (slot) handleSelectSlot(slot);
+              setCurrentTab('room');
+            }}
           />
         )}
       </main>

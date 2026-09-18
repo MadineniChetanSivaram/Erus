@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -371,11 +370,56 @@ async function seedDatabaseIfEmpty() {
     const count = await prisma.user.count();
     if (count > 0) return;
 
-    console.log('[Database] Seeding default student and faculty demo accounts in PostgreSQL...');
+    console.log('[Database] Seeding default multi-role accounts and college in PostgreSQL...');
+    const hashedSuperAdminPass = await bcrypt.hash('admin123', 10);
+    const hashedCollegeAdminPass = await bcrypt.hash('college123', 10);
     const hashedStudentPass = await bcrypt.hash('password123', 10);
     const hashedFacultyPass = await bcrypt.hash('faculty123', 10);
 
-    // Seed Rahul (Student)
+    // 1. Seed Default College
+    const ditCollege = await prisma.college.create({
+      data: {
+        name: 'Delhi Institute of Technology',
+        code: 'DIT',
+        contactEmail: 'admin@dit.edu.in',
+        phone: '+91 11 2659 1000',
+        address: 'Hauz Khas, New Delhi, Delhi 110016',
+        status: 'active',
+      },
+    });
+
+    // 2. Seed Super Admin (Platform Owner)
+    await prisma.user.create({
+      data: {
+        email: 'superadmin@erus.ai',
+        passwordHash: hashedSuperAdminPass,
+        name: 'Platform Super Admin',
+        role: 'super_admin',
+        college: 'ERUS Global Administration',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+      },
+    });
+
+    // 3. Seed College Admin for DIT
+    await prisma.user.create({
+      data: {
+        email: 'admin@dit.edu.in',
+        passwordHash: hashedCollegeAdminPass,
+        name: 'DIT College Administrator',
+        role: 'college_admin',
+        college: 'Delhi Institute of Technology',
+        collegeId: ditCollege.id,
+        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
+        collegeAdminProfile: {
+          create: {
+            adminId: 'CADM-DIT-001',
+            department: 'Academic & Placement Affairs',
+          },
+        },
+      },
+    });
+
+    // 4. Seed Rahul Kumar (Student)
     await prisma.user.create({
       data: {
         email: 'rahul.kumar@dit.edu.in',
@@ -383,6 +427,7 @@ async function seedDatabaseIfEmpty() {
         name: 'Rahul Kumar',
         role: 'student',
         college: 'Delhi Institute of Technology',
+        collegeId: ditCollege.id,
         avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
         studentProfile: {
           create: {
@@ -395,7 +440,7 @@ async function seedDatabaseIfEmpty() {
       },
     });
 
-    // Seed Priya (Student)
+    // 5. Seed Priya Sharma (Student)
     await prisma.user.create({
       data: {
         email: 'priya.sharma@sxec.edu.in',
@@ -415,7 +460,7 @@ async function seedDatabaseIfEmpty() {
       },
     });
 
-    // Seed Dr. Sunita Rao (Faculty)
+    // 6. Seed Dr. Sunita Rao (Faculty)
     await prisma.user.create({
       data: {
         email: 'sunita.rao@dit.edu.in',
@@ -423,6 +468,7 @@ async function seedDatabaseIfEmpty() {
         name: 'Dr. Sunita Rao',
         role: 'faculty',
         college: 'Delhi Institute of Technology',
+        collegeId: ditCollege.id,
         avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
         facultyProfile: {
           create: {
@@ -434,7 +480,7 @@ async function seedDatabaseIfEmpty() {
       },
     });
 
-    // Seed Prof. Aravind Swamy (Faculty)
+    // 7. Seed Prof. Aravind Swamy (Faculty)
     await prisma.user.create({
       data: {
         email: 'aravind.swamy@iitb.ac.in',
@@ -453,19 +499,84 @@ async function seedDatabaseIfEmpty() {
       },
     });
 
-    console.log('[Database] Seeding completed.');
+    // 8. Seed Initial GD Slots for DIT
+    await prisma.gDSession.create({
+      data: {
+        topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
+        description: 'Autonomous AI evaluation of technical arguments, ethics, and career roadmaps.',
+        durationMinutes: 15,
+        difficulty: 'Intermediate',
+        status: 'scheduled',
+        scheduledTime: '10:30 AM - 10:45 AM',
+        slotTiming: '10:30 AM - 10:45 AM',
+        slotName: 'Slot 1: AI & Tech Careers',
+        maxCapacity: 15,
+        enrolledCount: 8,
+        assignedFacultyId: 'FAC-CSE-102',
+        assignedFacultyName: 'Dr. Sunita Rao',
+        collegeId: ditCollege.id,
+      },
+    });
+
+    console.log('[Database] 4-Tier Role Seeding completed.');
   } catch (err: any) {
     console.warn('[Database] Seeding warning:', err);
   }
 }
+
+interface InMemCollege {
+  id: string;
+  name: string;
+  code: string;
+  contactEmail: string;
+  phone?: string;
+  address?: string;
+  status: 'active' | 'trial' | 'suspended';
+  createdAt: string;
+}
+
+const IN_MEM_COLLEGES: InMemCollege[] = [
+  {
+    id: 'col-1',
+    name: 'Delhi Institute of Technology',
+    code: 'DIT',
+    contactEmail: 'admin@dit.edu.in',
+    phone: '+91 11 2659 1000',
+    address: 'Hauz Khas, New Delhi, Delhi 110016',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-2',
+    name: 'Indian Institute of Technology Bombay',
+    code: 'IITB',
+    contactEmail: 'admin@iitb.ac.in',
+    phone: '+91 22 2572 2545',
+    address: 'Powai, Mumbai, Maharashtra 400076',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-3',
+    name: 'St. Xavier Engineering College',
+    code: 'SXEC',
+    contactEmail: 'admin@sxec.edu.in',
+    phone: '+91 22 2262 0661',
+    address: 'Mahapalika Marg, Mumbai 400001',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  },
+];
 
 interface InMemUser {
   id: string;
   email: string;
   passwordHash: string;
   name: string;
-  role: 'student' | 'faculty';
+  role: 'student' | 'faculty' | 'college_admin' | 'super_admin';
   college: string;
+  collegeId?: string;
+  collegeCode?: string;
   avatar?: string;
   studentId?: string;
   course?: string;
@@ -474,9 +585,34 @@ interface InMemUser {
   facultyId?: string;
   department?: string;
   designation?: string;
+  adminId?: string;
+  accessLevel?: 'root';
 }
 
 const IN_MEM_USERS: InMemUser[] = [
+  {
+    id: 'sa1',
+    name: 'Platform Super Admin',
+    email: 'superadmin@erus.ai',
+    passwordHash: bcrypt.hashSync('admin123', 10),
+    role: 'super_admin',
+    college: 'ERUS Global Administration',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+    accessLevel: 'root',
+  },
+  {
+    id: 'ca1',
+    name: 'DIT College Administrator',
+    email: 'admin@dit.edu.in',
+    passwordHash: bcrypt.hashSync('college123', 10),
+    role: 'college_admin',
+    college: 'Delhi Institute of Technology',
+    collegeId: 'col-1',
+    collegeCode: 'DIT',
+    adminId: 'CADM-DIT-001',
+    department: 'Academic & Placement Affairs',
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
+  },
   {
     id: 's1',
     name: 'Rahul Kumar',
@@ -484,6 +620,7 @@ const IN_MEM_USERS: InMemUser[] = [
     role: 'student',
     studentId: 'STU-2022-041',
     college: 'Delhi Institute of Technology',
+    collegeId: 'col-1',
     course: 'B.Tech CSE',
     batch: '2022-2026',
     seatNumber: 1,
@@ -497,6 +634,7 @@ const IN_MEM_USERS: InMemUser[] = [
     role: 'student',
     studentId: 'STU-2022-089',
     college: 'St. Xavier Engineering College',
+    collegeId: 'col-3',
     course: 'B.Tech IT',
     batch: '2022-2026',
     seatNumber: 2,
@@ -510,6 +648,7 @@ const IN_MEM_USERS: InMemUser[] = [
     role: 'faculty',
     facultyId: 'FAC-CSE-102',
     college: 'Delhi Institute of Technology',
+    collegeId: 'col-1',
     department: 'Computer Science & Engineering',
     designation: 'Professor & Head of Department',
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
@@ -522,10 +661,88 @@ const IN_MEM_USERS: InMemUser[] = [
     role: 'faculty',
     facultyId: 'FAC-AI-204',
     college: 'Indian Institute of Technology Bombay',
+    collegeId: 'col-2',
     department: 'Artificial Intelligence & Robotics',
     designation: 'Associate Professor',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
     passwordHash: bcrypt.hashSync('faculty123', 10),
+  },
+];
+
+interface InMemSlot {
+  id: string;
+  topic: string;
+  description?: string;
+  durationMinutes: number;
+  difficulty: string;
+  status: 'scheduled' | 'active' | 'completed';
+  scheduledTime?: string;
+  slotTiming?: string;
+  slotName?: string;
+  maxCapacity: number;
+  enrolledCount: number;
+  assignedFacultyId?: string;
+  assignedFacultyName?: string;
+  collegeId?: string;
+  collegeName?: string;
+  studentIds?: string[];
+  createdAt: string;
+}
+
+const IN_MEM_SLOTS: InMemSlot[] = [
+  {
+    id: 'slot-101',
+    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
+    description: 'Autonomous AI evaluation of technical arguments, ethics, and career roadmaps.',
+    durationMinutes: 15,
+    difficulty: 'Intermediate',
+    status: 'scheduled',
+    scheduledTime: '10:30 AM - 10:45 AM',
+    slotTiming: '10:30 AM - 10:45 AM',
+    slotName: 'Slot 1: AI & Tech Careers',
+    maxCapacity: 15,
+    enrolledCount: 8,
+    assignedFacultyId: 'FAC-CSE-102',
+    assignedFacultyName: 'Dr. Sunita Rao',
+    collegeId: 'col-1',
+    collegeName: 'Delhi Institute of Technology',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'slot-102',
+    topic: 'Electric Vehicles vs Hydrogen Fuel Cells: Sustainability Tradeoffs',
+    description: 'Assessment on technical feasibility, grid strain, and infrastructure.',
+    durationMinutes: 20,
+    difficulty: 'Advanced',
+    status: 'scheduled',
+    scheduledTime: '11:00 AM - 11:20 AM',
+    slotTiming: '11:00 AM - 11:20 AM',
+    slotName: 'Slot 2: Clean Tech Mobility',
+    maxCapacity: 15,
+    enrolledCount: 5,
+    assignedFacultyId: 'FAC-AI-204',
+    assignedFacultyName: 'Prof. Aravind Swamy',
+    collegeId: 'col-1',
+    collegeName: 'Delhi Institute of Technology',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'slot-103',
+    topic: 'Should Academic Campuses Mandate Attendance or Outcome-Based Grading?',
+    description: 'Evaluation of student engagement, mental health, and institutional rigor.',
+    durationMinutes: 15,
+    difficulty: 'Beginner',
+    status: 'completed',
+    scheduledTime: '09:00 AM - 09:15 AM',
+    slotTiming: '09:00 AM - 09:15 AM',
+    slotName: 'Slot 0: Academic Pedagogy',
+    maxCapacity: 15,
+    enrolledCount: 15,
+    assignedFacultyId: 'FAC-CSE-102',
+    assignedFacultyName: 'Dr. Sunita Rao',
+    collegeId: 'col-1',
+    collegeName: 'Delhi Institute of Technology',
+    createdAt: new Date().toISOString(),
   },
 ];
 
@@ -538,13 +755,14 @@ function formatUserResponse(u: any) {
       email: u.email,
       role: 'student' as const,
       college: u.college,
+      collegeId: u.collegeId,
       avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
       studentId: prof.studentId || u.studentId || 'STU-001',
       course: prof.course || u.course || 'General Engineering',
       batch: prof.batch || u.batch || '2024-2028',
       seatNumber: prof.seatNumber || u.seatNumber || 1,
     };
-  } else {
+  } else if (u.role === 'faculty') {
     const prof = u.facultyProfile || {};
     return {
       id: u.id,
@@ -552,10 +770,36 @@ function formatUserResponse(u: any) {
       email: u.email,
       role: 'faculty' as const,
       college: u.college,
+      collegeId: u.collegeId,
       avatar: u.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
       facultyId: prof.facultyId || u.facultyId || 'FAC-001',
       department: prof.department || u.department || 'Computer Science',
       designation: prof.designation || u.designation || 'Faculty Evaluator',
+    };
+  } else if (u.role === 'college_admin') {
+    const prof = u.collegeAdminProfile || {};
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: 'college_admin' as const,
+      college: u.college,
+      collegeId: u.collegeId,
+      collegeCode: u.collegeCode || (u.collegeOrg ? u.collegeOrg.code : 'DIT'),
+      adminId: prof.adminId || u.adminId || 'CADM-001',
+      department: prof.department || u.department || 'Academic Administration',
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
+    };
+  } else {
+    // super_admin
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: 'super_admin' as const,
+      college: u.college || 'ERUS Global Administration',
+      accessLevel: 'root' as const,
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
     };
   }
 }
@@ -681,7 +925,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Authentication: Login student or faculty
+// Authentication: Login student, faculty, college admin, or super admin
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { role = 'student', identifier, password } = req.body;
@@ -700,14 +944,18 @@ app.post('/api/auth/login', async (req, res) => {
             { email: { equals: cleanId, mode: 'insensitive' } },
             role === 'student'
               ? { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } }
-              : { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } },
+              : role === 'faculty'
+              ? { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } }
+              : role === 'college_admin'
+              ? { collegeAdminProfile: { adminId: { equals: cleanId, mode: 'insensitive' } } }
+              : { email: { equals: cleanId, mode: 'insensitive' } },
           ],
         },
-        include: { studentProfile: true, facultyProfile: true },
+        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
       });
 
       if (!user) {
-        return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+        return res.status(401).json({ success: false, error: `Invalid ${role.replace('_', ' ')} credentials. Account not found.` });
       }
 
       const isMatch = await bcrypt.compare(password, user.passwordHash);
@@ -726,11 +974,12 @@ app.post('/api/auth/login', async (req, res) => {
         u.role === role &&
         (u.email.toLowerCase() === cleanId ||
           (role === 'student' && u.studentId?.toLowerCase() === cleanId) ||
-          (role === 'faculty' && u.facultyId?.toLowerCase() === cleanId))
+          (role === 'faculty' && u.facultyId?.toLowerCase() === cleanId) ||
+          (role === 'college_admin' && u.adminId?.toLowerCase() === cleanId))
     );
 
     if (!memUser) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+      return res.status(401).json({ success: false, error: `Invalid ${role.replace('_', ' ')} credentials. User not found.` });
     }
 
     const isMatch = await bcrypt.compare(password, memUser.passwordHash);
@@ -761,7 +1010,7 @@ app.get('/api/auth/me', async (req, res) => {
     if (isDbConnected && prisma) {
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
-        include: { studentProfile: true, facultyProfile: true },
+        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
       });
       if (!user) return res.status(404).json({ success: false, error: 'User not found' });
       return res.json({ success: true, user: formatUserResponse(user) });
@@ -1509,15 +1758,799 @@ app.get('/api/topics', (req, res) => {
   });
 });
 
+// ==========================================
+// SUPER ADMIN API ENDPOINTS (Platform Level)
+// ==========================================
+
+// Get All Onboarded Colleges with Aggregate Metrics
+app.get('/api/admin/colleges', async (req, res) => {
+  try {
+    if (isDbConnected && prisma) {
+      const colleges = await prisma.college.findMany({
+        include: {
+          users: {
+            include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true },
+          },
+          sessions: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const formatted = colleges.map((c) => {
+        const adminUser = c.users.find((u) => u.role === 'college_admin');
+        const studentCount = c.users.filter((u) => u.role === 'student').length;
+        const facultyCount = c.users.filter((u) => u.role === 'faculty').length;
+        return {
+          id: c.id,
+          name: c.name,
+          code: c.code,
+          contactEmail: c.contactEmail,
+          phone: c.phone || '+91 11 2000 3000',
+          address: c.address || 'Academic Campus',
+          status: c.status as any,
+          studentCount,
+          facultyCount,
+          slotCount: c.sessions.length,
+          adminEmail: adminUser?.email || c.contactEmail,
+          adminName: adminUser?.name || 'Administrator',
+          createdAt: c.createdAt.toISOString(),
+        };
+      });
+
+      return res.json({ success: true, colleges: formatted });
+    }
+
+    // In-Memory Fallback
+    const formatted = IN_MEM_COLLEGES.map((c) => {
+      const adminUser = IN_MEM_USERS.find((u) => u.role === 'college_admin' && (u.collegeId === c.id || u.collegeCode === c.code));
+      const studentCount = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === c.id || u.college === c.name)).length;
+      const facultyCount = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === c.id || u.college === c.name)).length;
+      const slotCount = IN_MEM_SLOTS.filter((s) => s.collegeId === c.id || s.collegeName === c.name).length;
+
+      return {
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        contactEmail: c.contactEmail,
+        phone: c.phone || '+91 11 2000 3000',
+        address: c.address || 'Academic Campus',
+        status: c.status,
+        studentCount,
+        facultyCount,
+        slotCount,
+        adminEmail: adminUser?.email || c.contactEmail,
+        adminName: adminUser?.name || 'College Administrator',
+        createdAt: c.createdAt,
+      };
+    });
+
+    res.json({ success: true, colleges: formatted });
+  } catch (err: any) {
+    console.error('[Admin Colleges Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve colleges.' });
+  }
+});
+
+// Onboard New College & Auto-Generate College Admin Credentials
+app.post('/api/admin/colleges', async (req, res) => {
+  try {
+    const { name, code, contactEmail, phone, address, adminName, adminPassword } = req.body;
+    if (!name || !code || !contactEmail) {
+      return res.status(400).json({ success: false, error: 'College name, code, and contact email are required.' });
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    const cleanEmail = contactEmail.trim().toLowerCase();
+    const defaultPassword = adminPassword?.trim() || `Erus@${cleanCode}2026`;
+    const collegeAdminName = adminName?.trim() || `${cleanCode} Administrator`;
+
+    if (isDbConnected && prisma) {
+      const existing = await prisma.college.findUnique({ where: { code: cleanCode } });
+      if (existing) {
+        return res.status(400).json({ success: false, error: `A college with code "${cleanCode}" already exists.` });
+      }
+
+      const college = await prisma.college.create({
+        data: {
+          name: name.trim(),
+          code: cleanCode,
+          contactEmail: cleanEmail,
+          phone: phone?.trim() || '+91 98765 43210',
+          address: address?.trim() || 'University Campus Road',
+          status: 'active',
+        },
+      });
+
+      const passwordHash = await bcrypt.hash(defaultPassword, 10);
+      const adminUser = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          passwordHash,
+          name: collegeAdminName,
+          role: 'college_admin',
+          college: college.name,
+          collegeId: college.id,
+          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
+          collegeAdminProfile: {
+            create: {
+              adminId: `CADM-${cleanCode}-001`,
+              department: 'Academic & Placement Affairs',
+            },
+          },
+        },
+        include: { collegeAdminProfile: true },
+      });
+
+      return res.json({
+        success: true,
+        college: {
+          id: college.id,
+          name: college.name,
+          code: college.code,
+          contactEmail: college.contactEmail,
+          status: college.status,
+          studentCount: 0,
+          facultyCount: 0,
+          slotCount: 0,
+          adminEmail: adminUser.email,
+          adminName: adminUser.name,
+          createdAt: college.createdAt.toISOString(),
+        },
+        generatedCredentials: {
+          email: cleanEmail,
+          password: defaultPassword,
+          role: 'college_admin',
+          collegeName: college.name,
+          collegeCode: cleanCode,
+          adminId: `CADM-${cleanCode}-001`,
+        },
+      });
+    }
+
+    // In-memory fallback
+    const exists = IN_MEM_COLLEGES.some((c) => c.code === cleanCode);
+    if (exists) {
+      return res.status(400).json({ success: false, error: `A college with code "${cleanCode}" already exists.` });
+    }
+
+    const newCollegeId = `col-${Date.now().toString().slice(-4)}`;
+    const newCollege: InMemCollege = {
+      id: newCollegeId,
+      name: name.trim(),
+      code: cleanCode,
+      contactEmail: cleanEmail,
+      phone: phone?.trim() || '+91 98765 43210',
+      address: address?.trim() || 'University Campus Road',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+    IN_MEM_COLLEGES.unshift(newCollege);
+
+    const newAdminUser: InMemUser = {
+      id: `ca-${Date.now().toString().slice(-4)}`,
+      name: collegeAdminName,
+      email: cleanEmail,
+      passwordHash: bcrypt.hashSync(defaultPassword, 10),
+      role: 'college_admin',
+      college: newCollege.name,
+      collegeId: newCollege.id,
+      collegeCode: cleanCode,
+      adminId: `CADM-${cleanCode}-001`,
+      department: 'Academic & Placement Affairs',
+      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
+    };
+    IN_MEM_USERS.push(newAdminUser);
+
+    res.json({
+      success: true,
+      college: {
+        id: newCollege.id,
+        name: newCollege.name,
+        code: newCollege.code,
+        contactEmail: newCollege.contactEmail,
+        status: newCollege.status,
+        studentCount: 0,
+        facultyCount: 0,
+        slotCount: 0,
+        adminEmail: newAdminUser.email,
+        adminName: newAdminUser.name,
+        createdAt: newCollege.createdAt,
+      },
+      generatedCredentials: {
+        email: cleanEmail,
+        password: defaultPassword,
+        role: 'college_admin',
+        collegeName: newCollege.name,
+        collegeCode: cleanCode,
+        adminId: `CADM-${cleanCode}-001`,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Admin Add College Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to onboard college.' });
+  }
+});
+
+// Dispatch Credentials to College Admin
+app.post('/api/admin/colleges/:id/send-credentials', async (req, res) => {
+  const { id } = req.params;
+  try {
+    let collegeName = 'Institution';
+    let targetEmail = 'admin@college.edu.in';
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findUnique({
+        where: { id },
+        include: { users: { where: { role: 'college_admin' } } },
+      });
+      if (college) {
+        collegeName = college.name;
+        targetEmail = college.users[0]?.email || college.contactEmail;
+      }
+    } else {
+      const college = IN_MEM_COLLEGES.find((c) => c.id === id);
+      if (college) {
+        collegeName = college.name;
+        targetEmail = college.contactEmail;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Credentials successfully dispatched to ${targetEmail} for ${collegeName}.`,
+      recipient: targetEmail,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to dispatch credentials.' });
+  }
+});
+
+// Platform-Wide Analytics for Super Admin
+app.get('/api/admin/stats', async (req, res) => {
+  try {
+    if (isDbConnected && prisma) {
+      const [collegesCount, users] = await Promise.all([
+        prisma.college.count(),
+        prisma.user.findMany({ select: { role: true } }),
+      ]);
+      const totalStudents = users.filter((u) => u.role === 'student').length;
+      const totalFaculty = users.filter((u) => u.role === 'faculty').length;
+      const totalSlots = await prisma.gDSession.count();
+
+      return res.json({
+        success: true,
+        stats: {
+          totalColleges: collegesCount,
+          totalStudents,
+          totalFaculty,
+          totalSlots,
+          activeLiveGDs: 1,
+        },
+      });
+    }
+
+    const totalStudents = IN_MEM_USERS.filter((u) => u.role === 'student').length;
+    const totalFaculty = IN_MEM_USERS.filter((u) => u.role === 'faculty').length;
+
+    res.json({
+      success: true,
+      stats: {
+        totalColleges: IN_MEM_COLLEGES.length,
+        totalStudents,
+        totalFaculty,
+        totalSlots: IN_MEM_SLOTS.length,
+        activeLiveGDs: 1,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve stats.' });
+  }
+});
+
+// ==========================================
+// COLLEGE ADMIN API ENDPOINTS (Institution Level)
+// ==========================================
+
+// Get College Admin Dashboard Stats
+app.get('/api/college/stats', async (req, res) => {
+  try {
+    const collegeCode = (req.query.collegeCode as string) || 'DIT';
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({
+        where: { code: collegeCode },
+        include: {
+          users: { include: { studentProfile: true, facultyProfile: true } },
+          sessions: true,
+        },
+      });
+
+      if (college) {
+        const totalStudents = college.users.filter((u) => u.role === 'student').length;
+        const totalFaculty = college.users.filter((u) => u.role === 'faculty').length;
+        const scheduledSlots = college.sessions.filter((s) => s.status === 'scheduled').length;
+        const completedSlots = college.sessions.filter((s) => s.status === 'completed').length;
+
+        return res.json({
+          success: true,
+          stats: {
+            collegeName: college.name,
+            collegeCode: college.code,
+            totalStudents,
+            totalFaculty,
+            scheduledSlots,
+            completedSlots,
+            totalSlots: college.sessions.length,
+          },
+        });
+      }
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const totalStudents = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === college.id || u.college === college.name)).length;
+    const totalFaculty = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === college.id || u.college === college.name)).length;
+    const collegeSlots = IN_MEM_SLOTS.filter((s) => s.collegeId === college.id || s.collegeName === college.name);
+    const scheduledSlots = collegeSlots.filter((s) => s.status === 'scheduled').length;
+    const completedSlots = collegeSlots.filter((s) => s.status === 'completed').length;
+
+    res.json({
+      success: true,
+      stats: {
+        collegeName: college.name,
+        collegeCode: college.code,
+        totalStudents,
+        totalFaculty,
+        scheduledSlots,
+        completedSlots,
+        totalSlots: collegeSlots.length,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve college stats.' });
+  }
+});
+
+// Get Enrolled Students for College
+app.get('/api/college/students', async (req, res) => {
+  try {
+    const collegeCode = (req.query.collegeCode as string) || 'DIT';
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+      const students = await prisma.user.findMany({
+        where: {
+          role: 'student',
+          ...(college ? { collegeId: college.id } : {}),
+        },
+        include: { studentProfile: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const formatted = students.map((s) => ({
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        studentId: s.studentProfile?.studentId || 'STU-001',
+        course: s.studentProfile?.course || 'Engineering',
+        batch: s.studentProfile?.batch || '2024-2028',
+        seatNumber: s.studentProfile?.seatNumber || 1,
+        college: s.college,
+        createdAt: s.createdAt.toISOString(),
+      }));
+
+      return res.json({ success: true, students: formatted });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const students = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === college.id || u.college === college.name))
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        studentId: s.studentId || 'STU-001',
+        course: s.course || 'B.Tech CSE',
+        batch: s.batch || '2022-2026',
+        seatNumber: s.seatNumber || 1,
+        college: s.college,
+        createdAt: new Date().toISOString(),
+      }));
+
+    res.json({ success: true, students });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve student roster.' });
+  }
+});
+
+// Add Single Student or Bulk Import Students (CSV)
+app.post('/api/college/students', async (req, res) => {
+  try {
+    const { students, student, collegeCode = 'DIT' } = req.body;
+    const studentList = students && Array.isArray(students) ? students : student ? [student] : [];
+
+    if (studentList.length === 0) {
+      return res.status(400).json({ success: false, error: 'No student data provided.' });
+    }
+
+    const defaultPasswordHash = await bcrypt.hash('password123', 10);
+    const addedStudents: any[] = [];
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+      const collegeName = college?.name || 'Delhi Institute of Technology';
+      const collegeId = college?.id;
+
+      for (const st of studentList) {
+        if (!st.email || !st.name) continue;
+        const cleanEmail = st.email.trim().toLowerCase();
+        const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+        if (existing) continue;
+
+        const created = await prisma.user.create({
+          data: {
+            email: cleanEmail,
+            passwordHash: defaultPasswordHash,
+            name: st.name.trim(),
+            role: 'student',
+            college: collegeName,
+            collegeId,
+            avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+            studentProfile: {
+              create: {
+                studentId: st.studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
+                course: st.course?.trim() || 'Computer Science & Engineering',
+                batch: st.batch?.trim() || '2024-2028',
+                seatNumber: parseInt(st.seatNumber, 10) || 1,
+              },
+            },
+          },
+          include: { studentProfile: true },
+        });
+
+        addedStudents.push({
+          id: created.id,
+          name: created.name,
+          email: created.email,
+          studentId: created.studentProfile?.studentId,
+          course: created.studentProfile?.course,
+          batch: created.studentProfile?.batch,
+        });
+      }
+
+      return res.json({ success: true, addedCount: addedStudents.length, students: addedStudents });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+
+    for (const st of studentList) {
+      if (!st.email || !st.name) continue;
+      const cleanEmail = st.email.trim().toLowerCase();
+      const existing = IN_MEM_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+      if (existing) continue;
+
+      const newId = `s-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`;
+      const newMemStudent: InMemUser = {
+        id: newId,
+        email: cleanEmail,
+        passwordHash: defaultPasswordHash,
+        name: st.name.trim(),
+        role: 'student',
+        college: college.name,
+        collegeId: college.id,
+        studentId: st.studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
+        course: st.course?.trim() || 'Computer Science & Engineering',
+        batch: st.batch?.trim() || '2024-2028',
+        seatNumber: parseInt(st.seatNumber, 10) || 1,
+        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
+      };
+      IN_MEM_USERS.push(newMemStudent);
+      addedStudents.push({
+        id: newMemStudent.id,
+        name: newMemStudent.name,
+        email: newMemStudent.email,
+        studentId: newMemStudent.studentId,
+        course: newMemStudent.course,
+        batch: newMemStudent.batch,
+      });
+    }
+
+    res.json({ success: true, addedCount: addedStudents.length, students: addedStudents });
+  } catch (err: any) {
+    console.error('[Add Students Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to process student roster.' });
+  }
+});
+
+// Get Faculty Directory for College
+app.get('/api/college/faculty', async (req, res) => {
+  try {
+    const collegeCode = (req.query.collegeCode as string) || 'DIT';
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+      const faculty = await prisma.user.findMany({
+        where: {
+          role: 'faculty',
+          ...(college ? { collegeId: college.id } : {}),
+        },
+        include: { facultyProfile: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const formatted = faculty.map((f) => ({
+        id: f.id,
+        name: f.name,
+        email: f.email,
+        facultyId: f.facultyProfile?.facultyId || 'FAC-001',
+        department: f.facultyProfile?.department || 'Engineering',
+        designation: f.facultyProfile?.designation || 'Faculty Evaluator',
+        college: f.college,
+        avatar: f.avatar,
+        assignedSlotsCount: 2,
+      }));
+
+      return res.json({ success: true, faculty: formatted });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const faculty = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === college.id || u.college === college.name))
+      .map((f) => {
+        const slotsCount = IN_MEM_SLOTS.filter((s) => s.assignedFacultyId === f.facultyId || s.assignedFacultyName === f.name).length;
+        return {
+          id: f.id,
+          name: f.name,
+          email: f.email,
+          facultyId: f.facultyId || 'FAC-001',
+          department: f.department || 'Computer Science',
+          designation: f.designation || 'Faculty Evaluator',
+          college: f.college,
+          avatar: f.avatar,
+          assignedSlotsCount: slotsCount,
+        };
+      });
+
+    res.json({ success: true, faculty });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve faculty directory.' });
+  }
+});
+
+// Add New Faculty Member
+app.post('/api/college/faculty', async (req, res) => {
+  try {
+    const { name, email, facultyId, department, designation, collegeCode = 'DIT', password } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ success: false, error: 'Faculty name and email are required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = password?.trim() || 'faculty123';
+    const passwordHash = await bcrypt.hash(cleanPass, 10);
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existing) {
+        return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
+      }
+
+      const created = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          passwordHash,
+          name: name.trim(),
+          role: 'faculty',
+          college: college?.name || 'Delhi Institute of Technology',
+          collegeId: college?.id,
+          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+          facultyProfile: {
+            create: {
+              facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
+              department: department?.trim() || 'Computer Science & Engineering',
+              designation: designation?.trim() || 'Assistant Professor',
+            },
+          },
+        },
+        include: { facultyProfile: true },
+      });
+
+      return res.json({
+        success: true,
+        faculty: {
+          id: created.id,
+          name: created.name,
+          email: created.email,
+          facultyId: created.facultyProfile?.facultyId,
+          department: created.facultyProfile?.department,
+          designation: created.facultyProfile?.designation,
+          assignedSlotsCount: 0,
+        },
+      });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const newFaculty: InMemUser = {
+      id: `fac-${Date.now().toString().slice(-4)}`,
+      name: name.trim(),
+      email: cleanEmail,
+      passwordHash,
+      role: 'faculty',
+      college: college.name,
+      collegeId: college.id,
+      facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
+      department: department?.trim() || 'Computer Science & Engineering',
+      designation: designation?.trim() || 'Assistant Professor',
+      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+    };
+    IN_MEM_USERS.push(newFaculty);
+
+    res.json({
+      success: true,
+      faculty: {
+        id: newFaculty.id,
+        name: newFaculty.name,
+        email: newFaculty.email,
+        facultyId: newFaculty.facultyId,
+        department: newFaculty.department,
+        designation: newFaculty.designation,
+        assignedSlotsCount: 0,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Add Faculty Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to add faculty member.' });
+  }
+});
+
+// Get All GD Slots for College
+app.get('/api/college/slots', async (req, res) => {
+  try {
+    const collegeCode = (req.query.collegeCode as string) || 'DIT';
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+      const sessions = await prisma.gDSession.findMany({
+        where: college ? { collegeId: college.id } : {},
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const formatted = sessions.map((s) => ({
+        id: s.id,
+        topic: s.topic,
+        description: s.description || 'AI Moderated Autonomous GD Session',
+        durationMinutes: s.durationMinutes,
+        difficulty: s.difficulty,
+        status: s.status,
+        scheduledTime: s.scheduledTime || 'Scheduled Session',
+        slotTiming: s.slotTiming || s.scheduledTime || '10:00 AM - 10:15 AM',
+        slotName: s.slotName || s.topic.slice(0, 30),
+        maxCapacity: s.maxCapacity,
+        enrolledCount: s.enrolledCount,
+        assignedFacultyId: s.assignedFacultyId || 'FAC-CSE-102',
+        assignedFacultyName: s.assignedFacultyName || 'Dr. Sunita Rao',
+        createdAt: s.createdAt.toISOString(),
+      }));
+
+      return res.json({ success: true, slots: formatted });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const slots = IN_MEM_SLOTS.filter((s) => s.collegeId === college.id || s.collegeName === college.name);
+
+    res.json({ success: true, slots });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve GD slots.' });
+  }
+});
+
+// Create/Schedule New GD Slot
+app.post('/api/college/slots', async (req, res) => {
+  try {
+    const {
+      topic,
+      description,
+      durationMinutes = 15,
+      difficulty = 'Intermediate',
+      scheduledTime,
+      slotTiming,
+      slotName,
+      maxCapacity = 15,
+      assignedFacultyId,
+      assignedFacultyName,
+      collegeCode = 'DIT',
+      studentIds = [],
+    } = req.body;
+
+    if (!topic) {
+      return res.status(400).json({ success: false, error: 'GD slot topic is required.' });
+    }
+
+    const timing = slotTiming || scheduledTime || '11:00 AM - 11:15 AM';
+    const name = slotName || `Slot: ${topic.slice(0, 25)}...`;
+
+    if (isDbConnected && prisma) {
+      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
+
+      const newSession = await prisma.gDSession.create({
+        data: {
+          topic: topic.trim(),
+          description: description?.trim() || 'AI Autonomous Group Discussion Slot',
+          durationMinutes: parseInt(durationMinutes, 10) || 15,
+          difficulty,
+          status: 'scheduled',
+          scheduledTime: timing,
+          slotTiming: timing,
+          slotName: name,
+          maxCapacity: parseInt(maxCapacity, 10) || 15,
+          enrolledCount: studentIds.length || 6,
+          assignedFacultyId: assignedFacultyId || 'FAC-CSE-102',
+          assignedFacultyName: assignedFacultyName || 'Dr. Sunita Rao',
+          collegeId: college?.id,
+        },
+      });
+
+      return res.json({
+        success: true,
+        slot: {
+          id: newSession.id,
+          topic: newSession.topic,
+          description: newSession.description,
+          durationMinutes: newSession.durationMinutes,
+          difficulty: newSession.difficulty,
+          status: newSession.status,
+          scheduledTime: newSession.scheduledTime,
+          slotTiming: newSession.slotTiming,
+          slotName: newSession.slotName,
+          maxCapacity: newSession.maxCapacity,
+          enrolledCount: newSession.enrolledCount,
+          assignedFacultyId: newSession.assignedFacultyId,
+          assignedFacultyName: newSession.assignedFacultyName,
+          createdAt: newSession.createdAt.toISOString(),
+        },
+      });
+    }
+
+    // In-memory fallback
+    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
+    const newSlot: InMemSlot = {
+      id: `slot-${Date.now().toString().slice(-4)}`,
+      topic: topic.trim(),
+      description: description?.trim() || 'AI Autonomous Group Discussion Slot',
+      durationMinutes: parseInt(durationMinutes, 10) || 15,
+      difficulty,
+      status: 'scheduled',
+      scheduledTime: timing,
+      slotTiming: timing,
+      slotName: name,
+      maxCapacity: parseInt(maxCapacity, 10) || 15,
+      enrolledCount: studentIds.length || 6,
+      assignedFacultyId: assignedFacultyId || 'FAC-CSE-102',
+      assignedFacultyName: assignedFacultyName || 'Dr. Sunita Rao',
+      collegeId: college.id,
+      collegeName: college.name,
+      studentIds,
+      createdAt: new Date().toISOString(),
+    };
+    IN_MEM_SLOTS.unshift(newSlot);
+
+    res.json({ success: true, slot: newSlot });
+  } catch (err: any) {
+    console.error('[Create Slot Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to create GD slot.' });
+  }
+});
+
 // Vite middleware / SPA static serving
 async function setupVite() {
-  const distIndex = path.join(process.cwd(), 'dist', 'index.html');
-  const hasBuiltDist = fs.existsSync(distIndex);
-  const isProd = process.env.NODE_ENV === 'production' || hasBuiltDist;
-
-  if (!isProd) {
+  if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
+      server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1525,7 +2558,7 @@ async function setupVite() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(distIndex);
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
