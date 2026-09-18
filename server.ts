@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -1510,9 +1511,13 @@ app.get('/api/topics', (req, res) => {
 
 // Vite middleware / SPA static serving
 async function setupVite() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distIndex = path.join(process.cwd(), 'dist', 'index.html');
+  const hasBuiltDist = fs.existsSync(distIndex);
+  const isProd = process.env.NODE_ENV === 'production' || hasBuiltDist;
+
+  if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1520,7 +1525,7 @@ async function setupVite() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(distIndex);
     });
   }
 

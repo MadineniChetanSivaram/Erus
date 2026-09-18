@@ -1,6 +1,8 @@
 const { execSync } = require('child_process');
 const path = require('path');
 
+process.env.NODE_ENV = 'production';
+
 console.log('[Startup] Checking database configuration...');
 
 if (process.env.DATABASE_URL) {
