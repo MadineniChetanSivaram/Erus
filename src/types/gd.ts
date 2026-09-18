@@ -123,6 +123,23 @@ export interface StudentAssessmentReport {
     collaboration: SkillScore;  // 10%
     leadership: SkillScore;     // 5%
   };
+  // Data-grounded Fluency & Speed metrics
+  wpm?: number;
+  wpmStatus?: 'Optimal' | 'Too Slow' | 'Too Fast';
+  fillerWordsCount?: number;
+  fillerWordsBreakdown?: { word: string; count: number }[];
+
+  // Faculty verification & institutional sign-off
+  facultyEndorsement?: {
+    endorsed: boolean;
+    facultyName?: string;
+    facultyId?: string;
+    designation?: string;
+    remarks?: string;
+    endorsedAt?: string;
+    adjustedScores?: boolean;
+  };
+
   overallScore: number; // 0-100 calculated by exact formula
   grade: GradeLevel;
   strengths: string[];

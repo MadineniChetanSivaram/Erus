@@ -726,7 +726,16 @@ export function generateStudentReport(
     speakingTurns: turns,
     interruptions: student.interruptionCount || 0,
     questionsAnswered: student.questionsAnswered || 3,
-    questionsInitiated: student.questionsInitiated || 1,
+    wpm: baseReport?.wpm || 135,
+    wpmStatus: baseReport?.wpmStatus || 'Optimal',
+    fillerWordsCount: baseReport?.fillerWordsCount ?? 2,
+    fillerWordsBreakdown: baseReport?.fillerWordsBreakdown || [
+      { word: 'like', count: 1 },
+      { word: 'basically', count: 1 },
+    ],
+    facultyEndorsement: baseReport?.facultyEndorsement || {
+      endorsed: false,
+    },
     skills: {
       english: { ...base.skills.english, score: english },
       fluency: { ...base.skills.fluency, score: fluency },
@@ -757,6 +766,16 @@ export const SAMPLE_REPORT_RAHUL: StudentAssessmentReport = {
   interruptions: 0,
   questionsAnswered: 4,
   questionsInitiated: 2,
+  wpm: 138,
+  wpmStatus: 'Optimal',
+  fillerWordsCount: 2,
+  fillerWordsBreakdown: [
+    { word: 'like', count: 1 },
+    { word: 'basically', count: 1 },
+  ],
+  facultyEndorsement: {
+    endorsed: false,
+  },
   skills: {
     english: {
       parameter: 'Speaking in English',
