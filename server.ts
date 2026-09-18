@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -2548,14 +2549,17 @@ app.post('/api/college/slots', async (req, res) => {
 
 // Vite middleware / SPA static serving
 async function setupVite() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(process.cwd(), 'dist');
+  const distIndexExists = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProd = process.env.NODE_ENV === 'production' || distIndexExists;
+
+  if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -2563,7 +2567,7 @@ async function setupVite() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ERUS-AIGDF] Server active on port ${PORT}`);
+    console.log(`[ERUS-AIGDF] Server active on port ${PORT} (mode: ${isProd ? 'production' : 'development'})`);
   });
 }
 
