@@ -1,4 +1,6 @@
 import express from 'express';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -11,6 +13,11 @@ import { createServer as createViteServer } from 'vite';
 dotenv.config();
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 1e8,
+});
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'erus_super_secret_jwt_key_2026';
 
@@ -2639,6 +2646,353 @@ app.post('/api/college/slots', async (req, res) => {
   }
 });
 
+// ==========================================
+// REAL-TIME MULTI-USER WEBRTC AUDIO & ROOM GATEWAY (SOCKET.IO)
+// ==========================================
+
+interface LiveRoomPeer {
+  socketId: string;
+  userId: string;
+  name: string;
+  avatar: string;
+  role: string;
+  college: string;
+  seatNumber: number;
+  isSpeaking: boolean;
+  micActive: boolean;
+  cameraActive: boolean;
+  speakingDurationSeconds: number;
+  speakingTurns: number;
+  interruptionCount: number;
+  joinedAt: number;
+  lastSpokeAt?: number;
+}
+
+interface LiveGDRoomState {
+  slotId: string;
+  peers: Map<string, LiveRoomPeer>; // socketId -> LiveRoomPeer
+  assignedSeats: Map<number, string>; // seatNumber (1..15) -> socketId
+  currentSpeakerId: string | null;
+  currentSpeakerSocketId: string | null;
+  silenceTimerSeconds: number;
+  status: 'active' | 'paused' | 'completed';
+  topic: string;
+  transcripts: BackendTranscript[];
+  silenceInterval?: NodeJS.Timeout;
+}
+
+const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
+
+function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
+  let room = LIVE_ROOMS.get(slotId);
+  if (!room) {
+    room = {
+      slotId,
+      peers: new Map(),
+      assignedSeats: new Map(),
+      currentSpeakerId: null,
+      currentSpeakerSocketId: null,
+      silenceTimerSeconds: 0,
+      status: 'active',
+      topic: topic || currentLiveSession.topic,
+      transcripts: [...liveTranscripts],
+    };
+
+    // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
+    room.silenceInterval = setInterval(async () => {
+      if (room.status !== 'active' || room.peers.size === 0) return;
+
+      if (!room.currentSpeakerId) {
+        room.silenceTimerSeconds += 1;
+
+        // Broadcast current silence countdown tick to all peers
+        io.to(`room-${slotId}`).emit('silence-timer-tick', {
+          silenceTimerSeconds: room.silenceTimerSeconds,
+          maxSilence: 20,
+        });
+
+        // DEADLOCK DETECTED! If nobody speaks for 20 seconds
+        if (room.silenceTimerSeconds >= 20) {
+          room.silenceTimerSeconds = 0;
+          await triggerDeadlockIntervention(room);
+        }
+      } else {
+        // Someone is speaking -> floor is active
+        room.silenceTimerSeconds = 0;
+        
+        // Track current speaker's continuous speaking time
+        if (room.currentSpeakerSocketId) {
+          const spkPeer = room.peers.get(room.currentSpeakerSocketId);
+          if (spkPeer) {
+            spkPeer.speakingDurationSeconds += 1;
+            // Check for dominance if speaking > 75 seconds
+            if (spkPeer.speakingDurationSeconds > 0 && spkPeer.speakingDurationSeconds % 75 === 0) {
+              triggerDominanceNudge(room, spkPeer);
+            }
+          }
+        }
+      }
+    }, 1000);
+
+    LIVE_ROOMS.set(slotId, room);
+  }
+  return room;
+}
+
+async function triggerDeadlockIntervention(room: LiveGDRoomState) {
+  let deadlockQuestion = '';
+
+  if (ai) {
+    try {
+      const recentHistory = room.transcripts.slice(-4).map(t => `${t.speakerName}: ${t.text}`).join('\n');
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are an Indian collegiate Group Discussion Facilitator on the topic: "${room.topic}".
+The discussion has reached a complete deadlock—no participant has spoken for 20 seconds.
+Recent points:
+${recentHistory || '(Discussion is in initial phase)'}
+
+Generate a concise, insightful question to revive the discussion.
+MANDATORY FORMAT: Strictly start with or closely follow: "Let me ask a question. How do you think..."
+Keep it under 30 words, with a dignified Indian English moderator demeanor.`,
+      });
+      deadlockQuestion = response.text?.trim() || '';
+    } catch (err) {
+      console.warn('[AI Deadlock Question Error]:', err);
+    }
+  }
+
+  if (!deadlockQuestion) {
+    deadlockQuestion = `Let me ask a question. How do you think ${room.topic.toLowerCase().includes('ai') ? 'AI can improve education without replacing the human touch of educators' : 'we can address the most significant challenges in this domain'}?`;
+  }
+
+  const mins = Math.floor(room.transcripts.length).toString().padStart(2, '0');
+  const interventionTranscript: BackendTranscript = {
+    id: `t-facilitator-deadlock-${Date.now()}`,
+    sessionId: room.slotId,
+    speakerId: 'facilitator',
+    speakerName: 'AI Facilitator',
+    seatNumber: null,
+    isFacilitator: true,
+    timestamp: `${mins}:00`,
+    timestampSeconds: Date.now(),
+    text: deadlockQuestion,
+    type: 'intervention',
+    sentiment: 'neutral',
+  };
+
+  room.transcripts.push(interventionTranscript);
+
+  // Broadcast to all participants and faculty in the room
+  io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
+    text: deadlockQuestion,
+    action: 'deadlock_intervention',
+    transcript: interventionTranscript,
+  });
+}
+
+function triggerDominanceNudge(room: LiveGDRoomState, dominantPeer: LiveRoomPeer) {
+  const quietStudents = Array.from(room.peers.values()).filter(
+    p => p.role === 'student' && p.userId !== dominantPeer.userId && p.speakingTurns <= 1
+  );
+
+  if (quietStudents.length === 0) return;
+
+  const quietStudent = quietStudents[0];
+  const firstName = dominantPeer.name.split(' ')[0];
+  const quietName = quietStudent.name.split(' ')[0];
+  const nudgeText = `Thank you, ${firstName}. Let us hear from ${quietName} now.`;
+
+  const nudgeTranscript: BackendTranscript = {
+    id: `t-nudge-${Date.now()}`,
+    sessionId: room.slotId,
+    speakerId: 'facilitator',
+    speakerName: 'AI Facilitator',
+    seatNumber: null,
+    isFacilitator: true,
+    timestamp: '05:00',
+    timestampSeconds: Date.now(),
+    text: nudgeText,
+    type: 'intervention',
+    sentiment: 'neutral',
+  };
+
+  room.transcripts.push(nudgeTranscript);
+
+  io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
+    text: nudgeText,
+    action: 'dominance_nudge',
+    transcript: nudgeTranscript,
+    targetUserId: quietStudent.userId,
+  });
+}
+
+io.on('connection', (socket) => {
+  // 1. Join Slot Room
+  socket.on('join-gd-room', ({ slotId, user }) => {
+    const safeSlotId = slotId || 'slot-dit-001';
+    const room = getOrCreateLiveRoom(safeSlotId);
+    socket.join(`room-${safeSlotId}`);
+
+    // Seat allotment (PDF Page 14)
+    let seatNumber = user?.seatNumber;
+    if (!seatNumber || room.assignedSeats.has(seatNumber)) {
+      for (let s = 1; s <= 15; s++) {
+        if (!room.assignedSeats.has(s)) {
+          seatNumber = s;
+          break;
+        }
+      }
+      if (!seatNumber) seatNumber = (room.peers.size % 15) + 1;
+    }
+
+    room.assignedSeats.set(seatNumber, socket.id);
+
+    const peer: LiveRoomPeer = {
+      socketId: socket.id,
+      userId: user?.id || socket.id,
+      name: user?.name || `Student ${seatNumber}`,
+      avatar: user?.avatar || '',
+      role: user?.role || 'student',
+      college: user?.college || 'Campus Participant',
+      seatNumber,
+      isSpeaking: false,
+      micActive: true,
+      cameraActive: false,
+      speakingDurationSeconds: 0,
+      speakingTurns: 0,
+      interruptionCount: 0,
+      joinedAt: Date.now(),
+    };
+
+    room.peers.set(socket.id, peer);
+
+    // Send existing room state to joining peer
+    const otherPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
+    socket.emit('gd-room-joined', {
+      assignedSeat: seatNumber,
+      peers: otherPeers,
+      transcripts: room.transcripts,
+      topic: room.topic,
+      silenceTimerSeconds: room.silenceTimerSeconds,
+    });
+
+    // Notify all other peers in the room
+    socket.to(`room-${safeSlotId}`).emit('peer-joined', {
+      peer,
+    });
+  });
+
+  // 2. WebRTC N-Way Signaling Relay (All-to-All mesh)
+  socket.on('signal-send', ({ to, signal }) => {
+    io.to(to).emit('signal-receive', {
+      from: socket.id,
+      signal,
+    });
+  });
+
+  // 3. Speaking Activity & Floor State
+  socket.on('peer-speaking-state', ({ slotId, isSpeaking, micActive, cameraActive, volumeLevel }) => {
+    const safeSlotId = slotId || 'slot-dit-001';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (!room) return;
+
+    const peer = room.peers.get(socket.id);
+    if (peer) {
+      peer.isSpeaking = isSpeaking;
+      if (micActive !== undefined) peer.micActive = micActive;
+      if (cameraActive !== undefined) peer.cameraActive = cameraActive;
+
+      if (isSpeaking) {
+        room.currentSpeakerId = peer.userId;
+        room.currentSpeakerSocketId = socket.id;
+        room.silenceTimerSeconds = 0;
+        peer.lastSpokeAt = Date.now();
+      } else if (room.currentSpeakerSocketId === socket.id) {
+        room.currentSpeakerId = null;
+        room.currentSpeakerSocketId = null;
+      }
+    }
+
+    io.to(`room-${safeSlotId}`).emit('peer-speaking-updated', {
+      socketId: socket.id,
+      userId: peer?.userId,
+      seatNumber: peer?.seatNumber,
+      isSpeaking,
+      micActive: peer?.micActive,
+      cameraActive: peer?.cameraActive,
+      volumeLevel: volumeLevel || 0,
+    });
+  });
+
+  // 4. Synchronized Live Transcript Broadcasting (PDF Page 5, FR-1)
+  socket.on('peer-transcript', ({ slotId, text, elapsedSeconds }) => {
+    const safeSlotId = slotId || 'slot-dit-001';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (!room || !text?.trim()) return;
+
+    const peer = room.peers.get(socket.id);
+    if (!peer) return;
+
+    peer.speakingTurns += 1;
+    room.silenceTimerSeconds = 0;
+
+    const mins = Math.floor((elapsedSeconds || 0) / 60).toString().padStart(2, '0');
+    const secs = ((elapsedSeconds || 0) % 60).toString().padStart(2, '0');
+
+    const newTranscript: BackendTranscript = {
+      id: `t-live-${Date.now()}`,
+      sessionId: safeSlotId,
+      speakerId: peer.userId,
+      speakerName: peer.name,
+      seatNumber: peer.seatNumber,
+      isFacilitator: false,
+      timestamp: `${mins}:${secs}`,
+      timestampSeconds: elapsedSeconds || 0,
+      text: text.trim(),
+      type: 'statement',
+      sentiment: 'positive',
+    };
+
+    room.transcripts.push(newTranscript);
+
+    // Broadcast transcript to all connected students and faculty in room
+    io.to(`room-${safeSlotId}`).emit('new-transcript', {
+      transcript: newTranscript,
+      studentId: peer.userId,
+      seatNumber: peer.seatNumber,
+    });
+  });
+
+  // 5. Peer Disconnect Cleanup
+  socket.on('disconnect', () => {
+    for (const [slotId, room] of LIVE_ROOMS.entries()) {
+      const peer = room.peers.get(socket.id);
+      if (peer) {
+        room.assignedSeats.delete(peer.seatNumber);
+        room.peers.delete(socket.id);
+
+        if (room.currentSpeakerSocketId === socket.id) {
+          room.currentSpeakerId = null;
+          room.currentSpeakerSocketId = null;
+        }
+
+        io.to(`room-${slotId}`).emit('peer-left', {
+          socketId: socket.id,
+          userId: peer.userId,
+          seatNumber: peer.seatNumber,
+        });
+
+        if (room.peers.size === 0 && room.silenceInterval) {
+          clearInterval(room.silenceInterval);
+          LIVE_ROOMS.delete(slotId);
+        }
+        break;
+      }
+    }
+  });
+});
+
 // Vite middleware / SPA static serving
 async function setupVite() {
   const distPath = path.join(process.cwd(), 'dist');
@@ -2658,10 +3012,11 @@ async function setupVite() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ERUS-AIGDF] Server active on port ${PORT} (mode: ${isProd ? 'production' : 'development'})`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[ERUS-AIGDF] Server active on port ${PORT} with WebSockets enabled (mode: ${isProd ? 'production' : 'development'})`);
   });
 }
 
 setupVite();
+
 

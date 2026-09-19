@@ -19,6 +19,8 @@ export interface Student {
   lastSpokenAt?: number;
   cameraActive?: boolean;
   gender?: 'female' | 'male';
+  isRealPeer?: boolean;
+  volumeLevel?: number;
 }
 
 export interface BreakoutRoom {

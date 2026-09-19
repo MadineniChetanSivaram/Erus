@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Mic, 
   MicOff, 
@@ -30,12 +30,15 @@ import {
   Target,
   Presentation,
   Eye,
-  GraduationCap
+  GraduationCap,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { roomVoice, facilitatorVoice } from '../../utils/speechSynthesis';
 import { useUserMedia } from '../../utils/useUserMedia';
+import { useWebRTCRoom } from '../../hooks/useWebRTCRoom';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from '../../utils/facilitatorQuestionEngine';
 import { SlotSelectionModal } from './SlotSelectionModal';
 
@@ -125,15 +128,110 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
+  // Real-Time Multi-User WebRTC Audio Mesh & Room Signaling (PDF Page 13 & 14)
+  const {
+    connected: isSocketConnected,
+    assignedSeat: rtcAssignedSeat,
+    peers: rtcPeers,
+    silenceTimerSeconds: rtcSilenceTimer,
+    isMicMuted: rtcIsMicMuted,
+    isSpeakingLive: rtcIsSpeakingLive,
+    localVolume: rtcLocalVolume,
+    toggleMute: rtcToggleMute,
+    broadcastTranscript: rtcBroadcastTranscript,
+  } = useWebRTCRoom({
+    slotId: session.slotId || session.id || 'slot-dit-001',
+    currentUser,
+    onNewTranscript: (newTx) => {
+      setTranscripts((prev) => {
+        if (prev.some((t) => t.id === newTx.id)) return prev;
+        return [...prev, newTx];
+      });
+
+      // Update speaker stats
+      setSession((prev) => ({
+        ...prev,
+        currentSpeakerId: newTx.speakerId,
+        silenceTimerSeconds: 0,
+        students: prev.students.map((s) =>
+          s.id === newTx.speakerId || s.seatNumber === newTx.seatNumber
+            ? { ...s, speakingTurns: s.speakingTurns + 1, lastSpokenAt: Date.now() }
+            : s
+        ),
+      }));
+    },
+    onFacilitatorIntervention: (intervention) => {
+      setTranscripts((prev) => {
+        if (prev.some((t) => t.id === intervention.transcript.id)) return prev;
+        return [...prev, intervention.transcript];
+      });
+
+      setSession((prev) => ({
+        ...prev,
+        silenceTimerSeconds: 0,
+        facilitatorSpeech: intervention.text,
+        isFacilitatorSpeaking: true,
+      }));
+
+      // Audibly speak AI intervention using roomVoice
+      if (!voiceMuted) {
+        roomVoice.speakAsFacilitator(intervention.text, () => {
+          setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+        });
+      }
+    },
+  });
+
+  // Active display students: merge static mock participants with live connected WebRTC peers
+  const activeDisplayStudents = useMemo(() => {
+    return session.students.map((st) => {
+      // Check if current user is sitting in this seat
+      if (!isFaculty && (st.seatNumber === rtcAssignedSeat || st.isUser)) {
+        return {
+          ...st,
+          isUser: true,
+          seatNumber: rtcAssignedSeat,
+          name: currentUser?.name || st.name,
+          avatar: currentUser?.avatar || st.avatar,
+          college: currentUser?.college || st.college,
+          isSpeaking: isListeningMic || rtcIsSpeakingLive,
+          micActive: isListeningMic || !rtcIsMicMuted,
+          cameraActive: isCameraOn,
+        };
+      }
+
+      // Check if another real peer is connected in this seat
+      const realPeer = rtcPeers.find((p) => p.seatNumber === st.seatNumber);
+      if (realPeer) {
+        return {
+          ...st,
+          id: realPeer.userId,
+          name: realPeer.name,
+          avatar: realPeer.avatar || st.avatar,
+          college: realPeer.college || st.college,
+          isSpeaking: realPeer.isSpeaking,
+          micActive: realPeer.micActive,
+          cameraActive: realPeer.cameraActive,
+          speakingTurns: realPeer.speakingTurns || st.speakingTurns,
+          speakingDurationSeconds: realPeer.speakingDurationSeconds || st.speakingDurationSeconds,
+          isRealPeer: true,
+          volumeLevel: realPeer.volumeLevel,
+        };
+      }
+
+      return st;
+    });
+  }, [session.students, rtcPeers, rtcAssignedSeat, currentUser, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn]);
+
   const latestSpeakerTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
-  const activeStudentUser = !isFaculty ? session.students.find((s) => s.isUser) : null;
-  const currentSpeakerStudent = session.students.find((s) => s.id === session.currentSpeakerId) ||
+  const activeStudentUser = !isFaculty ? activeDisplayStudents.find((s) => s.isUser) : null;
+  const currentSpeakerStudent = activeDisplayStudents.find((s) => s.id === session.currentSpeakerId) ||
     (isListeningMic && !isFaculty ? activeStudentUser : null) ||
-    session.students.find((s) => s.id === latestSpeakerTranscript?.speakerId) ||
-    session.students.find((s) => s.isSpeaking) ||
+    activeDisplayStudents.find((s) => s.id === latestSpeakerTranscript?.speakerId) ||
+    activeDisplayStudents.find((s) => s.isSpeaking) ||
     activeStudentUser ||
-    session.students[0];
-  const isSpeakingLive = !!(session.currentSpeakerId || (isListeningMic && !isFaculty) || session.students.some((s) => s.isSpeaking));
+    activeDisplayStudents[0];
+  const isSpeakingLive = !!(session.currentSpeakerId || (isListeningMic && !isFaculty) || activeDisplayStudents.some((s) => s.isSpeaking));
   
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -465,6 +563,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     setTranscripts((prev) => [...prev, newEntry]);
     studentTurnsSinceIntervention.current += 1;
 
+    // Broadcast live to all connected peers in the room via WebRTC Socket.IO (PDF Page 5, FR-1)
+    rtcBroadcastTranscript(text, elapsedSeconds);
+
     // If triggered without live mic (e.g. Quick Speaking Point clicked), vocalize in authentic Indian English so it is audible to everyone in the room
     if (!isListeningMic && !isFaculty) {
       roomVoice.speakAsStudent(userStudent, text);
@@ -687,6 +788,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <span>{session.slotTiming}</span>
                 </span>
               )}
+              {/* WebRTC Live Audio Mesh Status (PDF Page 13) */}
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 border ${
+                isSocketConnected 
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+              }`}>
+                {isSocketConnected ? <Wifi className="w-3 h-3 text-emerald-500 animate-pulse" /> : <WifiOff className="w-3 h-3 text-slate-400" />}
+                <span>{isSocketConnected ? `${rtcPeers.length + 1} Live Peers (N-Way Audio Mesh)` : 'Connecting Audio Mesh...'}</span>
+              </span>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                 Difficulty: {session.difficulty}
               </span>
@@ -701,6 +811,56 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-3xl">
               {session.description}
             </p>
+
+            {/* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */}
+            <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                  rtcSilenceTimer >= 15
+                    ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 animate-bounce'
+                    : rtcSilenceTimer >= 10
+                    ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400'
+                    : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">20s Silence Deadlock Watchdog</span>
+                    <span className={`font-mono text-xs font-bold px-1.5 py-0.2 rounded ${
+                      rtcSilenceTimer >= 15
+                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {rtcSilenceTimer > 0 ? `${rtcSilenceTimer}s / 20s` : '0s / 20s (Floor Active)'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {rtcSilenceTimer >= 15
+                      ? '⚠️ Floor silent! AI Facilitator will interrupt in ' + (20 - rtcSilenceTimer) + 's to ask a probing question.'
+                      : 'AI Facilitator autonomously interrupts if no participant speaks for 20 seconds.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-1 max-w-[200px] sm:max-w-xs ml-auto">
+                <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-1000 ${
+                      rtcSilenceTimer >= 15 
+                        ? 'bg-rose-500 animate-pulse' 
+                        : rtcSilenceTimer >= 10 
+                        ? 'bg-amber-500' 
+                        : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, (rtcSilenceTimer / 20) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-[11px] font-mono text-slate-500 font-semibold w-8 text-right">
+                  {20 - rtcSilenceTimer}s
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Quick Facilitator Action Bar */}
@@ -990,7 +1150,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
                   {/* Seating Pods: TOP ROW */}
                   <div className="absolute -top-12 sm:-top-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
-                    {session.students.slice(0, Math.ceil(session.students.length / 2)).map((student) => (
+                    {activeDisplayStudents.slice(0, Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
                         student={student} 
@@ -1007,7 +1167,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
                   {/* Seating Pods: BOTTOM ROW */}
                   <div className="absolute -bottom-12 sm:-bottom-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
-                    {session.students.slice(Math.ceil(session.students.length / 2)).map((student) => (
+                    {activeDisplayStudents.slice(Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
                         student={student} 
@@ -1099,7 +1259,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
                   {/* Outer Ring Seating: TOP ROW */}
                   <div className="absolute -top-12 sm:-top-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
-                    {session.students.slice(0, Math.ceil(session.students.length / 2)).map((student) => (
+                    {activeDisplayStudents.slice(0, Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
                         student={student} 
@@ -1116,7 +1276,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
                   {/* Outer Ring Seating: BOTTOM ROW */}
                   <div className="absolute -bottom-12 sm:-bottom-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
-                    {session.students.slice(Math.ceil(session.students.length / 2)).map((student) => (
+                    {activeDisplayStudents.slice(Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
                         student={student} 
@@ -1246,7 +1406,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       <span>Seats 1 – 5</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                      {session.students.slice(0, 5).map((student) => (
+                      {activeDisplayStudents.slice(0, 5).map((student) => (
                         <ClassroomDeskCard
                           key={student.id}
                           student={student}
@@ -1268,7 +1428,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       <span>Seats 6 – 10</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                      {session.students.slice(5, 10).map((student) => (
+                      {activeDisplayStudents.slice(5, 10).map((student) => (
                         <ClassroomDeskCard
                           key={student.id}
                           student={student}
@@ -1284,14 +1444,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </div>
 
                   {/* Row 3 (Back Row): Seats 11 to 15+ */}
-                  {session.students.length > 10 && (
+                  {activeDisplayStudents.length > 10 && (
                     <div className="bg-slate-100/90 dark:bg-slate-850/70 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5">
                       <div className="flex items-center justify-between mb-1.5 px-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                         <span>Row 3 • Back Row Desks</span>
-                        <span>Seats 11 – {session.students.length}</span>
+                        <span>Seats 11 – {activeDisplayStudents.length}</span>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                        {session.students.slice(10).map((student) => (
+                        {activeDisplayStudents.slice(10).map((student) => (
                           <ClassroomDeskCard
                             key={student.id}
                             student={student}
@@ -2061,14 +2221,18 @@ const StudentPodCard: React.FC<{
     }`}>
       
       {/* 1. Realistic Numbered Seat Placard (Pinned cleanly at top, in natural flex flow) */}
-      <div className={`mb-1 whitespace-nowrap px-1.5 sm:px-2 py-0.5 rounded-md text-[9px] font-bold font-mono shadow-xs uppercase tracking-wider transition-colors ${
+      <div className={`mb-1 whitespace-nowrap px-1.5 sm:px-2 py-0.5 rounded-md text-[9px] font-bold font-mono shadow-xs uppercase tracking-wider transition-colors flex items-center gap-1 ${
         isUser 
           ? 'bg-indigo-600 text-white border border-indigo-400 shadow-indigo-500/20 ring-1 ring-indigo-400' 
+          : student.isRealPeer
+          ? 'bg-emerald-600 text-white border border-emerald-400 shadow-emerald-500/20 ring-1 ring-emerald-400'
           : isCurrentSpeaker
           ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700'
           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700'
       }`}>
-        Seat {student.seatNumber}
+        <span>Seat {student.seatNumber}</span>
+        {isUser && <span className="text-[8px] bg-white/20 px-1 rounded">YOU</span>}
+        {student.isRealPeer && !isUser && <span className="text-[8px] bg-emerald-400 text-emerald-950 px-1 rounded font-bold">LIVE</span>}
       </div>
 
       {/* 2. Student Video / Avatar Bubble */}
@@ -2083,6 +2247,8 @@ const StudentPodCard: React.FC<{
             ? 'border-indigo-500 dark:border-indigo-400 ring-2 ring-indigo-500/50 shadow-indigo-500/30' 
             : isUser 
             ? 'border-blue-500 dark:border-blue-500/80 ring-2 ring-blue-500/30' 
+            : student.isRealPeer
+            ? 'border-emerald-500 dark:border-emerald-400 ring-2 ring-emerald-500/30'
             : 'border-slate-300 dark:border-slate-700'
         }`}>
           <StudentVideoFrame
@@ -2101,7 +2267,7 @@ const StudentPodCard: React.FC<{
       {/* 3. Student Name & Turns (Positioned cleanly below avatar with zero overlap) */}
       <div className="text-center mt-1.5 max-w-[68px] sm:max-w-[85px]">
         <p className={`text-[11px] sm:text-xs font-semibold truncate leading-tight ${
-          isUser ? 'text-indigo-700 dark:text-indigo-300 font-bold' : 'text-slate-800 dark:text-slate-200'
+          isUser ? 'text-indigo-700 dark:text-indigo-300 font-bold' : student.isRealPeer ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-800 dark:text-slate-200'
         }`}>
           {student.name.split(' ')[0]}
         </p>
@@ -2141,6 +2307,8 @@ const ClassroomDeskCard: React.FC<{
           ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 dark:border-indigo-600 ring-2 ring-indigo-500/40 shadow-sm'
           : isUser
           ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700'
+          : student.isRealPeer
+          ? 'bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700'
           : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
       }`}
     >
@@ -2150,6 +2318,8 @@ const ClassroomDeskCard: React.FC<{
             ? 'border-indigo-500 ring-2 ring-indigo-400'
             : isUser
             ? 'border-blue-500'
+            : student.isRealPeer
+            ? 'border-emerald-500'
             : 'border-slate-300 dark:border-slate-700'
         }`}>
           <StudentVideoFrame
@@ -2171,13 +2341,16 @@ const ClassroomDeskCard: React.FC<{
             #{student.seatNumber}
           </span>
           <p className={`text-xs font-semibold truncate ${
-            isUser ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'
+            isUser ? 'text-indigo-700 dark:text-indigo-300' : student.isRealPeer ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-800 dark:text-slate-200'
           }`}>
             {student.name.split(' ')[0]}
           </p>
+          {student.isRealPeer && !isUser && (
+            <span className="text-[8px] bg-emerald-500 text-white font-bold px-1 rounded">LIVE</span>
+          )}
         </div>
         <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-          <span>{isUser ? 'You' : 'Audience'}</span>
+          <span>{isUser ? 'You' : student.isRealPeer ? 'Peer' : 'Audience'}</span>
           <span>{student.speakingTurns}t</span>
         </div>
       </div>
