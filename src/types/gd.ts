@@ -92,6 +92,8 @@ export interface TranscriptEntry {
   };
 }
 
+export type GDTranscript = TranscriptEntry;
+
 export interface SkillScore {
   parameter: string;
   weightagePercent: number;
