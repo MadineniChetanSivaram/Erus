@@ -32,7 +32,8 @@ import {
   Eye,
   GraduationCap,
   Wifi,
-  WifiOff
+  WifiOff,
+  User
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -80,7 +81,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [isListeningMic, setIsListeningMic] = useState(false);
   const [interruptionWarning, setInterruptionWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [autoSimulatePeers, setAutoSimulatePeers] = useState(true);
+  const [autoSimulatePeers, setAutoSimulatePeers] = useState(false);
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
   const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
 
@@ -219,9 +220,28 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
+      // If peer simulation is disabled (Live Peer Mode), unoccupied seats display as open waiting desks
+      if (!autoSimulatePeers) {
+        return {
+          ...st,
+          id: `seat-${st.seatNumber}-empty`,
+          name: `Seat ${st.seatNumber}`,
+          college: 'Waiting to join...',
+          avatar: '',
+          isUser: false,
+          isRealPeer: false,
+          isEmptySeat: true,
+          isSpeaking: false,
+          micActive: false,
+          cameraActive: false,
+          speakingTurns: 0,
+          speakingDurationSeconds: 0,
+        };
+      }
+
       return st;
     });
-  }, [session.students, rtcPeers, rtcAssignedSeat, currentUser, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn]);
+  }, [session.students, rtcPeers, rtcAssignedSeat, currentUser, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn, autoSimulatePeers]);
 
   const latestSpeakerTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
   const activeStudentUser = !isFaculty ? activeDisplayStudents.find((s) => s.isUser) : null;
@@ -2111,8 +2131,13 @@ export const StudentVideoFrame: React.FC<{
 
   return (
     <div className="relative w-full h-full rounded-inherit overflow-hidden bg-slate-900 flex items-center justify-center select-none">
-      {/* 1. Camera Feed / Avatar Image */}
-      {isLiveWebcam ? (
+      {/* 1. Camera Feed / Avatar Image / Empty Waiting Seat */}
+      {student.isEmptySeat ? (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100/70 dark:bg-slate-900/60 text-slate-400 dark:text-slate-500">
+          <User className="w-5 h-5 text-slate-300 dark:text-slate-600 mb-0.5" />
+          <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400 dark:text-slate-500">Empty</span>
+        </div>
+      ) : isLiveWebcam ? (
         <VideoStreamPlayer stream={videoStream!} className="w-full h-full object-cover transform -scale-x-100" />
       ) : isCameraEnabled ? (
         <img
@@ -2189,12 +2214,19 @@ export const StudentVideoFrame: React.FC<{
           YOU
         </div>
       )}
+
+      {/* 4. Faculty Pin/Observation Indicator (Top-Left) */}
+      {isFaculty && (
+        <div className="absolute top-1 left-1 bg-indigo-600/90 text-white p-0.5 rounded-md shadow flex items-center justify-center z-10">
+          <GraduationCap className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
+        </div>
+      )}
     </div>
   );
 };
 
-// Sub-Component: Student Pod Card with Numbered Seat Placard
-const StudentPodCard: React.FC<{
+// Realistic Pod Seat Component with Numbered Desk Placard
+export const StudentPodCard: React.FC<{
   student: Student;
   isCurrentSpeaker: boolean;
   position: 'top' | 'bottom';
@@ -2226,6 +2258,8 @@ const StudentPodCard: React.FC<{
           ? 'bg-indigo-600 text-white border border-indigo-400 shadow-indigo-500/20 ring-1 ring-indigo-400' 
           : student.isRealPeer
           ? 'bg-emerald-600 text-white border border-emerald-400 shadow-emerald-500/20 ring-1 ring-emerald-400'
+          : student.isEmptySeat
+          ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700'
           : isCurrentSpeaker
           ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700'
           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700'
@@ -2233,6 +2267,7 @@ const StudentPodCard: React.FC<{
         <span>Seat {student.seatNumber}</span>
         {isUser && <span className="text-[8px] bg-white/20 px-1 rounded">YOU</span>}
         {student.isRealPeer && !isUser && <span className="text-[8px] bg-emerald-400 text-emerald-950 px-1 rounded font-bold">LIVE</span>}
+        {student.isEmptySeat && <span className="text-[8px] opacity-70">OPEN</span>}
       </div>
 
       {/* 2. Student Video / Avatar Bubble */}
@@ -2243,7 +2278,9 @@ const StudentPodCard: React.FC<{
         )}
 
         <div className={`w-11 h-11 sm:w-13 sm:h-13 rounded-2xl overflow-hidden border-2 transition-all shadow-md relative bg-slate-900 ${
-          isCurrentSpeaker 
+          student.isEmptySeat
+            ? 'border-dashed border-slate-300 dark:border-slate-700 bg-slate-100/60 dark:bg-slate-900/60 shadow-none'
+            : isCurrentSpeaker 
             ? 'border-indigo-500 dark:border-indigo-400 ring-2 ring-indigo-500/50 shadow-indigo-500/30' 
             : isUser 
             ? 'border-blue-500 dark:border-blue-500/80 ring-2 ring-blue-500/30' 
@@ -2267,12 +2304,18 @@ const StudentPodCard: React.FC<{
       {/* 3. Student Name & Turns (Positioned cleanly below avatar with zero overlap) */}
       <div className="text-center mt-1.5 max-w-[68px] sm:max-w-[85px]">
         <p className={`text-[11px] sm:text-xs font-semibold truncate leading-tight ${
-          isUser ? 'text-indigo-700 dark:text-indigo-300 font-bold' : student.isRealPeer ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-800 dark:text-slate-200'
+          student.isEmptySeat
+            ? 'text-slate-400 dark:text-slate-500 font-normal italic'
+            : isUser 
+            ? 'text-indigo-700 dark:text-indigo-300 font-bold' 
+            : student.isRealPeer 
+            ? 'text-emerald-700 dark:text-emerald-300 font-bold' 
+            : 'text-slate-800 dark:text-slate-200'
         }`}>
-          {student.name.split(' ')[0]}
+          {student.isEmptySeat ? 'Available' : student.name.split(' ')[0]}
         </p>
         <span className="text-[9px] text-slate-500 dark:text-slate-400 font-mono block mt-0.5">
-          {student.speakingTurns} turns
+          {student.isEmptySeat ? 'Waiting...' : `${student.speakingTurns} turns`}
         </span>
       </div>
 
@@ -2280,8 +2323,8 @@ const StudentPodCard: React.FC<{
   );
 };
 
-// Sub-Component: Classroom Desk Card for Audience Students
-const ClassroomDeskCard: React.FC<{
+// Realistic Classroom Desk Card with Numbered Seat Tag
+export const ClassroomDeskCard: React.FC<{
   student: Student;
   isCurrentSpeaker: boolean;
   isUserCameraOn?: boolean;
@@ -2303,7 +2346,9 @@ const ClassroomDeskCard: React.FC<{
   return (
     <div
       className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
-        isCurrentSpeaker
+        student.isEmptySeat
+          ? 'bg-slate-50/50 dark:bg-slate-900/30 border-dashed border-slate-200 dark:border-slate-800'
+          : isCurrentSpeaker
           ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 dark:border-indigo-600 ring-2 ring-indigo-500/40 shadow-sm'
           : isUser
           ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700'
@@ -2314,7 +2359,9 @@ const ClassroomDeskCard: React.FC<{
     >
       <div className="relative flex-shrink-0">
         <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden border ${
-          isCurrentSpeaker
+          student.isEmptySeat
+            ? 'border-dashed border-slate-300 dark:border-slate-700'
+            : isCurrentSpeaker
             ? 'border-indigo-500 ring-2 ring-indigo-400'
             : isUser
             ? 'border-blue-500'
@@ -2341,20 +2388,24 @@ const ClassroomDeskCard: React.FC<{
             #{student.seatNumber}
           </span>
           <p className={`text-xs font-semibold truncate ${
-            isUser ? 'text-indigo-700 dark:text-indigo-300' : student.isRealPeer ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-800 dark:text-slate-200'
+            student.isEmptySeat
+              ? 'text-slate-400 dark:text-slate-500 italic'
+              : isUser ? 'text-indigo-700 dark:text-indigo-300' : student.isRealPeer ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-slate-800 dark:text-slate-200'
           }`}>
-            {student.name.split(' ')[0]}
+            {student.isEmptySeat ? 'Available' : student.name.split(' ')[0]}
           </p>
           {student.isRealPeer && !isUser && (
             <span className="text-[8px] bg-emerald-500 text-white font-bold px-1 rounded">LIVE</span>
           )}
+          {student.isEmptySeat && (
+            <span className="text-[8px] text-slate-400 font-mono">OPEN</span>
+          )}
         </div>
         <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-          <span>{isUser ? 'You' : student.isRealPeer ? 'Peer' : 'Audience'}</span>
-          <span>{student.speakingTurns}t</span>
+          <span>{student.isEmptySeat ? 'Open Desk' : isUser ? 'You' : student.isRealPeer ? 'Peer' : 'Audience'}</span>
+          <span>{student.isEmptySeat ? '--' : `${student.speakingTurns}t`}</span>
         </div>
       </div>
     </div>
   );
 };
-
