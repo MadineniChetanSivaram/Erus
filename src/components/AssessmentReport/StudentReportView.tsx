@@ -35,6 +35,8 @@ import {
 } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { SAMPLE_REPORT_RAHUL, generateStudentReport } from '../../data/mockGDData';
+import { GDComparisonReport } from './GDComparisonReport';
+import { addReportToStudentHistory } from '../../utils/studentReportHistory';
 import confetti from 'canvas-confetti';
 
 interface StudentReportViewProps {
@@ -56,6 +58,8 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 }) => {
   const isStudent = currentUser?.role === 'student';
   const isFaculty = currentUser?.role === 'faculty';
+
+  const [activeReportTab, setActiveReportTab] = useState<'single' | 'comparison'>('single');
 
   // Find the active student for this user
   const userStudent = session.students.find(
@@ -125,6 +129,13 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       handleSelectStudent(targetStudentId);
     }
   }, [isStudent, userStudent.id, currentUser?.name, targetStudentId]);
+
+  // Persist current report to student's historical comparison archive
+  useEffect(() => {
+    if (currentReport) {
+      addReportToStudentHistory(currentReport);
+    }
+  }, [currentReport]);
 
   // Handle student switch (Allowed only for faculty reviewers)
   const handleSelectStudent = async (studentId: string) => {
@@ -260,6 +271,16 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   const currentWpmStatus = currentReport.wpmStatus || (currentWpm >= 120 && currentWpm <= 150 ? 'Optimal' : currentWpm < 120 ? 'Too Slow' : 'Too Fast');
   const fillerCount = currentReport.fillerWordsCount ?? 2;
 
+  if (activeReportTab === 'comparison') {
+    return (
+      <GDComparisonReport
+        currentReport={currentReport}
+        onBackToSingleReport={() => setActiveReportTab('single')}
+        onBackToRoom={onBackToRoom}
+      />
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       
@@ -355,6 +376,70 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           )}
         </div>
 
+      </div>
+
+      {/* Report View Toggle: Single Session vs Comparison Report */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 no-print bg-slate-100/90 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setActiveReportTab('single')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeReportTab === 'single'
+                ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs ring-1 ring-slate-900/5 dark:ring-white/10'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Current Session Evaluation</span>
+          </button>
+
+          <button
+            onClick={() => setActiveReportTab('comparison')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeReportTab === 'comparison'
+                ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs ring-1 ring-slate-900/5 dark:ring-white/10'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+            <span>GD Comparison & Evolution Report</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold border border-emerald-300 dark:border-emerald-800">
+              Δ Previous vs Current
+            </span>
+          </button>
+        </div>
+
+        <span className="text-xs text-slate-500 dark:text-slate-400 hidden lg:inline font-medium pr-2">
+          Compare current performance metrics against previous GD sessions
+        </span>
+      </div>
+
+      {/* Quick Access Comparison Promotion Banner */}
+      <div 
+        onClick={() => setActiveReportTab('comparison')}
+        className="no-print p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50/80 via-purple-50/60 to-emerald-50/80 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-emerald-950/40 border border-indigo-200/80 dark:border-indigo-800/80 flex items-center justify-between gap-3 cursor-pointer hover:shadow-xs transition-all"
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <TrendingUp className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>Multi-Session Progress Tracking Active</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                Auto-Updating
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              View your side-by-side progression analysis across all 7 academic rubric parameters, speaking pace (WPM), and filler word elimination vs your previous GD.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+          <span className="hidden sm:inline">Open Comparison Report</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </div>
       </div>
 
       {endorsementSuccessMessage && (

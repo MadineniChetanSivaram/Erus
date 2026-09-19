@@ -22,6 +22,7 @@ import {
   generateStudentReport,
   generateSlotParticipants 
 } from './data/mockGDData';
+import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
@@ -153,7 +154,9 @@ function GDAppContent() {
         batch: user.batch,
         isUser: true,
       };
-      setActiveReport(generateStudentReport(studentUserObj, session.topic, session.durationMinutes));
+      const initialStudentReport = generateStudentReport(studentUserObj, session.topic, session.durationMinutes);
+      setActiveReport(initialStudentReport);
+      addReportToStudentHistory(initialStudentReport);
 
       setAvailableSlots((prevSlots) =>
         prevSlots.map((slot) => {
@@ -317,9 +320,13 @@ function GDAppContent() {
       const data = await res.json();
       if (data.report) {
         setActiveReport(data.report);
+        addReportToStudentHistory(data.report);
       }
     } catch (e) {
       console.warn('Evaluation fallback:', e);
+      const fallbackRep = generateStudentReport(userStudent, session.topic, session.durationMinutes);
+      setActiveReport(fallbackRep);
+      addReportToStudentHistory(fallbackRep);
     }
 
     setSession((prev) => ({
