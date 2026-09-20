@@ -106,6 +106,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     roomVoice.setMuted(next);
   };
 
+  // AI Voice Moderation Mode: 'on_demand' (silent by default for live peer testing) vs 'autonomous' (auto-speaking)
+  const [aiVoiceMode, setAiVoiceMode] = useState<'on_demand' | 'autonomous'>('on_demand');
+
+  const handleStopAiSpeaking = () => {
+    roomVoice.stop();
+    setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+    setIsAiProcessing(false);
+  };
+
   useEffect(() => {
     if (session.roomLayout) {
       setCurrentLayout(session.roomLayout);
@@ -174,11 +183,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isFacilitatorSpeaking: true,
       }));
 
-      // Audibly speak AI intervention using roomVoice
-      if (!voiceMuted) {
+      // Audibly speak AI intervention using roomVoice only if autonomous mode is active and not muted
+      if (!voiceMuted && !isRoomAudioMuted && aiVoiceMode === 'autonomous') {
         roomVoice.speakAsFacilitator(intervention.text, () => {
           setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
         });
+      } else {
+        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
       }
     },
   });
@@ -477,10 +488,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     setTranscripts((prev) => [...prev, entry]);
 
-    facilitatorVoice.speak(text, () => {
+    if (!voiceMuted && !isRoomAudioMuted) {
+      facilitatorVoice.speak(text, () => {
+        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+        setIsAiProcessing(false);
+      });
+    } else {
       setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
       setIsAiProcessing(false);
-    });
+    }
   };
 
   // Call Server for AI Facilitation Intervention with Anti-Repetition Tracking
@@ -603,8 +619,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Broadcast live to all connected peers in the room via WebRTC Socket.IO (PDF Page 5, FR-1)
     rtcBroadcastTranscript(text, elapsedSeconds);
 
-    // If triggered without live mic (e.g. Quick Speaking Point clicked), vocalize in authentic Indian English so it is audible to everyone in the room
-    if (!isListeningMic && !isFaculty) {
+    // Only vocalize as synthetic student if simulation mode is explicitly enabled
+    if (!isListeningMic && !isFaculty && autoSimulatePeers && !isRoomAudioMuted && !voiceMuted) {
       roomVoice.speakAsStudent(userStudent, text);
     }
 
@@ -698,7 +714,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
             }));
 
-            if (studentTurnsSinceIntervention.current >= 3) {
+            if (aiVoiceMode === 'autonomous' && studentTurnsSinceIntervention.current >= 6) {
               requestAiIntervention('probing');
             }
           });
@@ -778,7 +794,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
         }));
 
-        if (studentTurnsSinceIntervention.current >= 3) {
+        if (aiVoiceMode === 'autonomous' && studentTurnsSinceIntervention.current >= 6) {
           requestAiIntervention('probing');
         }
       });
@@ -849,54 +865,63 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {session.description}
             </p>
 
-            {/* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */}
-            <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  rtcSilenceTimer >= 15
-                    ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 animate-bounce'
-                    : rtcSilenceTimer >= 10
-                    ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400'
-                    : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400'
-                }`}>
-                  <Clock className="w-4 h-4" />
+            {/* AI Facilitator Voice Mode & Silence Monitor */}
+            <div className="mt-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-800">
+                  <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white">20s Silence Deadlock Watchdog</span>
-                    <span className={`font-mono text-xs font-bold px-1.5 py-0.2 rounded ${
-                      rtcSilenceTimer >= 15
-                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                    }`}>
-                      {rtcSilenceTimer > 0 ? `${rtcSilenceTimer}s / 20s` : '0s / 20s (Floor Active)'}
-                    </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">AI Voice Mode:</span>
+                    <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiVoiceMode('on_demand');
+                          handleStopAiSpeaking();
+                        }}
+                        className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                          aiVoiceMode === 'on_demand'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                        }`}
+                      >
+                        On-Demand Only (Recommended for Live Tests)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiVoiceMode('autonomous')}
+                        className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                          aiVoiceMode === 'autonomous'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                        }`}
+                      >
+                        Autonomous (Auto-Nudge)
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    {rtcSilenceTimer >= 15
-                      ? '⚠️ Floor silent! AI Facilitator will interrupt in ' + (20 - rtcSilenceTimer) + 's to ask a probing question.'
-                      : 'AI Facilitator autonomously interrupts if no participant speaks for 20 seconds.'}
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    {aiVoiceMode === 'on_demand'
+                      ? 'AI listens and evaluates quietly without interrupting participants. Speeches only trigger when you click the action buttons below.'
+                      : 'AI will proactively nudge participants after 90 seconds of prolonged room inactivity.'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-1 max-w-[200px] sm:max-w-xs ml-auto">
-                <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-                  <div 
-                    className={`h-full transition-all duration-1000 ${
-                      rtcSilenceTimer >= 15 
-                        ? 'bg-rose-500 animate-pulse' 
-                        : rtcSilenceTimer >= 10 
-                        ? 'bg-amber-500' 
-                        : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(100, (rtcSilenceTimer / 20) * 100)}%` }}
-                  />
-                </div>
-                <span className="text-[11px] font-mono text-slate-500 font-semibold w-8 text-right">
-                  {20 - rtcSilenceTimer}s
-                </span>
-              </div>
+              {/* Stop AI Speaking Button (visible whenever AI is vocalizing) */}
+              {session.isFacilitatorSpeaking && (
+                <button
+                  type="button"
+                  onClick={handleStopAiSpeaking}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 animate-pulse flex items-center gap-1.5 cursor-pointer"
+                  title="Stop AI speech immediately"
+                >
+                  <VolumeX className="w-3.5 h-3.5" />
+                  <span>Stop AI Speaking</span>
+                </button>
+              )}
             </div>
           </div>
 

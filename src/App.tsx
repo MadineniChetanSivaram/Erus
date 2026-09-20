@@ -228,25 +228,25 @@ function GDAppContent() {
     });
   }, []);
 
-  // Sync voice engine mute state
+  // Sync voice engine mute state & silence speech outside GD room
   useEffect(() => {
-    facilitatorVoice.setMuted(voiceMuted);
-  }, [voiceMuted]);
+    const shouldMute = voiceMuted || currentTab !== 'room';
+    facilitatorVoice.setMuted(shouldMute);
+    if (shouldMute) {
+      facilitatorVoice.stop();
+    }
+  }, [voiceMuted, currentTab]);
 
-  // Main session elapsed timer & silence deadlock tracker
+  // Main session elapsed timer & silence tracker (purely tracks elapsed time without spontaneous audio interruption)
   useEffect(() => {
     if (!currentUser || session.status !== 'active') return;
 
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
 
-      // Deadlock silence detection
+      // Track floor silence without uninvited automatic voice interruptions
       setSession((prevSession) => {
         const newSilence = prevSession.silenceTimerSeconds + 1;
-        // If silence reaches 20 seconds, trigger deadlock prompt
-        if (newSilence === 20 && !prevSession.isFacilitatorSpeaking && !prevSession.currentSpeakerId) {
-          triggerDeadlockIntervention(prevSession);
-        }
         return {
           ...prevSession,
           silenceTimerSeconds: newSilence,
@@ -255,7 +255,7 @@ function GDAppContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentUser, session.status, session.isFacilitatorSpeaking, session.currentSpeakerId]);
+  }, [currentUser, session.status]);
 
   // Deadlock intervention helper using unique non-repeating dynamic prompt generator
   const triggerDeadlockIntervention = (currentSession: GDSession) => {
@@ -268,7 +268,9 @@ function GDAppContent() {
     );
 
     const promptText = nextPrompt.text;
-    facilitatorVoice.speak(promptText);
+    if (!voiceMuted && currentTab === 'room') {
+      facilitatorVoice.speak(promptText);
+    }
 
     const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
     const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
