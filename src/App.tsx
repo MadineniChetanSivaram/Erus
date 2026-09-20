@@ -39,13 +39,13 @@ function GDAppContent() {
     }
   });
 
-  const STORAGE_KEY = 'erus_available_slots_v6';
+  const STORAGE_KEY = 'erus_available_slots_v7';
 
-  // Safely load and validate slots, purging stale legacy storage where all slots were full
+  // Safely load and validate slots, purging stale legacy storage where all slots were full or active
   const loadInitialSlots = (): GDSession[] => {
     try {
       // Purge older legacy cache keys
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6'].forEach((k) => {
         localStorage.removeItem(k);
       });
 
@@ -60,7 +60,10 @@ function GDAppContent() {
             return enrolled >= maxCap;
           });
           if (!allFull) {
-            return parsed;
+            return parsed.map((s: GDSession) => ({
+              ...s,
+              status: s.status === 'completed' ? 'completed' : (s.status === 'active' ? 'active' : 'waiting'),
+            }));
           }
         }
       }
@@ -130,7 +133,7 @@ function GDAppContent() {
   const handleResetSlots = () => {
     try {
       localStorage.removeItem(STORAGE_KEY);
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6', 'erus_available_slots_v7'].forEach((k) => {
         localStorage.removeItem(k);
       });
     } catch {}
@@ -486,9 +489,13 @@ function GDAppContent() {
       ? Math.min(targetMaxCap, targetCurrentEnrolled + 1)
       : targetCurrentEnrolled;
 
+    const targetStatus = targetSlot.status === 'completed'
+      ? 'completed'
+      : (targetSlot.status === 'active' ? 'active' : 'waiting');
+
     const activeSlot: GDSession = {
       ...targetSlot,
-      status: 'active',
+      status: targetStatus,
       maxCapacity: targetMaxCap,
       enrolledCount: newTargetEnrolledCount,
       students: updatedTargetStudents,
@@ -506,7 +513,7 @@ function GDAppContent() {
             const newPrevCount = Math.max(1, prevCount - 1);
             return {
               ...s,
-              status: 'scheduled',
+              status: s.status === 'completed' ? 'completed' : 'waiting',
               enrolledCount: newPrevCount,
               students: s.students.map((st) => (st.isUser ? { ...st, isUser: false } : st)),
             };
@@ -531,7 +538,9 @@ function GDAppContent() {
         isFacilitator: true,
         timestamp: '00:00',
         timestampSeconds: 0,
-        text: activeSlot.facilitatorSpeech || `Welcome to ${activeSlot.slotName || 'this slot'}. The discussion on "${activeSlot.topic}" is underway. You are seated at Seat 1 with ${newTargetEnrolledCount} participants in the room.`,
+        text: activeSlot.status === 'active'
+          ? (activeSlot.facilitatorSpeech || `Welcome to ${activeSlot.slotName || 'this slot'}. The discussion on "${activeSlot.topic}" is underway.`)
+          : `Welcome to ${activeSlot.slotName || 'this slot'}. The discussion on "${activeSlot.topic}" is currently in the waiting lobby. The session will commence once started by Faculty In-Charge (${activeSlot.assignedFacultyName || 'Assigned Faculty'}).`,
         type: 'intro',
         sentiment: 'positive',
       },
@@ -619,6 +628,7 @@ function GDAppContent() {
         onOpenCreateSession={() => setIsCreateModalOpen(true)}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onStartSession={handleStartSession}
       />
 
       {/* Main Responsive Application Viewport */}

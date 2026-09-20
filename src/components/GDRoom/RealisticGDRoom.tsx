@@ -979,10 +979,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   }
                   rtcStartSession();
                 }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-700/20 transition-all active:scale-95 cursor-pointer"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
               >
                 <Play className="w-4 h-4 fill-white" />
                 <span>Start Group Discussion</span>
+              </button>
+            )}
+
+            {canStartSession && isSessionActive && (
+              <button
+                id="faculty-restart-gd-btn"
+                onClick={() => {
+                  if (onStartSession) {
+                    onStartSession(session.id);
+                  }
+                  rtcStartSession();
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95 cursor-pointer border border-emerald-500/50"
+                title="Restart discussion from beginning and deliver opening speech"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Restart Discussion</span>
               </button>
             )}
 
@@ -1806,6 +1823,41 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
                       <span className="hidden sm:inline">Prompt Question</span>
                     </button>
+                  )}
+
+                  {/* Faculty Start / Restart Action in Dock */}
+                  {canStartSession && (
+                    !isSessionActive ? (
+                      <button
+                        id="dock-start-gd-btn"
+                        onClick={() => {
+                          if (onStartSession) {
+                            onStartSession(session.id);
+                          }
+                          rtcStartSession();
+                        }}
+                        className="px-4 py-2.5 rounded-full font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 flex items-center gap-1.5 cursor-pointer transition-all animate-pulse"
+                        title="Start Group Discussion round"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-white" />
+                        <span>Start Session</span>
+                      </button>
+                    ) : (
+                      <button
+                        id="dock-restart-gd-btn"
+                        onClick={() => {
+                          if (onStartSession) {
+                            onStartSession(session.id);
+                          }
+                          rtcStartSession();
+                        }}
+                        className="px-3.5 py-2.5 rounded-full font-semibold text-xs bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-600/50 shadow-lg flex items-center gap-1.5 cursor-pointer transition-all"
+                        title="Restart Group Discussion"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Restart</span>
+                      </button>
+                    )
                   )}
 
                   {/* 6. Leave / Finish GD Call (Red Pill Button) */}

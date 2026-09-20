@@ -12,7 +12,9 @@ import {
   Moon,
   LogOut,
   Building2,
-  Crown
+  Crown,
+  Play,
+  RefreshCw
 } from 'lucide-react';
 import { GDSession } from '../types/gd';
 import { AuthUser } from '../types/auth';
@@ -30,6 +32,7 @@ interface HeaderProps {
   onOpenCreateSession: () => void;
   currentUser: AuthUser | null;
   onLogout: () => void;
+  onStartSession?: (slotId?: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCreateSession,
   currentUser,
   onLogout,
+  onStartSession,
 }) => {
   const { theme, toggleTheme } = useTheme();
 
@@ -55,6 +59,8 @@ export const Header: React.FC<HeaderProps> = ({
   const isFaculty = currentUser?.role === 'faculty';
   const isCollegeAdmin = currentUser?.role === 'college_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
+  const canStartSession = isFaculty || isCollegeAdmin || isSuperAdmin;
+  const isSessionActive = session.status === 'active';
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 px-3 sm:px-4 lg:px-6 py-2 transition-colors duration-200 no-print shadow-xs dark:shadow-none w-full">
@@ -186,6 +192,31 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Right: User Profile, Session Timer & Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
+          {/* Faculty / Admin Start/Restart Action Button in Header */}
+          {currentTab === 'room' && canStartSession && onStartSession && (
+            !isSessionActive ? (
+              <button
+                id="header-start-session-btn"
+                onClick={() => onStartSession(session.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse shrink-0 h-9"
+                title="Start this group discussion session"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">Start Session</span>
+              </button>
+            ) : (
+              <button
+                id="header-restart-session-btn"
+                onClick={() => onStartSession(session.id)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-all cursor-pointer shrink-0 h-9"
+                title="Restart discussion session and intro speech"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span className="hidden md:inline">Restart</span>
+              </button>
+            )
+          )}
+
           {/* Unified GD Slot & Timer Pill (Active ONLY in live GD room) */}
           {currentTab === 'room' && (
             <div 
@@ -201,12 +232,20 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
                 </>
               )}
-              <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                {formatTime(elapsedSeconds)}
-              </span>
-              <span className="font-mono text-slate-400 dark:text-slate-500 text-[11px] hidden sm:inline">
-                / {session.durationMinutes}:00
-              </span>
+              {isSessionActive ? (
+                <>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                    {formatTime(elapsedSeconds)}
+                  </span>
+                  <span className="font-mono text-slate-400 dark:text-slate-500 text-[11px] hidden sm:inline">
+                    / {session.durationMinutes}:00
+                  </span>
+                </>
+              ) : (
+                <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                  Lobby
+                </span>
+              )}
             </div>
           )}
 
