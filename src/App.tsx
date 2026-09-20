@@ -39,13 +39,13 @@ function GDAppContent() {
     }
   });
 
-  const STORAGE_KEY = 'erus_available_slots_v7';
+  const STORAGE_KEY = 'erus_available_slots_v8';
 
   // Safely load and validate slots, purging stale legacy storage where all slots were full or active
   const loadInitialSlots = (): GDSession[] => {
     try {
       // Purge older legacy cache keys
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6', 'erus_available_slots_v7'].forEach((k) => {
         localStorage.removeItem(k);
       });
 

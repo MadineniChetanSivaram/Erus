@@ -107,6 +107,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [noteTag, setNoteTag] = useState<'strength' | 'improvement' | 'key_argument' | 'leadership' | 'general'>('general');
   const [noteContent, setNoteContent] = useState<string>('');
 
+  // Audio & Mic Diagnostic Test Modal State
+  const [showAudioTestModal, setShowAudioTestModal] = useState(false);
+
   const formatElapsedClock = (secs: number) => {
     const mins = Math.floor(secs / 60).toString().padStart(2, '0');
     const remainingSecs = (secs % 60).toString().padStart(2, '0');
@@ -912,13 +915,19 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 </span>
               )}
               {/* WebRTC Live Audio Mesh Status (PDF Page 13) */}
-              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 border ${
-                isSocketConnected 
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
-              }`}>
+              <span 
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 border ${
+                  isSocketConnected 
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                }`}
+                title="Live WebRTC Audio Mesh with STUN & OpenRelay TURN Fallback Relay (UDP/TCP 443)"
+              >
                 {isSocketConnected ? <Wifi className="w-3 h-3 text-emerald-500 animate-pulse" /> : <WifiOff className="w-3 h-3 text-slate-400" />}
                 <span>{isSocketConnected ? `${rtcPeers.length + 1} Live Peers (N-Way Audio Mesh)` : 'Connecting Audio Mesh...'}</span>
+                <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">
+                  STUN+TURN
+                </span>
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                 Difficulty: {session.difficulty}
@@ -1141,22 +1150,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             </button>
 
             {/* Enhancement 4: Faculty Live Observation Notes Button */}
-            {canStartSession && (
-              <button
-                id="faculty-notes-btn"
-                onClick={() => handleOpenNoteModal()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/70 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 transition-all shadow-xs active:scale-95 cursor-pointer"
-                title="Open Live Observation Notes & Bookmarks"
-              >
-                <Bookmark className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
-                <span>Observation Notes</span>
-                {(session.facultyLiveNotes?.length || 0) > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-600 text-white font-mono">
-                    {session.facultyLiveNotes?.length}
-                  </span>
-                )}
-              </button>
-            )}
+            <button
+              id="faculty-notes-btn"
+              onClick={() => handleOpenNoteModal()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/70 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 transition-all shadow-xs active:scale-95 cursor-pointer"
+              title={canStartSession ? "Open Live Observation Notes & Bookmarks (Faculty Evaluator)" : "Open Live Observation Notes & Bookmarks (Evaluator Log)"}
+            >
+              <Bookmark className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 fill-violet-600/30" />
+              <span>Observation Notes</span>
+              {(session.facultyLiveNotes?.length || 0) > 0 ? (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-600 text-white font-mono">
+                  {session.facultyLiveNotes?.length}
+                </span>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-violet-200/60 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200 font-semibold">
+                  {canStartSession ? 'Faculty' : 'Evaluator'}
+                </span>
+              )}
+            </button>
 
             {session.status === 'completed' ? (
               <button
@@ -2090,6 +2101,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           <span className="w-1 bg-emerald-400 rounded-full animate-[bounce_0.8s_infinite_400ms] h-2"></span>
                         </div>
                         <button
+                          type="button"
+                          onClick={() => setShowAudioTestModal(true)}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-600/90 hover:bg-indigo-500 text-white text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer shadow"
+                          title="Open Audio & Microphone Test"
+                        >
+                          <Volume2 className="w-3 h-3" />
+                          <span>Test Audio</span>
+                        </button>
+                        <button
                           onClick={toggleMicRecognition}
                           className="px-2.5 py-1 rounded-lg bg-rose-600/90 hover:bg-rose-500 text-white text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer shadow"
                           title="Mute microphone and finish speaking"
@@ -2143,23 +2163,35 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       </div>
                     </div>
 
-                    {!isSessionActive && !isFaculty ? (
+                    <div className="flex items-center gap-2 shrink-0">
                       <button
-                        disabled
-                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed border border-slate-300 dark:border-slate-700"
+                        type="button"
+                        onClick={() => setShowAudioTestModal(true)}
+                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                        title="Test your microphone VU meter and speaker chime"
                       >
-                        <Lock className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Muted in Lobby</span>
+                        <Volume2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Test Audio & Mic</span>
                       </button>
-                    ) : (
-                      <button
-                        onClick={toggleMicRecognition}
-                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                      >
-                        <Mic className="w-3.5 h-3.5" />
-                        <span>Unmute & Speak Live</span>
-                      </button>
-                    )}
+
+                      {!isSessionActive && !isFaculty ? (
+                        <button
+                          disabled
+                          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed border border-slate-300 dark:border-slate-700"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-amber-500" />
+                          <span>Muted in Lobby</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={toggleMicRecognition}
+                          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>Unmute & Speak Live</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2450,6 +2482,52 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }}
         onResetSlots={onResetSlots}
       />
+
+      {/* Audio & Microphone Live Diagnostic Test Modal (Accessible Anytime) */}
+      {showAudioTestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Volume2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Audio & Microphone Diagnostic Test</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                      Hardware Check
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Test live microphone input levels and speaker sound before or during the GD
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAudioTestModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <LobbyAudioTester />
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAudioTestModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition-all cursor-pointer active:scale-95"
+              >
+                Done & Return to Room
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Faculty Live Observation Notes & Bookmarks Modal (Enhancement 4) */}
       {isNotesModalOpen && (
@@ -2883,7 +2961,7 @@ export const StudentPodCard: React.FC<{
         {isUser && <span className="text-[8px] bg-white/20 px-1 rounded">YOU</span>}
         {student.isRealPeer && !isUser && <span className="text-[8px] bg-emerald-400 text-emerald-950 px-1 rounded font-bold">LIVE</span>}
         {student.isEmptySeat && <span className="text-[8px] opacity-70">OPEN</span>}
-        {isFaculty && !student.isEmptySeat && onAddNote && (
+        {!student.isEmptySeat && onAddNote && (
           <button
             type="button"
             onClick={(e) => {
@@ -3037,7 +3115,7 @@ export const ClassroomDeskCard: React.FC<{
         </div>
       </div>
 
-      {isFaculty && !student.isEmptySeat && onAddNote && (
+      {!student.isEmptySeat && onAddNote && (
         <button
           type="button"
           onClick={(e) => {
