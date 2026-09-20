@@ -32,6 +32,9 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
   ],
 };
 
@@ -46,7 +49,7 @@ export function useWebRTCRoom({
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
   const [peers, setPeers] = useState<LivePeer[]>([]);
   const [silenceTimerSeconds, setSilenceTimerSeconds] = useState(0);
-  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(true);
   const [isSpeakingLive, setIsSpeakingLive] = useState(false);
   const [localVolume, setLocalVolume] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +57,7 @@ export function useWebRTCRoom({
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const iceCandidateQueueRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -68,12 +72,24 @@ export function useWebRTCRoom({
       audioEl = document.createElement('audio');
       audioEl.id = `remote-audio-${peerSocketId}`;
       audioEl.autoplay = true;
+      audioEl.volume = 1.0;
+      audioEl.muted = false;
       (audioEl as any).playsInline = true;
       document.body.appendChild(audioEl);
       audioElementsRef.current.set(peerSocketId, audioEl);
     }
     audioEl.srcObject = stream;
-    audioEl.play().catch((e) => console.warn('[WebRTC Audio Playback Note]:', e));
+    audioEl.play().catch((e) => {
+      console.warn('[WebRTC Audio Playback Notice]:', e);
+      // If browser blocked autoplay, unlock audio on user's first click anywhere on screen
+      const unlockAudio = () => {
+        audioEl?.play().catch(() => {});
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+      };
+      window.addEventListener('click', unlockAudio);
+      window.addEventListener('touchstart', unlockAudio);
+    });
   }, []);
 
   // 2. Remove peer audio element on disconnect
@@ -148,6 +164,23 @@ export function useWebRTCRoom({
       });
 
       localStreamRef.current = stream;
+
+      // Start with audio tracks muted by default until user explicitly activates mic
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      setIsMicMuted(true);
+
+      // Attach tracks to any peer connections that were established before mic was ready
+      peerConnectionsRef.current.forEach((pc) => {
+        const senders = pc.getSenders();
+        stream.getTracks().forEach((track) => {
+          const hasTrack = senders.some((s) => s.track === track);
+          if (!hasTrack) {
+            pc.addTrack(track, stream);
+          }
+        });
+      });
 
       // Setup Web Audio Analyser for speaking detection & audio visualizer
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -295,6 +328,16 @@ export function useWebRTCRoom({
         if (signal.sdp) {
           if (signal.sdp.type === 'offer') {
             await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+
+            // Drain queued ICE candidates received before remote description was ready
+            const queued = iceCandidateQueueRef.current.get(from) || [];
+            for (const cand of queued) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (err) {}
+            }
+            iceCandidateQueueRef.current.delete(from);
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             socket.emit('signal-send', {
@@ -303,9 +346,24 @@ export function useWebRTCRoom({
             });
           } else if (signal.sdp.type === 'answer') {
             await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+
+            // Drain queued ICE candidates received before remote description was ready
+            const queued = iceCandidateQueueRef.current.get(from) || [];
+            for (const cand of queued) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (err) {}
+            }
+            iceCandidateQueueRef.current.delete(from);
           }
         } else if (signal.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          if (pc.remoteDescription && pc.remoteDescription.type) {
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } else {
+            const q = iceCandidateQueueRef.current.get(from) || [];
+            q.push(signal.candidate);
+            iceCandidateQueueRef.current.set(from, q);
+          }
         }
       } catch (e) {
         console.warn('[WebRTC Signaling error]:', e);
@@ -426,6 +484,25 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
+  // Set explicit microphone enabled state (true = unmuted, false = muted)
+  const setMicEnabled = useCallback((enabled: boolean) => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = enabled;
+      });
+      setIsMicMuted(!enabled);
+
+      if (socketRef.current) {
+        socketRef.current.emit('peer-speaking-state', {
+          slotId,
+          isSpeaking: enabled,
+          micActive: enabled,
+          volumeLevel: enabled ? localVolume : 0,
+        });
+      }
+    }
+  }, [slotId, localVolume]);
+
   // Broadcast spoken transcript to all room members
   const broadcastTranscript = useCallback((text: string, elapsedSeconds: number) => {
     if (socketRef.current && text.trim()) {
@@ -453,6 +530,7 @@ export function useWebRTCRoom({
     isSpeakingLive,
     localVolume,
     toggleMute,
+    setMicEnabled,
     broadcastTranscript,
     startSession,
     error,

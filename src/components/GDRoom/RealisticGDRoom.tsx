@@ -146,6 +146,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     isSpeakingLive: rtcIsSpeakingLive,
     localVolume: rtcLocalVolume,
     toggleMute: rtcToggleMute,
+    setMicEnabled: rtcSetMicEnabled,
     broadcastTranscript: rtcBroadcastTranscript,
     startSession: rtcStartSession,
   } = useWebRTCRoom({
@@ -375,6 +376,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           setIsListeningMic(false);
           isListeningMicRef.current = false;
           stopAudioAnalyser();
+          rtcSetMicEnabled(false);
           if (!isFaculty) {
             setSession((prev) => ({
               ...prev,
@@ -396,6 +398,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           setIsListeningMic(false);
           isListeningMicRef.current = false;
           stopAudioAnalyser();
+          rtcSetMicEnabled(false);
           if (!isFaculty) {
             setSession((prev) => ({
               ...prev,
@@ -407,7 +410,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognitionRef.current = recognition;
       }
     }
-  }, [isFaculty, stopAudioAnalyser]);
+  }, [isFaculty, stopAudioAnalyser, rtcSetMicEnabled]);
 
   const toggleMicRecognition = () => {
     if (!isSessionActive && !isFaculty) {
@@ -439,6 +442,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
       setIsListeningMic(false);
       stopAudioAnalyser();
+      rtcSetMicEnabled(false);
       if (!isFaculty) {
         setSession((prev) => ({
           ...prev,
@@ -453,6 +457,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognitionRef.current.start();
         setIsListeningMic(true);
         startAudioAnalyser();
+        rtcSetMicEnabled(true);
         if (!isFaculty) {
           setSession((prev) => ({
             ...prev,
