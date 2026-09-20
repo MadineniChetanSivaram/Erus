@@ -163,6 +163,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
               const enrolled = slot.enrolledCount ?? slot.students?.length ?? 15;
               const isFull = enrolled >= maxCap;
               const isSelected = slot.id === currentSlotId;
+              const isCompleted = slot.status === 'completed';
               const seatsLeft = Math.max(0, maxCap - enrolled);
               const occupancyPercent = Math.min(100, Math.round((enrolled / maxCap) * 100));
 
@@ -170,7 +171,9 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                 <div
                   key={slot.id}
                   className={`p-4 rounded-2xl border transition-all relative flex flex-col justify-between ${
-                    isSelected
+                    isCompleted
+                      ? 'bg-purple-50/40 dark:bg-purple-950/25 border-purple-300 dark:border-purple-800/60 shadow-xs'
+                      : isSelected
                       ? 'bg-indigo-50/80 dark:bg-indigo-950/60 border-indigo-500 ring-2 ring-indigo-500/30 shadow-md shadow-indigo-500/10'
                       : isFull
                       ? 'bg-slate-50/60 dark:bg-slate-950/40 border-rose-200/80 dark:border-rose-900/50'
@@ -181,12 +184,23 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                     {/* Top Row: Slot Badge & Status Pill */}
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full ${isFull && !isSelected ? 'bg-rose-500' : 'bg-indigo-500'}`} />
+                        <span className={`w-2 h-2 rounded-full ${
+                          isCompleted
+                            ? 'bg-purple-500'
+                            : isFull && !isSelected 
+                            ? 'bg-rose-500' 
+                            : 'bg-indigo-500'
+                        }`} />
                         <span>{slot.slotName || `Slot ${index + 1}`}</span>
                       </span>
 
                       {/* Status Badges */}
-                      {isSelected ? (
+                      {isCompleted ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold text-[10px] border border-purple-200 dark:border-purple-800 shadow-xs">
+                          <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          <span>COMPLETED</span>
+                        </span>
+                      ) : isSelected ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold text-[10px] shadow-xs">
                           <CheckCircle2 className="w-3 h-3" />
                           <span>Joined (Your Slot)</span>
@@ -225,7 +239,11 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                           <Users className="w-3.5 h-3.5 text-teal-500" />
                           <span>{enrolled} / {maxCap} Students Joined</span>
                         </div>
-                        {isFull ? (
+                        {isCompleted ? (
+                          <span className="font-bold text-purple-600 dark:text-purple-400 text-[10px]">
+                            Session Concluded
+                          </span>
+                        ) : isFull ? (
                           <span className="font-bold text-rose-600 dark:text-rose-400 text-[10px]">
                             Capacity Reached
                           </span>
@@ -240,7 +258,9 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                       <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                         <div 
                           className={`h-full transition-all duration-300 rounded-full ${
-                            isFull 
+                            isCompleted
+                              ? 'bg-purple-500'
+                              : isFull 
                               ? 'bg-rose-500' 
                               : occupancyPercent > 80 
                               ? 'bg-amber-500' 
@@ -254,7 +274,12 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
 
                   {/* Action Button */}
                   <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                    {isSelected ? (
+                    {isCompleted ? (
+                      <div className="w-full py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold text-xs flex items-center justify-center gap-1.5 border border-purple-200 dark:border-purple-800/60">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                        <span>GD Completed • Evaluated</span>
+                      </div>
+                    ) : isSelected ? (
                       <div className="w-full py-2 px-3 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center justify-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Currently Joined in This Slot</span>

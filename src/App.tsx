@@ -329,12 +329,37 @@ function GDAppContent() {
       addReportToStudentHistory(fallbackRep);
     }
 
+    const finishedSlotId = session.id;
+
+    // Conclude active session
     setSession((prev) => ({
       ...prev,
       status: 'completed',
       currentPhase: 'conclusion',
       facilitatorSpeech: 'Thank you everyone. We discussed both the advantages and disadvantages thoroughly. Individual assessment reports have now been compiled.',
     }));
+
+    // Mark slot as completed in availableSlots roster
+    setAvailableSlots((prevSlots) =>
+      prevSlots.map((slot) => {
+        if (slot.id === finishedSlotId || slot.id === session.id) {
+          return {
+            ...slot,
+            status: 'completed',
+            currentPhase: 'conclusion',
+          };
+        }
+        return slot;
+      })
+    );
+
+    // Sync completion status to backend
+    try {
+      fetch(`/api/college/slots/${encodeURIComponent(finishedSlotId)}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch((err) => console.warn('[Slot Complete Sync Notice]:', err));
+    } catch {}
 
     setCurrentTab('report');
   };

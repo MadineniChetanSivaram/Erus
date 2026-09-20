@@ -947,6 +947,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   .map((slot) => {
                     const maxCap = slot.maxCapacity || 15;
                     const enrolled = slot.enrolledCount ?? slot.students?.length ?? 15;
+                    const isCompleted = slot.status === 'completed';
                     const isFull = enrolled >= maxCap;
                     const isCurrent = slot.id === session.id;
                     const seatsLeft = Math.max(0, maxCap - enrolled);
@@ -956,16 +957,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         key={slot.id}
                         type="button"
                         onClick={() => {
+                          if (isCompleted && !isCurrent) {
+                            onSelectSlot && onSelectSlot(slot.id);
+                            return;
+                          }
                           if (isFull && !isCurrent) {
                             alert(`Slot "${slot.slotName || slot.id}" is full (${enrolled}/${maxCap} students). Please select an open slot.`);
                             return;
                           }
                           onSelectSlot && onSelectSlot(slot.id);
                         }}
-                        disabled={isFull && !isCurrent}
+                        disabled={isFull && !isCurrent && !isCompleted}
                         className={`px-2.5 py-1 rounded-lg text-xs transition-all flex items-center gap-1.5 ${
                           isCurrent
-                            ? 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
+                            ? isCompleted
+                              ? 'bg-purple-600 text-white font-bold shadow-xs cursor-default'
+                              : 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
+                            : isCompleted
+                            ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 cursor-pointer'
                             : isFull
                             ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 opacity-80 cursor-not-allowed'
                             : 'bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 cursor-pointer'
@@ -973,20 +982,26 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       >
                         <span className="font-medium">{slot.slotName || slot.id}</span>
                         {slot.slotTiming && (
-                          <span className={`text-[10px] font-mono ${isCurrent ? 'text-indigo-100' : 'text-slate-400'}`}>
+                          <span className={`text-[10px] font-mono ${isCurrent ? 'text-white/80' : 'text-slate-400'}`}>
                             ({slot.slotTiming})
                           </span>
                         )}
                         <span className={`text-[10px] font-mono px-1 rounded font-bold ${
                           isCurrent 
                             ? 'bg-white/20 text-white' 
+                            : isCompleted
+                            ? 'bg-purple-200/80 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
                             : isFull 
                             ? 'bg-rose-200/80 dark:bg-rose-900 text-rose-800 dark:text-rose-200' 
                             : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                         }`}>
                           {enrolled}/{maxCap}
                         </span>
-                        {isCurrent ? (
+                        {isCompleted ? (
+                          <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                            isCurrent ? 'bg-white/25 text-white' : 'bg-purple-600 text-white'
+                          }`}>Completed</span>
+                        ) : isCurrent ? (
                           <span className="text-[10px] uppercase font-bold bg-white/25 px-1 rounded">Joined</span>
                         ) : isFull ? (
                           <span className="text-[9px] uppercase font-bold bg-rose-600 text-white px-1 rounded">Full</span>

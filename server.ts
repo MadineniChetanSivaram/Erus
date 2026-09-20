@@ -2646,6 +2646,32 @@ app.post('/api/college/slots', async (req, res) => {
   }
 });
 
+// Mark GD Slot as Completed
+app.post('/api/college/slots/:id/complete', async (req, res) => {
+  try {
+    const slotId = req.params.id;
+
+    if (isDbConnected && prisma) {
+      await prisma.gDSession.updateMany({
+        where: { id: slotId },
+        data: { status: 'completed' },
+      });
+      return res.json({ success: true, slotId, status: 'completed' });
+    }
+
+    // In-memory fallback
+    const slot = IN_MEM_SLOTS.find((s) => s.id === slotId);
+    if (slot) {
+      slot.status = 'completed';
+    }
+
+    res.json({ success: true, slotId, status: 'completed' });
+  } catch (err: any) {
+    console.error('[Complete Slot Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to mark slot as completed.' });
+  }
+});
+
 // ==========================================
 // REAL-TIME MULTI-USER WEBRTC AUDIO & ROOM GATEWAY (SOCKET.IO)
 // ==========================================
