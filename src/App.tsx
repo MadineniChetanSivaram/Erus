@@ -129,6 +129,15 @@ function GDAppContent() {
     } catch {}
   }, [availableSlots]);
 
+  // Keep live faculty observation notes synchronized into availableSlots
+  useEffect(() => {
+    if (session.facultyLiveNotes && session.facultyLiveNotes.length > 0) {
+      setAvailableSlots((prev) =>
+        prev.map((s) => (s.id === session.id ? { ...s, facultyLiveNotes: session.facultyLiveNotes } : s))
+      );
+    }
+  }, [session.id, session.facultyLiveNotes]);
+
   // Reset slots back to clean demo defaults
   const handleResetSlots = () => {
     try {
@@ -392,14 +401,26 @@ function GDAppContent() {
 
       const data = await res.json();
       if (data.report) {
-        setActiveReport(data.report);
-        addReportToStudentHistory(data.report);
+        const enhancedReport: StudentAssessmentReport = {
+          ...data.report,
+          facultyLiveNotes: session.facultyLiveNotes?.filter(
+            (n) => n.studentId === userStudent.id || n.studentName.toLowerCase() === userStudent.name.toLowerCase()
+          ),
+        };
+        setActiveReport(enhancedReport);
+        addReportToStudentHistory(enhancedReport);
       }
     } catch (e) {
       console.warn('Evaluation fallback:', e);
       const fallbackRep = generateStudentReport(userStudent, session.topic, session.durationMinutes);
-      setActiveReport(fallbackRep);
-      addReportToStudentHistory(fallbackRep);
+      const enhancedReport: StudentAssessmentReport = {
+        ...fallbackRep,
+        facultyLiveNotes: session.facultyLiveNotes?.filter(
+          (n) => n.studentId === userStudent.id || n.studentName.toLowerCase() === userStudent.name.toLowerCase()
+        ),
+      };
+      setActiveReport(enhancedReport);
+      addReportToStudentHistory(enhancedReport);
     }
 
     const finishedSlotId = session.id;
@@ -420,6 +441,7 @@ function GDAppContent() {
             ...slot,
             status: 'completed',
             currentPhase: 'conclusion',
+            facultyLiveNotes: session.facultyLiveNotes || slot.facultyLiveNotes,
           };
         }
         return slot;

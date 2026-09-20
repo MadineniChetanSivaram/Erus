@@ -14,7 +14,9 @@ import {
   Filter, 
   Search,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Bookmark,
+  Tag
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { 
@@ -383,7 +385,90 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         </p>
       </div>
 
-      {/* Student-wise Scores & Leaderboard Table (Page 11 Spec) */}
+      {/* Faculty Live In-Session Observations & Bookmarks (Enhancement 4) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm dark:shadow-xl space-y-4 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Bookmark className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+              <span>Faculty Live In-Session Observations & Bookmarks</span>
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Timestamped qualitative notes and behavioral evaluations recorded during the live discussion.
+            </p>
+          </div>
+          <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 self-start sm:self-center">
+            {session.facultyLiveNotes?.length || 0} Recorded Notes
+          </span>
+        </div>
+
+        {(!session.facultyLiveNotes || session.facultyLiveNotes.length === 0) ? (
+          <div className="p-8 text-center bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+            <Bookmark className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              No faculty live observation notes recorded for this slot
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+              Faculty observers can record real-time qualitative notes with timestamps and category tags directly from the discussion room by clicking the "Observation Notes" button or individual student seat bookmarks.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {session.facultyLiveNotes.map((note) => {
+              const tagConfig = {
+                strength: { label: 'Strength', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' },
+                improvement: { label: 'Improvement', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' },
+                key_argument: { label: 'Key Argument', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-700' },
+                leadership: { label: 'Leadership', badge: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-700' },
+                general: { label: 'General', badge: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700' },
+              }[note.tag || 'general'];
+
+              return (
+                <div
+                  key={note.id}
+                  className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 space-y-2 hover:border-violet-300 dark:hover:border-violet-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        {note.studentName}
+                      </span>
+                      {note.seatNumber && (
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          Seat {note.seatNumber}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        ⏱ {note.timestamp}
+                      </span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${tagConfig.badge}`}>
+                        {tagConfig.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">
+                    "{note.note}"
+                  </p>
+
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                    <span>Evaluator: {note.facultyName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onViewStudentReport(note.studentId)}
+                      className="text-violet-600 dark:text-violet-400 font-semibold hover:underline cursor-pointer"
+                    >
+                      View Student Report →
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm dark:shadow-xl space-y-4 transition-colors">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

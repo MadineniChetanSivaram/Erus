@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Award, 
   Download, 
@@ -25,7 +25,9 @@ import {
   GraduationCap,
   Check,
   X,
-  FileText
+  FileText,
+  Bookmark,
+  Tag
 } from 'lucide-react';
 import { 
   StudentAssessmentReport, 
@@ -140,6 +142,14 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       addReportToStudentHistory(currentReport);
     }
   }, [currentReport]);
+
+  // Faculty live observation notes for this candidate (Enhancement 4)
+  const candidateLiveNotes = useMemo(() => {
+    const list = session.facultyLiveNotes || currentReport.facultyLiveNotes || [];
+    return list.filter(
+      (n) => n.studentId === selectedStudentId || n.studentName?.toLowerCase() === currentReport.studentName?.toLowerCase()
+    );
+  }, [session.facultyLiveNotes, currentReport.facultyLiveNotes, selectedStudentId, currentReport.studentName]);
 
   // Handle student switch (Allowed only for faculty reviewers)
   const handleSelectStudent = async (studentId: string) => {
@@ -855,6 +865,59 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           </div>
 
         </div>
+
+        {/* Section 3B: Faculty Live In-Session Observations & Bookmarks (Enhancement 4) */}
+        {candidateLiveNotes.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-900/50 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Faculty Live In-Session Observations & Bookmarks
+                </h4>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                {candidateLiveNotes.length} Verified Notes
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {candidateLiveNotes.map((note) => {
+                const tagConfig = {
+                  strength: { label: 'Strength', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' },
+                  improvement: { label: 'Improvement', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' },
+                  key_argument: { label: 'Key Argument', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-700' },
+                  leadership: { label: 'Leadership', badge: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-700' },
+                  general: { label: 'General', badge: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700' },
+                }[note.tag || 'general'];
+
+                return (
+                  <div
+                    key={note.id}
+                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold px-1.5 py-0.2 rounded text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          ⏱ {note.timestamp}
+                        </span>
+                        <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-full border ${tagConfig.badge}`}>
+                          {tagConfig.label}
+                        </span>
+                      </div>
+                      <p className="text-slate-800 dark:text-slate-200 leading-relaxed italic">
+                        "{note.note}"
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                      Evaluator: {note.facultyName}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Section 4: AI Recommendations for Practice */}
         <div className="bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-2xl p-4 sm:p-5 space-y-2.5">

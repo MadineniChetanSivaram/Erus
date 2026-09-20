@@ -29,13 +29,32 @@ interface UseWebRTCRoomOptions {
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
+    // Google & Cloudflare Global STUN
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
+    // OpenRelay Public TURN (UDP) for Symmetric NAT & strict proxies
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
+    // OpenRelay Public TURN (TCP - port 443 HTTPS bypass for UDP-blocking firewalls)
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelay',
+      credential: 'openrelay',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export function useWebRTCRoom({

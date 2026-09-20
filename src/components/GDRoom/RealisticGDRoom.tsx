@@ -36,15 +36,21 @@ import {
   User,
   Lock,
   FileText,
-  BarChart3
+  BarChart3,
+  Bookmark,
+  Trash2,
+  Plus,
+  Tag,
+  X
 } from 'lucide-react';
-import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType } from '../../types/gd';
+import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType, FacultyLiveNote } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { roomVoice, facilitatorVoice } from '../../utils/speechSynthesis';
 import { useUserMedia } from '../../utils/useUserMedia';
 import { useWebRTCRoom } from '../../hooks/useWebRTCRoom';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from '../../utils/facilitatorQuestionEngine';
 import { SlotSelectionModal } from './SlotSelectionModal';
+import { LobbyAudioTester } from './LobbyAudioTester';
 
 interface RealisticGDRoomProps {
   session: GDSession;
@@ -93,6 +99,58 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const isFaculty = currentUser?.role === 'faculty';
   const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
   const isSessionActive = session.status === 'active';
+
+  // Faculty Live Observation Notes State (Enhancement 4)
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
+  const [noteTargetStudentId, setNoteTargetStudentId] = useState<string>(session.students[0]?.id || '');
+  const [noteTimestamp, setNoteTimestamp] = useState<string>('00:00');
+  const [noteTag, setNoteTag] = useState<'strength' | 'improvement' | 'key_argument' | 'leadership' | 'general'>('general');
+  const [noteContent, setNoteContent] = useState<string>('');
+
+  const formatElapsedClock = (secs: number) => {
+    const mins = Math.floor(secs / 60).toString().padStart(2, '0');
+    const remainingSecs = (secs % 60).toString().padStart(2, '0');
+    return `${mins}:${remainingSecs}`;
+  };
+
+  const handleOpenNoteModal = (studentId?: string) => {
+    const targetId = studentId || noteTargetStudentId || session.students[0]?.id || '';
+    setNoteTargetStudentId(targetId);
+    setNoteTimestamp(formatElapsedClock(elapsedSeconds));
+    setIsNotesModalOpen(true);
+  };
+
+  const handleSaveObservationNote = () => {
+    if (!noteContent.trim()) return;
+    const targetStudent = session.students.find((s) => s.id === noteTargetStudentId) || session.students[0];
+    const newNote: FacultyLiveNote = {
+      id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      sessionId: session.id,
+      studentId: targetStudent.id,
+      studentName: targetStudent.name,
+      seatNumber: targetStudent.seatNumber,
+      timestamp: noteTimestamp || formatElapsedClock(elapsedSeconds),
+      timestampSeconds: elapsedSeconds,
+      note: noteContent.trim(),
+      tag: noteTag,
+      facultyName: currentUser?.name || 'Dr. Sunita Rao (Faculty Evaluator)',
+      createdAt: Date.now(),
+    };
+
+    setSession((prev) => ({
+      ...prev,
+      facultyLiveNotes: [...(prev.facultyLiveNotes || []), newNote],
+    }));
+
+    setNoteContent('');
+  };
+
+  const handleDeleteObservationNote = (noteId: string) => {
+    setSession((prev) => ({
+      ...prev,
+      facultyLiveNotes: (prev.facultyLiveNotes || []).filter((n) => n.id !== noteId),
+    }));
+  };
 
   // Real-time media (webcam video stream & live audio level analyser)
   const {
@@ -926,48 +984,53 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 </div>
               </div>
             ) : !isSessionActive ? (
-              <div className="mt-3 p-3 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 dark:border-amber-700/40 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                    <Lock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                        Session Status: Waiting Lobby
-                      </span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                        {rtcPeers.length + (isFaculty ? 0 : 1)} Participant(s) In Room
-                      </span>
+              <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 dark:border-amber-700/40 space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                      <Lock className="w-4 h-4" />
                     </div>
-                    <p className="text-[11px] text-amber-800 dark:text-amber-300/80 mt-0.5">
-                      {canStartSession
-                        ? 'All participants are waiting in the lobby with muted microphones. Click "Start Group Discussion" when ready.'
-                        : `Waiting for Faculty In-Charge ${session.assignedFacultyName ? `(${session.assignedFacultyName}) ` : ''}to start the session. Microphones and AI speech are muted.`}
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                          Session Status: Waiting Lobby
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                          {rtcPeers.length + (isFaculty ? 0 : 1)} Participant(s) In Room
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 dark:text-amber-300/80 mt-0.5">
+                        {canStartSession
+                          ? 'All participants are waiting in the lobby with muted microphones. Click "Start Group Discussion" when ready.'
+                          : `Waiting for Faculty In-Charge ${session.assignedFacultyName ? `(${session.assignedFacultyName}) ` : ''}to start the session. Microphones and AI speech are muted.`}
+                      </p>
+                    </div>
                   </div>
+
+                  {canStartSession ? (
+                    <button
+                      id="faculty-start-gd-banner-btn"
+                      onClick={() => {
+                        if (onStartSession) {
+                          onStartSession(session.id);
+                        }
+                        rtcStartSession();
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>Start Group Discussion</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-300/60 dark:border-amber-700/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      <span>Waiting for Faculty to Start</span>
+                    </div>
+                  )}
                 </div>
 
-                {canStartSession ? (
-                  <button
-                    id="faculty-start-gd-banner-btn"
-                    onClick={() => {
-                      if (onStartSession) {
-                        onStartSession(session.id);
-                      }
-                      rtcStartSession();
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                    <span>Start Group Discussion</span>
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-300/60 dark:border-amber-700/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                    <span>Waiting for Faculty to Start</span>
-                  </div>
-                )}
+                {/* Enhancement 1: Pre-Session Audio & Mic Test Widget */}
+                <LobbyAudioTester />
               </div>
             ) : (
               /* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */
@@ -1076,6 +1139,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
               <span>Explain Rules</span>
             </button>
+
+            {/* Enhancement 4: Faculty Live Observation Notes Button */}
+            {canStartSession && (
+              <button
+                id="faculty-notes-btn"
+                onClick={() => handleOpenNoteModal()}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/70 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 transition-all shadow-xs active:scale-95 cursor-pointer"
+                title="Open Live Observation Notes & Bookmarks"
+              >
+                <Bookmark className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                <span>Observation Notes</span>
+                {(session.facultyLiveNotes?.length || 0) > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-600 text-white font-mono">
+                    {session.facultyLiveNotes?.length}
+                  </span>
+                )}
+              </button>
+            )}
 
             {session.status === 'completed' ? (
               <button
@@ -1406,6 +1487,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         audioLevel={audioLevel}
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
+                        onAddNote={handleOpenNoteModal}
                       />
                     ))}
                   </div>
@@ -1423,6 +1505,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         audioLevel={audioLevel}
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
+                        onAddNote={handleOpenNoteModal}
                       />
                     ))}
                   </div>
@@ -1515,6 +1598,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         audioLevel={audioLevel}
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
+                        onAddNote={handleOpenNoteModal}
                       />
                     ))}
                   </div>
@@ -1532,6 +1616,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         audioLevel={audioLevel}
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
+                        onAddNote={handleOpenNoteModal}
                       />
                     ))}
                   </div>
@@ -1661,6 +1746,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           audioLevel={audioLevel}
                           isListeningMic={isListeningMic}
                           isFaculty={isFaculty}
+                          onAddNote={handleOpenNoteModal}
                         />
                       ))}
                     </div>
@@ -1683,6 +1769,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           audioLevel={audioLevel}
                           isListeningMic={isListeningMic}
                           isFaculty={isFaculty}
+                          onAddNote={handleOpenNoteModal}
                         />
                       ))}
                     </div>
@@ -1706,6 +1793,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             audioLevel={audioLevel}
                             isListeningMic={isListeningMic}
                             isFaculty={isFaculty}
+                            onAddNote={handleOpenNoteModal}
                           />
                         ))}
                       </div>
@@ -2363,6 +2451,246 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         onResetSlots={onResetSlots}
       />
 
+      {/* Faculty Live Observation Notes & Bookmarks Modal (Enhancement 4) */}
+      {isNotesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-violet-600/15 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                  <Bookmark className="w-5 h-5 fill-current" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Faculty Observation Notes & Bookmarks</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Record live timestamped notes during the active discussion
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNotesModalOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Note Creation Form */}
+            <div className="py-3 space-y-3 border-b border-slate-200 dark:border-slate-800">
+              {/* Row 1: Student selector + Timestamp */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Select Participant:
+                  </label>
+                  <select
+                    value={noteTargetStudentId}
+                    onChange={(e) => setNoteTargetStudentId(e.target.value)}
+                    className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500 cursor-pointer"
+                  >
+                    {session.students.filter((s) => !s.isEmptySeat).map((st) => (
+                      <option key={st.id} value={st.id}>
+                        Seat {st.seatNumber}: {st.name} {st.isRealPeer ? '(Live Peer)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Timestamp:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setNoteTimestamp(formatElapsedClock(elapsedSeconds))}
+                      className="text-[10px] text-violet-600 dark:text-violet-400 hover:underline font-mono"
+                    >
+                      Now ({formatElapsedClock(elapsedSeconds)})
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={noteTimestamp}
+                    onChange={(e) => setNoteTimestamp(e.target.value)}
+                    placeholder="mm:ss"
+                    className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Tag Selection */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Tag Classification:
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(
+                    [
+                      { id: 'strength', label: 'Strength', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' },
+                      { id: 'improvement', label: 'Improvement', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700' },
+                      { id: 'key_argument', label: 'Key Argument', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border-blue-300 dark:border-blue-700' },
+                      { id: 'leadership', label: 'Leadership', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300 dark:border-purple-700' },
+                      { id: 'general', label: 'General', color: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700' },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setNoteTag(t.id)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all cursor-pointer ${
+                        noteTag === t.id
+                          ? `${t.color} font-bold ring-2 ring-violet-500/50 shadow-xs scale-105`
+                          : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-transparent hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 3: Quick Remarks Chips */}
+              <div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold block mb-1">
+                  Quick Remark Presets (Click to insert):
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap max-h-20 overflow-y-auto">
+                  {[
+                    'Strong opening argument with data',
+                    'Constructively synthesised opposing points',
+                    'Interrupted peer without waiting',
+                    'Needs more quantitative evidence',
+                    'Active listening and balanced turn-taking',
+                    'Excellent rebuttal and counter-example',
+                    'Encouraged quieter peers to participate',
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setNoteContent((prev) => (prev ? `${prev}. ${preset}` : preset))}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-violet-100 dark:hover:bg-violet-950/60 hover:text-violet-700 dark:hover:text-violet-300 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 4: Note Text + Add Button */}
+              <div className="space-y-2">
+                <textarea
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  placeholder="Type specific qualitative observation, behavior feedback, or argument assessment..."
+                  rows={2}
+                  className="w-full text-xs bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveObservationNote}
+                    disabled={!noteContent.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-md shadow-violet-600/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Record Observation</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Recorded Notes Feed */}
+            <div className="flex-1 overflow-y-auto pt-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-violet-500" />
+                  <span>Recorded Notes for this Session</span>
+                </h4>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 font-bold">
+                  {(session.facultyLiveNotes?.length || 0)} Total
+                </span>
+              </div>
+
+              {(!session.facultyLiveNotes || session.facultyLiveNotes.length === 0) ? (
+                <div className="p-6 text-center text-slate-400 dark:text-slate-500 text-xs">
+                  <Bookmark className="w-8 h-8 mx-auto mb-2 opacity-40 text-violet-400" />
+                  <p className="font-semibold text-slate-600 dark:text-slate-300">No observation notes recorded yet</p>
+                  <p className="text-[11px] mt-0.5">Use the form above to record timestamped bookmarks for any participant.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {session.facultyLiveNotes.map((note) => {
+                    const tagStyles = {
+                      strength: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700',
+                      improvement: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700',
+                      key_argument: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border-blue-300 dark:border-blue-700',
+                      leadership: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300 dark:border-purple-700',
+                      general: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700',
+                    }[note.tag || 'general'];
+
+                    return (
+                      <div
+                        key={note.id}
+                        className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-2.5 text-xs hover:border-violet-300 dark:hover:border-violet-800 transition-colors"
+                      >
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {note.studentName}
+                            </span>
+                            {note.seatNumber && (
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono font-semibold">
+                                Seat {note.seatNumber}
+                              </span>
+                            )}
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono font-bold border border-indigo-200 dark:border-indigo-800">
+                              ⏱ {note.timestamp}
+                            </span>
+                            {note.tag && (
+                              <span className={`text-[10px] px-2 py-0.2 rounded-full border font-semibold capitalize ${tagStyles}`}>
+                                {note.tag.replace('_', ' ')}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-[11px]">
+                            {note.note}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteObservationNote(note.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          title="Delete note"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+              <span>Saved notes appear on the Faculty Dashboard and Student Evaluation Reports.</span>
+              <button
+                type="button"
+                onClick={() => setIsNotesModalOpen(false)}
+                className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
@@ -2520,6 +2848,7 @@ export const StudentPodCard: React.FC<{
   audioLevel?: number;
   isListeningMic?: boolean;
   isFaculty?: boolean;
+  onAddNote?: (student: Student) => void;
 }> = ({
   student,
   isCurrentSpeaker,
@@ -2529,6 +2858,7 @@ export const StudentPodCard: React.FC<{
   audioLevel = 0,
   isListeningMic = false,
   isFaculty = false,
+  onAddNote,
 }) => {
   const isUser = !isFaculty && !!student.isUser;
 
@@ -2553,6 +2883,19 @@ export const StudentPodCard: React.FC<{
         {isUser && <span className="text-[8px] bg-white/20 px-1 rounded">YOU</span>}
         {student.isRealPeer && !isUser && <span className="text-[8px] bg-emerald-400 text-emerald-950 px-1 rounded font-bold">LIVE</span>}
         {student.isEmptySeat && <span className="text-[8px] opacity-70">OPEN</span>}
+        {isFaculty && !student.isEmptySeat && onAddNote && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddNote(student);
+            }}
+            className="ml-0.5 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-amber-500 hover:text-amber-600 transition-colors cursor-pointer"
+            title={`Record live observation note for ${student.name}`}
+          >
+            <Bookmark className="w-2.5 h-2.5 fill-current" />
+          </button>
+        )}
       </div>
 
       {/* 2. Student Video / Avatar Bubble */}
@@ -2617,6 +2960,7 @@ export const ClassroomDeskCard: React.FC<{
   audioLevel?: number;
   isListeningMic?: boolean;
   isFaculty?: boolean;
+  onAddNote?: (student: Student) => void;
 }> = ({
   student,
   isCurrentSpeaker,
@@ -2625,6 +2969,7 @@ export const ClassroomDeskCard: React.FC<{
   audioLevel = 0,
   isListeningMic = false,
   isFaculty = false,
+  onAddNote,
 }) => {
   const isUser = !isFaculty && !!student.isUser;
 
@@ -2691,6 +3036,20 @@ export const ClassroomDeskCard: React.FC<{
           <span>{student.isEmptySeat ? '--' : `${student.speakingTurns}t`}</span>
         </div>
       </div>
+
+      {isFaculty && !student.isEmptySeat && onAddNote && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddNote(student);
+          }}
+          className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-amber-500 hover:text-amber-600 transition-colors cursor-pointer shrink-0"
+          title={`Record live observation note for ${student.name}`}
+        >
+          <Bookmark className="w-3 h-3 fill-current" />
+        </button>
+      )}
     </div>
   );
 };

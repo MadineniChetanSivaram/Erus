@@ -69,6 +69,21 @@ export interface GDSession {
   assignedFacultyName?: string;
   assignedFacultyEmail?: string;
   assignedFacultyDept?: string;
+  facultyLiveNotes?: FacultyLiveNote[];
+}
+
+export interface FacultyLiveNote {
+  id: string;
+  sessionId: string;
+  studentId: string;
+  studentName: string;
+  seatNumber?: number;
+  timestamp: string; // e.g. '03:42'
+  timestampSeconds: number;
+  note: string;
+  tag?: 'strength' | 'improvement' | 'key_argument' | 'leadership' | 'general';
+  facultyName: string;
+  createdAt: number;
 }
 
 export type GDRoomLayoutType = 'round_table' | 'speaker_center' | 'classroom';
@@ -156,6 +171,7 @@ export interface StudentAssessmentReport {
   aiRecommendations: string[];
   aiSummary: string;
   generatedAt: string;
+  facultyLiveNotes?: FacultyLiveNote[];
 }
 
 export interface FacultySessionAnalytics {
