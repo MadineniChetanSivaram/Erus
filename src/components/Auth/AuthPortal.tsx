@@ -25,6 +25,8 @@ interface RoleConfig {
   desc: string;
   icon: React.ComponentType<{ className?: string }>;
   gradient: string;
+  activeBorder: string;
+  badgeColor: string;
 }
 
 const ROLES: RoleConfig[] = [
@@ -32,17 +34,21 @@ const ROLES: RoleConfig[] = [
     id: 'student',
     label: 'Student',
     badge: 'Participant',
-    desc: 'Instant Join, live voice audio mesh & assessment report',
+    desc: 'Instant Join, live voice audio mesh & AI assessment report',
     icon: GraduationCap,
     gradient: 'from-blue-600 to-indigo-600',
+    activeBorder: 'border-blue-500/80 dark:border-blue-400/80',
+    badgeColor: 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60',
   },
   {
     id: 'faculty',
     label: 'Faculty',
     badge: 'Evaluator',
-    desc: 'Live observer room, AI sentiment tracker & grading rubrics',
+    desc: 'Live observer room, speaker notes, AI sentiment & rubrics',
     icon: ShieldCheck,
     gradient: 'from-teal-600 to-cyan-600',
+    activeBorder: 'border-teal-500/80 dark:border-teal-400/80',
+    badgeColor: 'bg-teal-50 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/60',
   },
   {
     id: 'college_admin',
@@ -51,6 +57,8 @@ const ROLES: RoleConfig[] = [
     desc: 'Student & faculty rosters, CSV upload & slot scheduling',
     icon: Building2,
     gradient: 'from-amber-500 to-orange-600',
+    activeBorder: 'border-amber-500/80 dark:border-amber-400/80',
+    badgeColor: 'bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
   },
   {
     id: 'super_admin',
@@ -59,6 +67,8 @@ const ROLES: RoleConfig[] = [
     desc: 'Onboard institutions, issue credentials & global KPIs',
     icon: Crown,
     gradient: 'from-purple-600 to-pink-600',
+    activeBorder: 'border-purple-500/80 dark:border-purple-400/80',
+    badgeColor: 'bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60',
   },
 ];
 
@@ -154,7 +164,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                 </div>
                 <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <span>{currentRole.label}</span>
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60">
+                  <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${currentRole.badgeColor}`}>
                     {currentRole.badge}
                   </span>
                 </div>
@@ -165,19 +175,19 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
               <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isMenuOpen ? 'rotate-180 text-indigo-600 dark:text-indigo-400' : 'group-hover:text-slate-600 dark:group-hover:text-slate-300'}`} />
             </button>
 
-            {/* Dropdown Menu Popup */}
+            {/* Dropdown Menu Popup (Spacious, Untruncated, & Modern) */}
             {isMenuOpen && (
-              <div className="absolute right-0 mt-2 w-72 sm:w-84 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-2 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 mb-1 flex items-center justify-between">
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-3xl bg-white/98 dark:bg-slate-900/98 backdrop-blur-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xl z-50 p-2 sm:p-2.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800/80 mb-1.5 flex items-center justify-between">
                   <span className="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 dark:text-slate-500">
-                    Select Access Role
+                    Switch Access Role
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold">
                     4 Roles Available
                   </span>
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {ROLES.map((role) => {
                     const Icon = role.icon;
                     const isSelected = activeTab === role.id;
@@ -189,35 +199,36 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                           setActiveTab(role.id);
                           setIsMenuOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                        className={`w-full flex items-start justify-between p-3 rounded-2xl text-left transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-slate-100 dark:bg-slate-800/90 ring-1 ring-slate-300/80 dark:ring-slate-700 shadow-xs'
-                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            ? 'bg-slate-100/90 dark:bg-slate-800/90 ring-1 ring-slate-300 dark:ring-slate-700 shadow-xs'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                          <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white shadow-xs shrink-0`}>
-                            <Icon className="w-4 h-4" />
+                        <div className="flex items-start gap-3 min-w-0 pr-2">
+                          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white shadow-xs shrink-0 mt-0.5`}>
+                            <Icon className="w-4.5 h-4.5" />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                              {role.label}
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                                {role.label}
+                              </span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${role.badgeColor}`}>
+                                {role.badge}
+                              </span>
                             </div>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                               {role.desc}
-                            </div>
+                            </p>
                           </div>
                         </div>
 
-                        {isSelected ? (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50 shrink-0">
+                        {isSelected && (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-200/80 dark:border-emerald-800/60 shrink-0 mt-1">
                             <Check className="w-3 h-3" />
                             <span>Active</span>
                           </div>
-                        ) : (
-                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 shrink-0">
-                            {role.badge}
-                          </span>
                         )}
                       </button>
                     );
@@ -251,6 +262,69 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       {/* Main Login Interface */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-8 max-w-7xl mx-auto w-full relative z-10">
         
+        {/* Primary Role Selector Hero Card Deck */}
+        <div className="w-full max-w-4xl mx-auto mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2 mb-3.5 px-1 text-center sm:text-left">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 dark:text-slate-500">
+                Institutional Access Portals
+              </div>
+              <h2 className="text-base sm:text-lg font-heading font-bold text-slate-900 dark:text-white">
+                Select Your Role to Continue
+              </h2>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>4 Portals Online</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+            {ROLES.map((role) => {
+              const Icon = role.icon;
+              const isSelected = activeTab === role.id;
+              return (
+                <button
+                  key={role.id}
+                  type="button"
+                  onClick={() => setActiveTab(role.id)}
+                  className={`p-3.5 sm:p-4 rounded-2xl text-left transition-all cursor-pointer relative flex flex-col justify-between group ${
+                    isSelected
+                      ? 'bg-white dark:bg-slate-900 border-2 ' + role.activeBorder + ' shadow-lg shadow-indigo-500/10 dark:shadow-none ring-2 ring-indigo-500/10 scale-[1.01]'
+                      : 'bg-white/80 dark:bg-slate-900/60 border border-slate-200/90 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs hover:scale-[1.01]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform`}>
+                        <Icon className="w-4.5 h-4.5" />
+                      </div>
+                      {isSelected ? (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-200/70 dark:border-emerald-800/60">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>Active</span>
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${role.badgeColor}`}>
+                          {role.badge}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="font-heading font-bold text-sm text-slate-900 dark:text-white mb-1">
+                      {role.label}
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug line-clamp-2">
+                      {role.desc}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Dynamic Login Component */}
         <div className="w-full">
           {activeTab === 'student' && (
