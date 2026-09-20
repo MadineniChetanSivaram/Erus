@@ -628,7 +628,6 @@ function GDAppContent() {
         onOpenCreateSession={() => setIsCreateModalOpen(true)}
         currentUser={currentUser}
         onLogout={handleLogout}
-        onStartSession={handleStartSession}
       />
 
       {/* Main Responsive Application Viewport */}
