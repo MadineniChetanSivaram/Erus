@@ -33,6 +33,8 @@ interface FacultyDashboardViewProps {
   onViewStudentReport: (studentId: string) => void;
   onBackToRoom: () => void;
   onStartSession?: (slotId?: string) => void;
+  availableSlots?: GDSession[];
+  onSelectSlot?: (slotId: string) => void;
 }
 
 export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
@@ -41,6 +43,8 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   onViewStudentReport,
   onBackToRoom,
   onStartSession,
+  availableSlots,
+  onSelectSlot,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [aiSummary, setAiSummary] = useState<string>(
@@ -140,7 +144,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {session.status !== 'active' && onStartSession && (
+          {session.status === 'waiting' && onStartSession && (
             <button
               onClick={() => {
                 onStartSession(session.id);
@@ -154,6 +158,13 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </button>
           )}
 
+          {session.status === 'completed' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs">
+              <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>Session Evaluated & Completed</span>
+            </div>
+          )}
+
           <button
             id="download-transcript-btn"
             onClick={handleExportTranscript}
@@ -165,12 +176,51 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
 
           <button
             onClick={onBackToRoom}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
           >
-            <span>Back to Live Room</span>
+            <span>{session.status === 'completed' ? 'Go to Active GD Room' : 'Back to Live Room'}</span>
           </button>
         </div>
       </div>
+
+      {/* Slot Switcher for Faculty: Easily inspect any completed or active slot */}
+      {availableSlots && availableSlots.length > 0 && onSelectSlot && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+              Select Session Slot to View Analytics:
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {availableSlots.map((sl) => {
+              const isSelected = sl.id === session.id;
+              const isCompleted = sl.status === 'completed';
+              return (
+                <button
+                  key={sl.id}
+                  onClick={() => onSelectSlot(sl.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                      : isCompleted
+                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {isCompleted && <CheckCircle2 className="w-3 h-3 text-purple-500" />}
+                  <span>{sl.slotName || sl.id}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    {isCompleted ? 'Completed' : sl.status}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Session Summary Cards (Page 11 Display Spec) */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">

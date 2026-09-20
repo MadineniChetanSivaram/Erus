@@ -34,7 +34,9 @@ import {
   Wifi,
   WifiOff,
   User,
-  Lock
+  Lock,
+  FileText,
+  BarChart3
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -870,8 +872,55 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {session.description}
             </p>
 
-            {/* Waiting Lobby Banner (Pre-Session) OR 20-Second Silence Deadlock Watchdog (Active Session) */}
-            {!isSessionActive ? (
+            {/* Session Completed Banner OR Waiting Lobby Banner OR 20-Second Silence Watchdog */}
+            {session.status === 'completed' ? (
+              <div className="mt-3 p-3.5 rounded-2xl bg-purple-500/10 dark:bg-purple-950/40 border border-purple-500/30 dark:border-purple-700/40 flex items-center justify-between gap-3 flex-wrap shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-purple-900 dark:text-purple-200">
+                        Session Concluded & Evaluated
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-700">
+                        Evaluated by AI Facilitator
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-purple-800 dark:text-purple-300/80 mt-0.5">
+                      This group discussion session is completed. All participation metrics have been recorded.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onSelectSlot && onSelectSlot(session.id)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/20 transition-all cursor-pointer"
+                  >
+                    {currentUser?.role === 'student' ? (
+                      <>
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>View My Assessment Report</span>
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>View Overall Analytics</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setIsSlotModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                  >
+                    <span>Browse All Slots</span>
+                  </button>
+                </div>
+              </div>
+            ) : !isSessionActive ? (
               <div className="mt-3 p-3 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 dark:border-amber-700/40 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
@@ -970,7 +1019,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
           {/* Quick Facilitator Action Bar */}
           <div className="flex items-center gap-2 flex-wrap">
-            {canStartSession && !isSessionActive && (
+            {canStartSession && session.status === 'waiting' && (
               <button
                 id="faculty-start-gd-btn"
                 onClick={() => {
@@ -1023,15 +1072,35 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               <span>Explain Rules</span>
             </button>
 
-            <button
-              id="finish-session-btn"
-              onClick={onFinishSession}
-              disabled={!isSessionActive}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
-            >
-              <Award className="w-4 h-4" />
-              <span>Conclude & Generate Report</span>
-            </button>
+            {session.status === 'completed' ? (
+              <button
+                id="view-completed-report-btn"
+                onClick={() => onSelectSlot && onSelectSlot(session.id)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-700/20 transition-all active:scale-95 cursor-pointer"
+              >
+                {currentUser?.role === 'student' ? (
+                  <>
+                    <FileText className="w-4 h-4" />
+                    <span>View Evaluated Report</span>
+                  </>
+                ) : (
+                  <>
+                    <BarChart3 className="w-4 h-4" />
+                    <span>View Overall Analytics</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                id="finish-session-btn"
+                onClick={onFinishSession}
+                disabled={!isSessionActive}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Award className="w-4 h-4" />
+                <span>Conclude & Generate Report</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1065,7 +1134,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         key={slot.id}
                         type="button"
                         onClick={() => {
-                          if (isCompleted && !isCurrent) {
+                          if (isCompleted) {
                             onSelectSlot && onSelectSlot(slot.id);
                             return;
                           }
@@ -1076,13 +1145,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           onSelectSlot && onSelectSlot(slot.id);
                         }}
                         disabled={isFull && !isCurrent && !isCompleted}
+                        title={
+                          isCompleted
+                            ? (currentUser?.role === 'student'
+                                ? `GD Completed • Click to view your assessment report`
+                                : `GD Completed • Click to view overall session analytics`)
+                            : isCurrent
+                            ? `Currently joined in this slot`
+                            : isFull
+                            ? `Slot full (${enrolled}/${maxCap})`
+                            : `Select & Join ${slot.slotName || slot.id}`
+                        }
                         className={`px-2.5 py-1 rounded-lg text-xs transition-all flex items-center gap-1.5 ${
-                          isCurrent
-                            ? isCompleted
-                              ? 'bg-purple-600 text-white font-bold shadow-xs cursor-default'
-                              : 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
-                            : isCompleted
-                            ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 cursor-pointer'
+                          isCompleted
+                            ? isCurrent
+                              ? 'bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs cursor-pointer'
+                              : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50 cursor-pointer'
+                            : isCurrent
+                            ? 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
                             : isFull
                             ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 opacity-80 cursor-not-allowed'
                             : 'bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 cursor-pointer'

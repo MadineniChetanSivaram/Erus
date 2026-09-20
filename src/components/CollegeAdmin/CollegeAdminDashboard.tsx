@@ -19,7 +19,8 @@ import {
   FileSpreadsheet,
   ChevronRight,
   Sparkles,
-  Award
+  Award,
+  BarChart3
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
@@ -720,13 +721,24 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
 
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   {onEnterGDRoom && (
-                    <button
-                      onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
-                      className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Launch / Join GD</span>
-                    </button>
+                    sl.status === 'completed' ? (
+                      <button
+                        onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
+                        className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                        title="View overall session analytics, student scores, and cohort performance"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>View Overall Analytics & Report</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
+                        className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Launch / Join GD</span>
+                      </button>
+                    )
                   )}
                 </div>
               </div>

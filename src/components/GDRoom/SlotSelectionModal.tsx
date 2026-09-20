@@ -14,8 +14,10 @@ import {
   AlertCircle,
   RotateCcw,
   GraduationCap,
+  UserCheck,
   Filter,
-  UserCheck
+  FileText,
+  BarChart3
 } from 'lucide-react';
 import { GDSession } from '../../types/gd';
 import { INSTITUTIONAL_FACULTY, FacultyMemberInfo } from '../../data/mockGDData';
@@ -455,10 +457,27 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                     {/* Action Button */}
                     <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
                       {isCompleted ? (
-                        <div className="w-full py-2 px-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 font-semibold text-xs flex items-center justify-center gap-1.5 border border-purple-200 dark:border-purple-800/60">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                          <span>GD Completed • Evaluated</span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectSlot(slot.id);
+                            onClose();
+                          }}
+                          className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer group"
+                        >
+                          {currentUser?.role === 'student' ? (
+                            <>
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>View My Assessment Report</span>
+                            </>
+                          ) : (
+                            <>
+                              <BarChart3 className="w-3.5 h-3.5" />
+                              <span>View Overall Analytics & Reports</span>
+                            </>
+                          )}
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                        </button>
                       ) : isSelected ? (
                         <div className="w-full py-2 px-3 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center justify-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5" />

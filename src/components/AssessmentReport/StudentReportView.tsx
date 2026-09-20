@@ -46,6 +46,8 @@ interface StudentReportViewProps {
   onViewFacultyDashboard: () => void;
   currentUser?: AuthUser | null;
   targetStudentId?: string | null;
+  availableSlots?: GDSession[];
+  onSelectSlot?: (slotId: string) => void;
 }
 
 export const StudentReportView: React.FC<StudentReportViewProps> = ({
@@ -55,6 +57,8 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   onViewFacultyDashboard,
   currentUser,
   targetStudentId,
+  availableSlots,
+  onSelectSlot,
 }) => {
   const isStudent = currentUser?.role === 'student';
   const isFaculty = currentUser?.role === 'faculty';
@@ -361,7 +365,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               onClick={onBackToRoom}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
             >
-              <span>Back to GD Room</span>
+              <span>{session.status === 'completed' ? 'Go to Active GD Room' : 'Back to GD Room'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           ) : (
@@ -377,6 +381,45 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         </div>
 
       </div>
+
+      {/* Student Completed Sessions Slot Bar */}
+      {availableSlots && availableSlots.length > 0 && onSelectSlot && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs flex items-center justify-between gap-3 flex-wrap no-print">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Viewing Report for Slot:
+            </span>
+            <span className="text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-800 flex items-center gap-1.5">
+              <span>{session.slotName || session.id}</span>
+              {session.status === 'completed' && <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">• Completed & Evaluated</span>}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">View Other Slot Reports:</span>
+            {availableSlots.map((sl) => {
+              const isSelected = sl.id === session.id;
+              const isCompleted = sl.status === 'completed';
+              return (
+                <button
+                  key={sl.id}
+                  onClick={() => onSelectSlot(sl.id)}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-purple-600 text-white shadow-xs font-bold'
+                      : isCompleted
+                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{sl.slotName || sl.id}</span>
+                  {isCompleted && <span className="text-[10px] text-purple-500 font-bold">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Report View Toggle: Single Session vs Comparison Report */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 no-print bg-slate-100/90 dark:bg-slate-900/90 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">

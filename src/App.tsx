@@ -441,6 +441,58 @@ function GDAppContent() {
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
 
+    // Handle Completed Session Click:
+    // Never open the GD room again or play AI voice.
+    // - Students see their individual 7-parameter assessment report.
+    // - Faculty & Admins see overall reports and cohort analytics.
+    if (targetSlot.status === 'completed') {
+      facilitatorVoice.stop();
+      sessionQuestionTracker.clear();
+
+      let slotForState = targetSlot;
+      if (currentUser && currentUser.role === 'student') {
+        const targetStudents = targetSlot.students || [];
+        let updatedTargetStudents: Student[];
+        if (targetStudents.length > 0) {
+          updatedTargetStudents = targetStudents.map((s, idx) => ({
+            ...s,
+            isUser: idx === 0 || s.id === currentUser.id,
+            name: (idx === 0 || s.id === currentUser.id) ? currentUser.name : s.name,
+            college: (idx === 0 || s.id === currentUser.id) ? currentUser.college : s.college,
+            course: (idx === 0 || s.id === currentUser.id) ? currentUser.course : s.course,
+            batch: (idx === 0 || s.id === currentUser.id) ? currentUser.batch : s.batch,
+          }));
+        } else {
+          updatedTargetStudents = generateSlotParticipants(15).map((s, idx) => ({
+            ...s,
+            isUser: idx === 0,
+            name: idx === 0 ? currentUser.name : s.name,
+            college: idx === 0 ? currentUser.college : s.college,
+            course: idx === 0 ? currentUser.course : s.course,
+            batch: idx === 0 ? currentUser.batch : s.batch,
+          }));
+        }
+        slotForState = { ...targetSlot, students: updatedTargetStudents };
+        setSession(slotForState);
+
+        const userStudent = slotForState.students.find((s) => s.isUser) || slotForState.students[0];
+        const studentReport = generateStudentReport(userStudent, targetSlot.topic, targetSlot.durationMinutes);
+        setActiveReport(studentReport);
+        addReportToStudentHistory(studentReport);
+        setViewingStudentId(userStudent.id);
+        setCurrentTab('report');
+      } else {
+        const facultyStudents = (targetSlot.students || []).map((s) => ({ ...s, isUser: false }));
+        slotForState = {
+          ...targetSlot,
+          students: facultyStudents.length > 0 ? facultyStudents : generateSlotParticipants(15).map((s) => ({ ...s, isUser: false })),
+        };
+        setSession(slotForState);
+        setCurrentTab('faculty');
+      }
+      return;
+    }
+
     if (slotId === session.id) return; // already in this slot
 
     const targetMaxCap = targetSlot.maxCapacity || 15;
@@ -606,6 +658,7 @@ function GDAppContent() {
   };
 
   const handleViewStudentReport = (studentId: string) => {
+    setViewingStudentId(studentId);
     setCurrentTab('report');
   };
 
@@ -659,10 +712,21 @@ function GDAppContent() {
           <StudentReportView
             session={session}
             report={activeReport}
-            onBackToRoom={() => setCurrentTab('room')}
+            onBackToRoom={() => {
+              if (session.status === 'completed') {
+                const openSlot = availableSlots.find((s) => s.status !== 'completed');
+                if (openSlot) {
+                  handleSelectSlot(openSlot.id);
+                  return;
+                }
+              }
+              setCurrentTab('room');
+            }}
             onViewFacultyDashboard={() => setCurrentTab('faculty')}
             currentUser={currentUser}
             targetStudentId={viewingStudentId}
+            availableSlots={availableSlots}
+            onSelectSlot={handleSelectSlot}
           />
         )}
 
@@ -671,8 +735,19 @@ function GDAppContent() {
             session={session}
             transcripts={transcripts}
             onViewStudentReport={handleViewStudentReport}
-            onBackToRoom={() => setCurrentTab('room')}
+            onBackToRoom={() => {
+              if (session.status === 'completed') {
+                const openSlot = availableSlots.find((s) => s.status !== 'completed');
+                if (openSlot) {
+                  handleSelectSlot(openSlot.id);
+                  return;
+                }
+              }
+              setCurrentTab('room');
+            }}
             onStartSession={handleStartSession}
+            availableSlots={availableSlots}
+            onSelectSlot={handleSelectSlot}
           />
         )}
 
@@ -688,8 +763,11 @@ function GDAppContent() {
             availableSlots={availableSlots}
             onOpenCreateSession={() => setIsCreateModalOpen(true)}
             onEnterGDRoom={(slot) => {
-              if (slot) handleSelectSlot(typeof slot === 'string' ? slot : (slot.id || ''));
-              setCurrentTab('room');
+              if (slot) {
+                handleSelectSlot(typeof slot === 'string' ? slot : (slot.id || ''));
+              } else {
+                setCurrentTab('room');
+              }
             }}
           />
         )}
