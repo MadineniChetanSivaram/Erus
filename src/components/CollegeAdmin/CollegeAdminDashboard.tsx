@@ -36,11 +36,15 @@ import {
 interface CollegeAdminDashboardProps {
   currentUser: CollegeAdminUser;
   onEnterGDRoom?: (slot?: GDSession) => void;
+  availableSlots?: GDSession[];
+  onOpenCreateSession?: () => void;
 }
 
 export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   currentUser,
   onEnterGDRoom,
+  availableSlots,
+  onOpenCreateSession,
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots'>('students');
 
@@ -86,6 +90,24 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   // Slots State
   const [slots, setSlots] = useState<any[]>([]);
   const [isScheduleSlotOpen, setIsScheduleSlotOpen] = useState(false);
+
+  // Computed display slots: merges parent availableSlots so newly created sessions show immediately
+  const displaySlots = (availableSlots && availableSlots.length > 0)
+    ? availableSlots.map((s) => ({
+        id: s.id,
+        slotName: s.slotName || s.topic,
+        topic: s.topic,
+        description: s.description || s.topic,
+        slotTiming: s.slotTiming || '10:30 AM - 10:45 AM',
+        status: s.status || 'scheduled',
+        durationMinutes: s.durationMinutes || 15,
+        enrolledCount: s.enrolledCount ?? s.students?.length ?? 15,
+        maxCapacity: s.maxCapacity || 15,
+        assignedFacultyName: (s as any).assignedFacultyName || 'Dr. Sunita Rao',
+        rawSession: s,
+      }))
+    : slots;
+
   const [newSlot, setNewSlot] = useState({
     slotName: 'Slot 1: Campus Placement Screening',
     topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
@@ -391,7 +413,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {slots.filter((s) => s.status === 'scheduled').length || stats.scheduledSlots}
+            {displaySlots.filter((s) => s.status === 'scheduled').length || stats.scheduledSlots}
           </div>
           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Ready for Facilitation
@@ -406,7 +428,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {stats.completedSlots}
+            {displaySlots.filter((s) => s.status === 'completed').length || stats.completedSlots}
           </div>
           <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Evaluated & Graded
@@ -450,7 +472,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
             }`}
           >
             <Calendar className="w-4 h-4" />
-            <span>GD Slot Scheduler ({slots.length})</span>
+            <span>GD Slot Scheduler ({displaySlots.length})</span>
           </button>
         </div>
       </div>
@@ -642,7 +664,13 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
               </p>
             </div>
             <button
-              onClick={() => setIsScheduleSlotOpen(true)}
+              onClick={() => {
+                if (onOpenCreateSession) {
+                  onOpenCreateSession();
+                } else {
+                  setIsScheduleSlotOpen(true);
+                }
+              }}
               className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -651,7 +679,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {slots.map((sl, idx) => (
+            {displaySlots.map((sl, idx) => (
               <div
                 key={sl.id || idx}
                 className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between hover:border-amber-500/50 transition-all"
@@ -700,7 +728,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   {onEnterGDRoom && (
                     <button
-                      onClick={() => onEnterGDRoom(sl)}
+                      onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
                       className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />

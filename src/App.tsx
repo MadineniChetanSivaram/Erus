@@ -26,7 +26,7 @@ import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
-import { clearStoredAuth, verifyCurrentSession } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot } from './utils/authApi';
 
 function GDAppContent() {
   // Authentication State
@@ -475,6 +475,22 @@ function GDAppContent() {
     sessionQuestionTracker.clear();
     setAvailableSlots((prev) => [...newSessions, ...prev]);
 
+    // Persist new slots to backend college API if college admin
+    if (currentUser?.role === 'college_admin') {
+      newSessions.forEach((s) => {
+        createCollegeSlot({
+          topic: s.topic,
+          description: s.description,
+          durationMinutes: s.durationMinutes,
+          difficulty: s.difficulty,
+          slotTiming: s.slotTiming,
+          slotName: s.slotName,
+          maxCapacity: s.maxCapacity || 15,
+          collegeCode: (currentUser as any).collegeCode || 'DIT',
+        }).catch((err) => console.warn('Failed to sync new slot to backend:', err));
+      });
+    }
+
     const activeNewSession = { ...newSessions[0], status: 'active' as const };
     setSession(activeNewSession);
     setTranscripts([
@@ -493,7 +509,13 @@ function GDAppContent() {
       },
     ]);
     setElapsedSeconds(0);
-    setCurrentTab('room');
+
+    // Keep college admin in the admin dashboard so they can review their created slots
+    if (currentUser?.role === 'college_admin') {
+      setCurrentTab('college_admin');
+    } else {
+      setCurrentTab('room');
+    }
   };
 
   const handleCreateSession = (newSession: GDSession) => {
@@ -578,8 +600,10 @@ function GDAppContent() {
         {currentTab === 'college_admin' && currentUser?.role === 'college_admin' && (
           <CollegeAdminDashboard
             currentUser={currentUser}
+            availableSlots={availableSlots}
+            onOpenCreateSession={() => setIsCreateModalOpen(true)}
             onEnterGDRoom={(slot) => {
-              if (slot) handleSelectSlot(slot);
+              if (slot) handleSelectSlot(typeof slot === 'string' ? slot : (slot.id || ''));
               setCurrentTab('room');
             }}
           />

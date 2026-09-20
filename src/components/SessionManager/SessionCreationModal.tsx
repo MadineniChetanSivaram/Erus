@@ -194,9 +194,9 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         {/* Modal Title */}
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-mono font-bold tracking-wider text-teal-600 dark:text-teal-400 uppercase flex items-center gap-1.5">
+            <span className="text-xs font-mono font-bold tracking-wider text-amber-600 dark:text-amber-400 uppercase flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Faculty Slot Scheduler</span>
+              <span>College Admin Slot Scheduler</span>
             </span>
           </div>
           <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
@@ -227,7 +227,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                 onChange={(e) => setTopic(e.target.value)}
                 placeholder="Enter discussion topic title..."
                 required
-                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-500"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
               />
             </div>
 
@@ -241,7 +241,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
                 placeholder="Brief context and guidelines for AI moderator..."
-                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-500 resize-none"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500 resize-none"
               />
             </div>
 
@@ -255,7 +255,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                 <select
                   value={durationMinutes}
                   onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500 cursor-pointer"
                 >
                   <option value={15}>15 Minutes</option>
                   <option value={20}>20 Minutes</option>
@@ -272,7 +272,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                 <select
                   value={difficulty}
                   onChange={(e) => setDifficulty(e.target.value as any)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500 cursor-pointer"
                 >
                   <option value="Beginner">Beginner</option>
                   <option value="Intermediate">Intermediate</option>
@@ -284,7 +284,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
             {/* Discussion Room Visibility / Layout Mode */}
             <div className="space-y-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 text-teal-600" />
+                <Users className="w-3.5 h-3.5 text-amber-600" />
                 <span>Discussion Room Visibility & Seating Mode:</span>
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -293,13 +293,13 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                   onClick={() => setRoomLayout('round_table')}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     roomLayout === 'round_table'
-                      ? 'bg-teal-50/90 dark:bg-teal-950/50 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
+                      ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-slate-900 dark:text-white">1. Round Table</span>
-                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'round_table' ? 'bg-teal-500 ring-2 ring-teal-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'round_table' ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
                     Circular conference table with all 15+ participants seated evenly around perimeter.
@@ -311,13 +311,13 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                   onClick={() => setRoomLayout('speaker_center')}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     roomLayout === 'speaker_center'
-                      ? 'bg-teal-50/90 dark:bg-teal-950/50 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
+                      ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-slate-900 dark:text-white">2. Speaker in Middle</span>
-                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'speaker_center' ? 'bg-teal-500 ring-2 ring-teal-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'speaker_center' ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
                     Active speaker spotlighted in the center of the round table; peers surround them in an outer ring.
@@ -329,13 +329,13 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                   onClick={() => setRoomLayout('classroom')}
                   className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     roomLayout === 'classroom'
-                      ? 'bg-teal-50/90 dark:bg-teal-950/50 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
+                      ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-slate-900 dark:text-white">3. Classroom Presentation</span>
-                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'classroom' ? 'bg-teal-500 ring-2 ring-teal-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                    <span className={`w-2 h-2 rounded-full ${roomLayout === 'classroom' ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
                     Presenter stands front & center at podium before whiteboard; class seated in audience rows.
@@ -366,7 +366,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                     key={preset.label}
                     type="button"
                     onClick={() => handleAddSlot(preset)}
-                    className="text-[10px] px-2 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900 transition-colors font-medium flex items-center gap-1 cursor-pointer"
+                    className="text-[10px] px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900 transition-colors font-medium flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-2.5 h-2.5" />
                     <span>{preset.label}</span>
@@ -411,7 +411,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                         onChange={(e) => handleUpdateSlot(slot.id, 'slotName', e.target.value)}
                         placeholder="e.g. Slot 1 - Morning Batch"
                         required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500"
                       />
                     </div>
 
@@ -427,7 +427,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                         onChange={(e) => handleUpdateSlot(slot.id, 'startTime', e.target.value)}
                         placeholder="09:30 AM"
                         required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-teal-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
                       />
                     </div>
 
@@ -442,7 +442,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                         onChange={(e) => handleUpdateSlot(slot.id, 'endTime', e.target.value)}
                         placeholder="10:00 AM"
                         required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-teal-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
                       />
                     </div>
 
@@ -450,17 +450,17 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                     <div className="sm:col-span-3 space-y-1">
                       <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
                         <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3 text-teal-500" />
+                          <Users className="w-3 h-3 text-amber-500" />
                           <span>Capacity:</span>
                         </span>
-                        <span className="text-[9px] font-bold text-teal-600 dark:text-teal-400 font-mono">
+                        <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-mono">
                           Min 15
                         </span>
                       </label>
                       <select
                         value={slot.participantCount}
                         onChange={(e) => handleUpdateSlot(slot.id, 'participantCount', e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-teal-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500"
                       >
                         <option value={15}>15 Students (Min)</option>
                         <option value={18}>18 Students</option>
@@ -478,7 +478,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
             <button
               type="button"
               onClick={() => handleAddSlot()}
-              className="w-full py-2.5 rounded-2xl border-2 border-dashed border-teal-300 dark:border-teal-700/60 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="w-full py-2.5 rounded-2xl border-2 border-dashed border-amber-300 dark:border-amber-700/60 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>+ Add Another Time Slot for this Topic</span>
@@ -486,9 +486,9 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
           </div>
 
           {/* Student Portal Availability Alert */}
-          <div className="p-3.5 bg-teal-50/80 dark:bg-teal-950/50 rounded-2xl border border-teal-200 dark:border-teal-800/60 flex items-start gap-2.5">
-            <ShieldCheck className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-teal-900 dark:text-teal-200 leading-relaxed">
+          <div className="p-3.5 bg-amber-50/80 dark:bg-amber-950/50 rounded-2xl border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
               <strong className="font-semibold">Student Portal Synchronization:</strong> Creating these {slots.length} slots will publish them directly into the student portal under this topic. Students will see all scheduled times and can join any slot with a 1-click selection.
             </div>
           </div>
@@ -510,7 +510,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
 
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 text-white text-xs font-semibold shadow-md shadow-teal-600/20 hover:shadow-lg hover:shadow-teal-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-semibold shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Publish {slots.length} Slots to Student Portal</span>
