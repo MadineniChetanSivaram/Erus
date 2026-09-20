@@ -262,69 +262,6 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       {/* Main Login Interface */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-8 max-w-7xl mx-auto w-full relative z-10">
         
-        {/* Primary Role Selector Hero Card Deck */}
-        <div className="w-full max-w-4xl mx-auto mb-6 sm:mb-8">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-2 mb-3.5 px-1 text-center sm:text-left">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 dark:text-slate-500">
-                Institutional Access Portals
-              </div>
-              <h2 className="text-base sm:text-lg font-heading font-bold text-slate-900 dark:text-white">
-                Select Your Role to Continue
-              </h2>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>4 Portals Online</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
-            {ROLES.map((role) => {
-              const Icon = role.icon;
-              const isSelected = activeTab === role.id;
-              return (
-                <button
-                  key={role.id}
-                  type="button"
-                  onClick={() => setActiveTab(role.id)}
-                  className={`p-3.5 sm:p-4 rounded-2xl text-left transition-all cursor-pointer relative flex flex-col justify-between group ${
-                    isSelected
-                      ? 'bg-white dark:bg-slate-900 border-2 ' + role.activeBorder + ' shadow-lg shadow-indigo-500/10 dark:shadow-none ring-2 ring-indigo-500/10 scale-[1.01]'
-                      : 'bg-white/80 dark:bg-slate-900/60 border border-slate-200/90 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs hover:scale-[1.01]'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${role.gradient} flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform`}>
-                        <Icon className="w-4.5 h-4.5" />
-                      </div>
-                      {isSelected ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-200/70 dark:border-emerald-800/60">
-                          <Check className="w-2.5 h-2.5" />
-                          <span>Active</span>
-                        </span>
-                      ) : (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${role.badgeColor}`}>
-                          {role.badge}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="font-heading font-bold text-sm text-slate-900 dark:text-white mb-1">
-                      {role.label}
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug line-clamp-2">
-                      {role.desc}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Dynamic Login Component */}
         <div className="w-full">
           {activeTab === 'student' && (
