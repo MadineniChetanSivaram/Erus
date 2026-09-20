@@ -340,17 +340,10 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsScheduleSlotOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-amber-50 font-bold text-xs sm:text-sm shadow-md flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <Calendar className="w-4 h-4 text-amber-600" />
-              <span>Schedule GD Slot</span>
-            </button>
             {onEnterGDRoom && (
               <button
                 onClick={() => onEnterGDRoom()}
-                className="px-4 py-2.5 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 border border-white/30 text-white font-bold text-xs sm:text-sm backdrop-blur-md flex items-center gap-2 transition-all cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 border border-white/30 text-white font-bold text-xs sm:text-sm backdrop-blur-md flex items-center gap-2 transition-all cursor-pointer shadow-sm"
               >
                 <Eye className="w-4 h-4 text-amber-200" />
                 <span>Observer Mode</span>
