@@ -504,6 +504,55 @@ export const INITIAL_TRANSCRIPTS: TranscriptEntry[] = [
   },
 ];
 
+export interface FacultyMemberInfo {
+  id: string;
+  name: string;
+  email: string;
+  facultyId: string;
+  department: string;
+  designation: string;
+  avatar?: string;
+}
+
+export const INSTITUTIONAL_FACULTY: FacultyMemberInfo[] = [
+  {
+    id: 'fac-1',
+    name: 'Dr. Sunita Rao',
+    email: 'sunita.rao@dit.edu.in',
+    facultyId: 'FAC-CSE-102',
+    department: 'Computer Science & Engineering',
+    designation: 'Professor & Head of Department',
+    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+  },
+  {
+    id: 'fac-2',
+    name: 'Prof. Rajesh Verma',
+    email: 'rajesh.verma@dit.edu.in',
+    facultyId: 'FAC-MGT-205',
+    department: 'School of Management',
+    designation: 'Dean of Academic Affairs',
+    avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=256&q=80',
+  },
+  {
+    id: 'fac-3',
+    name: 'Dr. Ananya Sharma',
+    email: 'ananya.sharma@dit.edu.in',
+    facultyId: 'FAC-ECE-301',
+    department: 'Electronics & Communication',
+    designation: 'Associate Professor',
+    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&q=80',
+  },
+  {
+    id: 'fac-4',
+    name: 'Dr. Harish Chandra',
+    email: 'harish.chandra@dit.edu.in',
+    facultyId: 'FAC-ME-404',
+    department: 'Mechanical & Automation Engineering',
+    designation: 'Assistant Professor & Lab Director',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+  },
+];
+
 export const INITIAL_SLOTS: GDSession[] = [
   {
     id: 'slot-morning-1',
@@ -513,6 +562,10 @@ export const INITIAL_SLOTS: GDSession[] = [
     enrolledCount: 15,
     maxCapacity: 15,
     roomLayout: 'round_table',
+    assignedFacultyId: 'FAC-CSE-102',
+    assignedFacultyName: 'Dr. Sunita Rao',
+    assignedFacultyDept: 'Computer Science & Engineering',
+    assignedFacultyEmail: 'sunita.rao@dit.edu.in',
     topic: 'Should Artificial Intelligence replace teachers?',
     description: 'Exploration of generative AI in pedagogy, human emotional intelligence versus automated adaptive learning platforms.',
     durationMinutes: 25,
@@ -560,6 +613,10 @@ export const INITIAL_SLOTS: GDSession[] = [
     enrolledCount: 8,
     maxCapacity: 15,
     roomLayout: 'round_table',
+    assignedFacultyId: 'FAC-CSE-102',
+    assignedFacultyName: 'Dr. Sunita Rao',
+    assignedFacultyDept: 'Computer Science & Engineering',
+    assignedFacultyEmail: 'sunita.rao@dit.edu.in',
     topic: 'Should Artificial Intelligence replace teachers?',
     description: 'Debating cognitive personalization algorithms versus empathetic educator mentoring in higher technical education.',
     durationMinutes: 25,
@@ -600,6 +657,10 @@ export const INITIAL_SLOTS: GDSession[] = [
     enrolledCount: 11,
     maxCapacity: 15,
     roomLayout: 'round_table',
+    assignedFacultyId: 'FAC-MGT-205',
+    assignedFacultyName: 'Prof. Rajesh Verma',
+    assignedFacultyDept: 'School of Management',
+    assignedFacultyEmail: 'rajesh.verma@dit.edu.in',
     topic: 'Should Artificial Intelligence replace teachers?',
     description: 'Analyzing rural classroom disparities, equitable AI access, and irreplaceable laboratory mentorship.',
     durationMinutes: 25,
@@ -633,6 +694,10 @@ export const INITIAL_SLOTS: GDSession[] = [
     enrolledCount: 15,
     maxCapacity: 15,
     roomLayout: 'round_table',
+    assignedFacultyId: 'FAC-ECE-301',
+    assignedFacultyName: 'Dr. Ananya Sharma',
+    assignedFacultyDept: 'Electronics & Communication',
+    assignedFacultyEmail: 'ananya.sharma@dit.edu.in',
     topic: 'Should Artificial Intelligence replace teachers?',
     description: 'Future perspectives on hybrid teaching models and ethical boundaries of automated grading.',
     durationMinutes: 25,

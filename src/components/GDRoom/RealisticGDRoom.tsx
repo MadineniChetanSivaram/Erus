@@ -941,6 +941,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Available Slots on This Topic:</span>
               </span>
+              {session.assignedFacultyName && (
+                <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/50 flex items-center gap-1.5 shadow-2xs">
+                  <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>In-Charge: <strong>{session.assignedFacultyName}</strong></span>
+                </span>
+              )}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {availableSlots
                   .filter((slot) => slot.topic === session.topic)
@@ -2101,6 +2107,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         onClose={() => setIsSlotModalOpen(false)}
         availableSlots={availableSlots}
         currentSlotId={session.id}
+        currentUser={currentUser}
         onSelectSlot={(slotId) => {
           if (onSelectSlot) {
             onSelectSlot(slotId);

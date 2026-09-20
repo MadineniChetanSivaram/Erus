@@ -39,13 +39,13 @@ function GDAppContent() {
     }
   });
 
-  const STORAGE_KEY = 'erus_available_slots_v4';
+  const STORAGE_KEY = 'erus_available_slots_v5';
 
   // Safely load and validate slots, purging stale legacy storage where all slots were full
   const loadInitialSlots = (): GDSession[] => {
     try {
       // Purge older legacy cache keys
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4'].forEach((k) => {
         localStorage.removeItem(k);
       });
 
@@ -127,7 +127,7 @@ function GDAppContent() {
   const handleResetSlots = () => {
     try {
       localStorage.removeItem(STORAGE_KEY);
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4'].forEach((k) => {
         localStorage.removeItem(k);
       });
     } catch {}
@@ -487,6 +487,10 @@ function GDAppContent() {
           slotName: s.slotName,
           maxCapacity: s.maxCapacity || 15,
           collegeCode: (currentUser as any).collegeCode || 'DIT',
+          assignedFacultyId: s.assignedFacultyId,
+          assignedFacultyName: s.assignedFacultyName,
+          assignedFacultyDept: s.assignedFacultyDept,
+          assignedFacultyEmail: s.assignedFacultyEmail,
         }).catch((err) => console.warn('Failed to sync new slot to backend:', err));
       });
     }

@@ -65,6 +65,10 @@ export interface GDSession {
   enrolledCount?: number;
   maxCapacity?: number;
   roomLayout?: GDRoomLayoutType;
+  assignedFacultyId?: string;
+  assignedFacultyName?: string;
+  assignedFacultyEmail?: string;
+  assignedFacultyDept?: string;
 }
 
 export type GDRoomLayoutType = 'round_table' | 'speaker_center' | 'classroom';

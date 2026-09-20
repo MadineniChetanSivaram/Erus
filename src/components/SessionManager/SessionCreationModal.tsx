@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Sparkles, 
@@ -7,10 +7,12 @@ import {
   Calendar, 
   ShieldCheck, 
   Plus, 
-  Trash2
+  Trash2,
+  GraduationCap
 } from 'lucide-react';
 import { GDSession, Student, GDRoomLayoutType } from '../../types/gd';
-import { generateSlotParticipants } from '../../data/mockGDData';
+import { generateSlotParticipants, INSTITUTIONAL_FACULTY, FacultyMemberInfo } from '../../data/mockGDData';
+import { fetchCollegeFaculty } from '../../utils/authApi';
 
 export interface SlotScheduleItem {
   id: string;
@@ -47,6 +49,37 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
   const [difficulty, setDifficulty] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Intermediate');
   const [assessmentRubric, setAssessmentRubric] = useState('Standard Academic 7-Parameter Rubric');
   const [roomLayout, setRoomLayout] = useState<GDRoomLayoutType>('round_table');
+
+  // Faculty In-Charge Assignment State
+  const [facultyList, setFacultyList] = useState<FacultyMemberInfo[]>(INSTITUTIONAL_FACULTY);
+  const [selectedFacultyId, setSelectedFacultyId] = useState<string>(INSTITUTIONAL_FACULTY[0].facultyId);
+
+  // Load college faculty from API on mount
+  useEffect(() => {
+    fetchCollegeFaculty()
+      .then((fac) => {
+        if (fac && fac.length > 0) {
+          setFacultyList((prev) => {
+            const merged = [...prev];
+            fac.forEach((f: any) => {
+              if (!merged.some((m) => m.facultyId === f.facultyId)) {
+                merged.push({
+                  id: f.id || f.facultyId,
+                  name: f.name,
+                  email: f.email,
+                  facultyId: f.facultyId,
+                  department: f.department || 'Academic Department',
+                  designation: f.designation || 'Faculty Evaluator',
+                  avatar: f.avatar,
+                });
+              }
+            });
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Multiple slots state for this topic
   const [slots, setSlots] = useState<SlotScheduleItem[]>([
@@ -106,6 +139,8 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
     if (!topic.trim()) return;
 
     const baseTimestamp = Date.now();
+    const selectedFaculty = facultyList.find((f) => f.facultyId === selectedFacultyId) || facultyList[0];
+
     const createdSessions: GDSession[] = slots.map((slot, index) => {
       const maxCap = Math.max(15, slot.participantCount);
       // Initialize with ~40% occupancy (e.g. 6 out of 15) so plenty of open seats remain for students to join
@@ -134,6 +169,10 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         durationMinutes,
         difficulty,
         assessmentRubric,
+        assignedFacultyId: selectedFaculty.facultyId,
+        assignedFacultyName: selectedFaculty.name,
+        assignedFacultyDept: selectedFaculty.department,
+        assignedFacultyEmail: selectedFaculty.email,
         status: index === 0 ? 'active' : 'scheduled',
         students: seatedStudents,
         currentPhase: 'intro',
@@ -281,6 +320,62 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
               </div>
             </div>
 
+            {/* Faculty In-Charge Assignment */}
+            <div className="space-y-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>Assign Faculty In-Charge (Evaluator & Academic Mentor):</span>
+                </span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold lowercase">
+                  *students selecting this faculty will see these slots
+                </span>
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {facultyList.map((f) => {
+                  const isSelected = f.facultyId === selectedFacultyId;
+                  return (
+                    <button
+                      key={f.facultyId}
+                      type="button"
+                      onClick={() => setSelectedFacultyId(f.facultyId)}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                        isSelected
+                          ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        {f.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {f.name}
+                          </span>
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${isSelected ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                        </div>
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300 font-mono truncate">
+                          {f.facultyId} • {f.department}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                          {f.designation}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-amber-50/60 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-800/40 flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>
+                  All slots created under this topic will be evaluated by <strong>{facultyList.find((f) => f.facultyId === selectedFacultyId)?.name}</strong>. In the student portal, students who select this faculty in-charge will see and join these slots.
+                </span>
+              </div>
+            </div>
+
             {/* Discussion Room Visibility / Layout Mode */}
             <div className="space-y-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -383,9 +478,14 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                   className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold border border-indigo-200 dark:border-indigo-800">
-                      <span>Slot #{index + 1}</span>
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold border border-indigo-200 dark:border-indigo-800">
+                        <span>Slot #{index + 1}</span>
+                      </span>
+                      <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800/50 truncate max-w-[220px]">
+                        In-Charge: {facultyList.find(f => f.facultyId === selectedFacultyId)?.name || 'Faculty In-Charge'}
+                      </span>
+                    </div>
 
                     {slots.length > 1 && (
                       <button
@@ -489,7 +589,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
           <div className="p-3.5 bg-amber-50/80 dark:bg-amber-950/50 rounded-2xl border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5">
             <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong className="font-semibold">Student Portal Synchronization:</strong> Creating these {slots.length} slots will publish them directly into the student portal under this topic. Students will see all scheduled times and can join any slot with a 1-click selection.
+              <strong className="font-semibold">Faculty In-Charge & Student Portal Sync:</strong> Creating these {slots.length} slots will assign them to <span className="font-bold underline">{facultyList.find(f => f.facultyId === selectedFacultyId)?.name || 'the selected faculty'}</span> ({facultyList.find(f => f.facultyId === selectedFacultyId)?.department || 'Faculty'}). In the Student Portal, students selecting this faculty member will exclusively see and be able to book these slots.
             </div>
           </div>
 
