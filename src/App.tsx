@@ -39,13 +39,13 @@ function GDAppContent() {
     }
   });
 
-  const STORAGE_KEY = 'erus_available_slots_v5';
+  const STORAGE_KEY = 'erus_available_slots_v6';
 
   // Safely load and validate slots, purging stale legacy storage where all slots were full
   const loadInitialSlots = (): GDSession[] => {
     try {
       // Purge older legacy cache keys
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5'].forEach((k) => {
         localStorage.removeItem(k);
       });
 
@@ -89,7 +89,7 @@ function GDAppContent() {
   const [activeReport, setActiveReport] = useState<StudentAssessmentReport>(SAMPLE_REPORT_RAHUL);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(315); // Starts at 5:15 in demo
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const { theme } = useTheme();
 
@@ -127,7 +127,7 @@ function GDAppContent() {
   const handleResetSlots = () => {
     try {
       localStorage.removeItem(STORAGE_KEY);
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4'].forEach((k) => {
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5'].forEach((k) => {
         localStorage.removeItem(k);
       });
     } catch {}
@@ -137,6 +137,8 @@ function GDAppContent() {
 
   // Handle Login Event
   const handleLogin = (user: AuthUser) => {
+    facilitatorVoice.setSessionActive(false);
+    facilitatorVoice.stop();
     setCurrentUser(user);
     try {
       localStorage.setItem('erus_auth_user', JSON.stringify(user));
@@ -215,6 +217,8 @@ function GDAppContent() {
 
   // Handle Logout Event
   const handleLogout = () => {
+    facilitatorVoice.setSessionActive(false);
+    facilitatorVoice.stop();
     setCurrentUser(null);
     clearStoredAuth();
   };
@@ -228,25 +232,33 @@ function GDAppContent() {
     });
   }, []);
 
-  // Sync voice engine mute state & silence speech outside GD room
+  // Sync voice engine mute state & active tab
   useEffect(() => {
-    const shouldMute = voiceMuted || currentTab !== 'room';
-    facilitatorVoice.setMuted(shouldMute);
-    if (shouldMute) {
+    facilitatorVoice.setMuted(voiceMuted);
+    // If user is not inside the live room (e.g. on admin or faculty dashboard or report), silence AI speech
+    if (currentTab !== 'room') {
+      facilitatorVoice.setSessionActive(false);
       facilitatorVoice.stop();
     }
   }, [voiceMuted, currentTab]);
 
-  // Main session elapsed timer & silence tracker (purely tracks elapsed time without spontaneous audio interruption)
+  // Main session elapsed timer & silence deadlock tracker (strictly active only inside the live GD room)
   useEffect(() => {
-    if (!currentUser || session.status !== 'active') return;
+    // Only run if user is authenticated, actively inside the GD room, and session is currently active
+    if (!currentUser || currentTab !== 'room' || session.status !== 'active') {
+      return;
+    }
 
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
 
-      // Track floor silence without uninvited automatic voice interruptions
+      // Deadlock silence detection
       setSession((prevSession) => {
         const newSilence = prevSession.silenceTimerSeconds + 1;
+        // If silence reaches 20 seconds, trigger deadlock prompt
+        if (newSilence === 20 && !prevSession.isFacilitatorSpeaking && !prevSession.currentSpeakerId) {
+          triggerDeadlockIntervention(prevSession);
+        }
         return {
           ...prevSession,
           silenceTimerSeconds: newSilence,
@@ -255,10 +267,15 @@ function GDAppContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentUser, session.status]);
+  }, [currentUser, currentTab, session.status, session.isFacilitatorSpeaking, session.currentSpeakerId]);
 
   // Deadlock intervention helper using unique non-repeating dynamic prompt generator
   const triggerDeadlockIntervention = (currentSession: GDSession) => {
+    // Strictly prevent speaking if user is not in the live room or session is not active or voice is muted
+    if (currentTab !== 'room' || currentSession.status !== 'active' || voiceMuted) {
+      return;
+    }
+
     const nextPrompt = getNextUniqueFacilitatorPrompt(
       currentSession.topic,
       transcripts,
@@ -268,9 +285,7 @@ function GDAppContent() {
     );
 
     const promptText = nextPrompt.text;
-    if (!voiceMuted && currentTab === 'room') {
-      facilitatorVoice.speak(promptText);
-    }
+    facilitatorVoice.speak(promptText);
 
     const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
     const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
@@ -497,7 +512,7 @@ function GDAppContent() {
       });
     }
 
-    const activeNewSession = { ...newSessions[0], status: 'active' as const };
+    const activeNewSession = { ...newSessions[0], status: (newSessions[0].status || 'scheduled') as any };
     setSession(activeNewSession);
     setTranscripts([
       {

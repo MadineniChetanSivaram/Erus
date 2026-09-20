@@ -10,6 +10,7 @@ export interface VoicePersonaStudent {
 
 class RoomVoiceEngine {
   private isMuted: boolean = false;
+  private isSessionActive: boolean = false; // Only speak when an active GD session is actively underway
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private cachedVoices: SpeechSynthesisVoice[] = [];
 
@@ -188,10 +189,21 @@ class RoomVoiceEngine {
     );
   }
 
+  public setSessionActive(active: boolean) {
+    this.isSessionActive = active;
+    if (!active) {
+      this.stop();
+    }
+  }
+
+  public getSessionActive(): boolean {
+    return this.isSessionActive;
+  }
+
   public setMuted(muted: boolean) {
     this.isMuted = muted;
     if (muted && typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      this.stop();
     }
   }
 
@@ -205,7 +217,8 @@ class RoomVoiceEngine {
   }
 
   public speakAsFacilitator(text: string, onEnd?: () => void) {
-    if (this.isMuted || typeof window === 'undefined' || !window.speechSynthesis) {
+    // Strictly prevent AI from speaking if session is not actively going on or muted or unauthenticated
+    if (this.isMuted || !this.isSessionActive || typeof window === 'undefined' || !window.speechSynthesis) {
       if (onEnd) onEnd();
       return;
     }
@@ -244,7 +257,8 @@ class RoomVoiceEngine {
 
   // Multi-Persona Peer Student Speech in Indian English Accent
   public speakAsStudent(student: VoicePersonaStudent, text: string, onEnd?: () => void) {
-    if (this.isMuted || typeof window === 'undefined' || !window.speechSynthesis) {
+    // Strictly prevent student speech if session is not active or muted
+    if (this.isMuted || !this.isSessionActive || typeof window === 'undefined' || !window.speechSynthesis) {
       if (onEnd) onEnd();
       return;
     }
@@ -313,9 +327,15 @@ class RoomVoiceEngine {
 
   public stop() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
       this.currentUtterance = null;
     }
+  }
+
+  public cancel() {
+    this.stop();
   }
 }
 

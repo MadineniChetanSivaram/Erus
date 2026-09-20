@@ -16,6 +16,7 @@ import { FacultyLogin } from './FacultyLogin';
 import { CollegeAdminLogin } from './CollegeAdminLogin';
 import { SuperAdminLogin } from './SuperAdminLogin';
 import { useTheme } from '../../context/ThemeContext';
+import { roomVoice } from '../../utils/speechSynthesis';
 
 interface RoleConfig {
   id: UserRole;
@@ -74,6 +75,12 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme, toggleTheme } = useTheme();
+
+  // Ensure AI speech engine is strictly silenced when on the authentication portal
+  useEffect(() => {
+    roomVoice.setSessionActive(false);
+    roomVoice.stop();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {

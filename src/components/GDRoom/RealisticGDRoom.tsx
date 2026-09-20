@@ -106,14 +106,18 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     roomVoice.setMuted(next);
   };
 
-  // AI Voice Moderation Mode: 'on_demand' (silent by default for live peer testing) vs 'autonomous' (auto-speaking)
-  const [aiVoiceMode, setAiVoiceMode] = useState<'on_demand' | 'autonomous'>('on_demand');
-
-  const handleStopAiSpeaking = () => {
-    roomVoice.stop();
-    setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
-    setIsAiProcessing(false);
-  };
+  // Synchronize audio engine session-active state strictly with ongoing session status
+  useEffect(() => {
+    const isOngoing = session.status === 'active';
+    roomVoice.setSessionActive(isOngoing && !voiceMuted && !isRoomAudioMuted);
+    if (!isOngoing) {
+      roomVoice.stop();
+    }
+    return () => {
+      roomVoice.setSessionActive(false);
+      roomVoice.stop();
+    };
+  }, [session.status, voiceMuted, isRoomAudioMuted]);
 
   useEffect(() => {
     if (session.roomLayout) {
@@ -183,13 +187,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isFacilitatorSpeaking: true,
       }));
 
-      // Audibly speak AI intervention using roomVoice only if autonomous mode is active and not muted
-      if (!voiceMuted && !isRoomAudioMuted && aiVoiceMode === 'autonomous') {
+      // Audibly speak AI intervention using roomVoice strictly when session is active
+      if (session.status === 'active' && !voiceMuted && !isRoomAudioMuted) {
         roomVoice.speakAsFacilitator(intervention.text, () => {
           setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
         });
-      } else {
-        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
       }
     },
   });
@@ -456,8 +458,30 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
+  // Start the discussion session on user action
+  const handleStartSession = () => {
+    setSession((prev) => ({
+      ...prev,
+      status: 'active',
+      startedAt: Date.now(),
+      silenceTimerSeconds: 0,
+    }));
+    roomVoice.setSessionActive(true);
+    speakFacilitator(
+      session.facilitatorSpeech ||
+        `Good morning participants. Welcome to this group discussion on: "${session.topic}". Each candidate will receive an opportunity to put forth their views. Kindly maintain decorum, listen actively, and avoid interruptions. Who would like to start?`,
+      'introduce',
+      'intro'
+    );
+  };
+
   // Trigger Facilitator speech and vocalize
   const speakFacilitator = (text: string, actionType: string = 'probing_question', phase?: GDFacilitatorPhase) => {
+    // Only speak facilitator if session is active or starting
+    if (session.status !== 'active' && phase !== 'intro') {
+      return;
+    }
+
     setIsAiProcessing(true);
     setSession((prev) => ({
       ...prev,
@@ -488,15 +512,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     setTranscripts((prev) => [...prev, entry]);
 
-    if (!voiceMuted && !isRoomAudioMuted) {
-      facilitatorVoice.speak(text, () => {
-        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
-        setIsAiProcessing(false);
-      });
-    } else {
+    facilitatorVoice.speak(text, () => {
       setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
       setIsAiProcessing(false);
-    }
+    });
   };
 
   // Call Server for AI Facilitation Intervention with Anti-Repetition Tracking
@@ -619,8 +638,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Broadcast live to all connected peers in the room via WebRTC Socket.IO (PDF Page 5, FR-1)
     rtcBroadcastTranscript(text, elapsedSeconds);
 
-    // Only vocalize as synthetic student if simulation mode is explicitly enabled
-    if (!isListeningMic && !isFaculty && autoSimulatePeers && !isRoomAudioMuted && !voiceMuted) {
+    // If triggered without live mic (e.g. Quick Speaking Point clicked), vocalize in authentic Indian English so it is audible to everyone in the room
+    if (!isListeningMic && !isFaculty) {
       roomVoice.speakAsStudent(userStudent, text);
     }
 
@@ -676,7 +695,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Simulate realistic peer turns to make the room alive (calls backend or uses fallback)
   const scheduleNextTurnAfterUser = async () => {
+    if (session.status !== 'active') return;
     setTimeout(async () => {
+      if (session.status !== 'active') return;
       try {
         const res = await fetch('/api/session/simulate-peer', {
           method: 'POST',
@@ -714,7 +735,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
             }));
 
-            if (aiVoiceMode === 'autonomous' && studentTurnsSinceIntervention.current >= 6) {
+            if (studentTurnsSinceIntervention.current >= 3) {
               requestAiIntervention('probing');
             }
           });
@@ -794,7 +815,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
         }));
 
-        if (aiVoiceMode === 'autonomous' && studentTurnsSinceIntervention.current >= 6) {
+        if (studentTurnsSinceIntervention.current >= 3) {
           requestAiIntervention('probing');
         }
       });
@@ -865,96 +886,137 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {session.description}
             </p>
 
-            {/* AI Facilitator Voice Mode & Silence Monitor */}
-            <div className="mt-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-800">
-                  <Sparkles className="w-4 h-4" />
+            {session.status === 'active' ? (
+              /* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */
+              <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                    rtcSilenceTimer >= 15
+                      ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 animate-bounce'
+                      : rtcSilenceTimer >= 10
+                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400'
+                      : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">20s Silence Deadlock Watchdog</span>
+                      <span className={`font-mono text-xs font-bold px-1.5 py-0.2 rounded ${
+                        rtcSilenceTimer >= 15
+                          ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        {rtcSilenceTimer > 0 ? `${rtcSilenceTimer}s / 20s` : '0s / 20s (Floor Active)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      {rtcSilenceTimer >= 15
+                        ? '⚠️ Floor silent! AI Facilitator will interrupt in ' + (20 - rtcSilenceTimer) + 's to ask a probing question.'
+                        : 'AI Facilitator autonomously interrupts if no participant speaks for 20 seconds.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-1 max-w-[200px] sm:max-w-xs ml-auto">
+                  <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-1000 ${
+                        rtcSilenceTimer >= 15 
+                          ? 'bg-rose-500 animate-pulse' 
+                          : rtcSilenceTimer >= 10 
+                          ? 'bg-amber-500' 
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, (rtcSilenceTimer / 20) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500 font-semibold w-8 text-right">
+                    {20 - rtcSilenceTimer}s
+                  </span>
+                </div>
+              </div>
+            ) : session.status === 'completed' ? (
+              <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <Award className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white">AI Voice Mode:</span>
-                    <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-0.5 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiVoiceMode('on_demand');
-                          handleStopAiSpeaking();
-                        }}
-                        className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                          aiVoiceMode === 'on_demand'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                        }`}
-                      >
-                        On-Demand Only (Recommended for Live Tests)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAiVoiceMode('autonomous')}
-                        className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                          aiVoiceMode === 'autonomous'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
-                        }`}
-                      >
-                        Autonomous (Auto-Nudge)
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    {aiVoiceMode === 'on_demand'
-                      ? 'AI listens and evaluates quietly without interrupting participants. Speeches only trigger when you click the action buttons below.'
-                      : 'AI will proactively nudge participants after 90 seconds of prolonged room inactivity.'}
+                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">Discussion Session Completed</span>
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                    The discussion has concluded and the floor is closed. The AI comprehensive performance report is generated.
                   </p>
                 </div>
               </div>
-
-              {/* Stop AI Speaking Button (visible whenever AI is vocalizing) */}
-              {session.isFacilitatorSpeaking && (
-                <button
-                  type="button"
-                  onClick={handleStopAiSpeaking}
-                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 animate-pulse flex items-center gap-1.5 cursor-pointer"
-                  title="Stop AI speech immediately"
-                >
-                  <VolumeX className="w-3.5 h-3.5" />
-                  <span>Stop AI Speaking</span>
-                </button>
-              )}
-            </div>
+            ) : (
+              <div className="mt-3 p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <Play className="w-4 h-4 fill-indigo-600 dark:fill-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">Session Scheduled • Ready to Begin</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
+                        Floor Inactive
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Floor audio and AI Facilitator speech are silent. Click &ldquo;Start Discussion Session&rdquo; when all participants are ready.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Facilitator Action Bar */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              id="ai-probe-btn"
-              onClick={() => requestAiIntervention('probing')}
-              disabled={isAiProcessing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>AI Probing Question</span>
-            </button>
+            {session.status === 'scheduled' ? (
+              <button
+                id="start-session-btn"
+                onClick={handleStartSession}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-teal-600 hover:from-indigo-500 hover:to-teal-500 text-white shadow-md shadow-indigo-700/20 dark:shadow-indigo-900/30 transition-all active:scale-95 cursor-pointer"
+              >
+                <Play className="w-4 h-4 fill-white" />
+                <span>Start Discussion Session</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  id="ai-probe-btn"
+                  onClick={() => requestAiIntervention('probing')}
+                  disabled={isAiProcessing || session.status !== 'active'}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>AI Probing Question</span>
+                </button>
 
-            <button
-              id="ai-rules-btn"
-              onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
-              disabled={isAiProcessing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Explain Rules</span>
-            </button>
+                <button
+                  id="ai-rules-btn"
+                  onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
+                  disabled={isAiProcessing || session.status !== 'active'}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
+                >
+                  <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>Explain Rules</span>
+                </button>
 
-            <button
-              id="finish-session-btn"
-              onClick={onFinishSession}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95"
-            >
-              <Award className="w-4 h-4" />
-              <span>Conclude & Generate Report</span>
-            </button>
+                <button
+                  id="finish-session-btn"
+                  onClick={() => {
+                    roomVoice.setSessionActive(false);
+                    roomVoice.stop();
+                    onFinishSession();
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>Conclude & Generate Report</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 

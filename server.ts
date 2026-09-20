@@ -2734,11 +2734,11 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         // Broadcast current silence countdown tick to all peers
         io.to(`room-${slotId}`).emit('silence-timer-tick', {
           silenceTimerSeconds: room.silenceTimerSeconds,
-          maxSilence: 60,
+          maxSilence: 20,
         });
 
-        // Only trigger an autonomous deadlock intervention after 90s of prolonged inactivity
-        if (room.silenceTimerSeconds >= 90) {
+        // DEADLOCK DETECTED! If nobody speaks for 20 seconds
+        if (room.silenceTimerSeconds >= 20) {
           room.silenceTimerSeconds = 0;
           await triggerDeadlockIntervention(room);
         }

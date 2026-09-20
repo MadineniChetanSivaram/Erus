@@ -571,7 +571,7 @@ export const INITIAL_SLOTS: GDSession[] = [
     durationMinutes: 25,
     difficulty: 'Intermediate',
     assessmentRubric: 'Standard Academic 7-Parameter Rubric (English, Fluency, Clarity, Confidence, Content, Collaboration, Leadership)',
-    status: 'active',
+    status: 'scheduled',
     students: generateSlotParticipants(15),
     currentPhase: 'discussion',
     facilitatorSpeech: 'Welcome participants of Slot 1. Sneha made an insightful point regarding emotional support. How can institutions balance AI tools while safeguarding human mentorship?',
