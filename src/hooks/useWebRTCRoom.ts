@@ -24,6 +24,7 @@ interface UseWebRTCRoomOptions {
   currentUser: AuthUser | null;
   onNewTranscript?: (transcript: GDTranscript) => void;
   onFacilitatorIntervention?: (intervention: { text: string; action: string; transcript: GDTranscript }) => void;
+  onSessionStarted?: (data: any) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -39,6 +40,7 @@ export function useWebRTCRoom({
   currentUser,
   onNewTranscript,
   onFacilitatorIntervention,
+  onSessionStarted,
 }: UseWebRTCRoomOptions) {
   const [connected, setConnected] = useState(false);
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
@@ -357,6 +359,14 @@ export function useWebRTCRoom({
       }
     });
 
+    // Faculty Commences Session Broadcast
+    socket.on('session-started', (data) => {
+      if (!active) return;
+      if (onSessionStarted) {
+        onSessionStarted(data);
+      }
+    });
+
     socket.on('disconnect', () => {
       if (!active) return;
       setConnected(false);
@@ -393,7 +403,7 @@ export function useWebRTCRoom({
 
       socket.disconnect();
     };
-  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio, onNewTranscript, onFacilitatorIntervention]);
+  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio, onNewTranscript, onFacilitatorIntervention, onSessionStarted]);
 
   // Toggle local microphone mute
   const toggleMute = useCallback(() => {
@@ -427,6 +437,13 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
+  // Start GD Session (emits start-session to server)
+  const startSession = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('start-session', { slotId });
+    }
+  }, [slotId]);
+
   return {
     connected,
     assignedSeat,
@@ -437,6 +454,7 @@ export function useWebRTCRoom({
     localVolume,
     toggleMute,
     broadcastTranscript,
+    startSession,
     error,
   };
 }

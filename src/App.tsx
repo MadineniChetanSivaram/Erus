@@ -89,7 +89,10 @@ function GDAppContent() {
   const [activeReport, setActiveReport] = useState<StudentAssessmentReport>(SAMPLE_REPORT_RAHUL);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
+    const slots = loadInitialSlots();
+    return slots[0]?.status === 'active' ? 315 : 0;
+  });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const { theme } = useTheme();
 
@@ -133,11 +136,11 @@ function GDAppContent() {
     } catch {}
     setAvailableSlots(INITIAL_SLOTS);
     setSession(INITIAL_SLOTS[0]);
+    setElapsedSeconds(0);
   };
 
   // Handle Login Event
   const handleLogin = (user: AuthUser) => {
-    facilitatorVoice.setSessionActive(false);
     facilitatorVoice.stop();
     setCurrentUser(user);
     try {
@@ -217,7 +220,6 @@ function GDAppContent() {
 
   // Handle Logout Event
   const handleLogout = () => {
-    facilitatorVoice.setSessionActive(false);
     facilitatorVoice.stop();
     setCurrentUser(null);
     clearStoredAuth();
@@ -232,22 +234,21 @@ function GDAppContent() {
     });
   }, []);
 
-  // Sync voice engine mute state & active tab
+  // Sync voice engine mute state
   useEffect(() => {
     facilitatorVoice.setMuted(voiceMuted);
-    // If user is not inside the live room (e.g. on admin or faculty dashboard or report), silence AI speech
-    if (currentTab !== 'room') {
-      facilitatorVoice.setSessionActive(false);
+  }, [voiceMuted]);
+
+  // Stop any active AI speech when outside of the discussion room or when session is not actively ongoing
+  useEffect(() => {
+    if (currentTab !== 'room' || session.status !== 'active') {
       facilitatorVoice.stop();
     }
-  }, [voiceMuted, currentTab]);
+  }, [currentTab, session.status]);
 
-  // Main session elapsed timer & silence deadlock tracker (strictly active only inside the live GD room)
+  // Main session elapsed timer & silence deadlock tracker (Strictly active only when room is live)
   useEffect(() => {
-    // Only run if user is authenticated, actively inside the GD room, and session is currently active
-    if (!currentUser || currentTab !== 'room' || session.status !== 'active') {
-      return;
-    }
+    if (!currentUser || currentTab !== 'room' || session.status !== 'active') return;
 
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
@@ -269,13 +270,65 @@ function GDAppContent() {
     return () => clearInterval(timer);
   }, [currentUser, currentTab, session.status, session.isFacilitatorSpeaking, session.currentSpeakerId]);
 
-  // Deadlock intervention helper using unique non-repeating dynamic prompt generator
-  const triggerDeadlockIntervention = (currentSession: GDSession) => {
-    // Strictly prevent speaking if user is not in the live room or session is not active or voice is muted
-    if (currentTab !== 'room' || currentSession.status !== 'active' || voiceMuted) {
-      return;
+  // Faculty In-Charge / Host Commences the Discussion Session
+  const handleStartSession = (slotIdToStart?: string) => {
+    const targetSlotId = slotIdToStart || session.id;
+
+    // Reset timer to 0 for a fresh live discussion
+    setElapsedSeconds(0);
+
+    const welcomeIntroText = `Welcome participants to today's group discussion on "${session.topic}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
+
+    // Update active session status
+    setSession((prev) => ({
+      ...prev,
+      status: 'active',
+      silenceTimerSeconds: 0,
+      currentPhase: 'intro',
+      facilitatorSpeech: welcomeIntroText,
+      isFacilitatorSpeaking: true,
+      startedAt: Date.now(),
+    }));
+
+    // Update availableSlots list
+    setAvailableSlots((prevSlots) =>
+      prevSlots.map((s) => (s.id === targetSlotId ? { ...s, status: 'active', startedAt: Date.now() } : s))
+    );
+
+    // Speak introduction only if voice is not muted and currently viewing room
+    if (!voiceMuted && currentTab === 'room') {
+      facilitatorVoice.speak(welcomeIntroText, () => {
+        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+      });
     }
 
+    // Add intro transcript
+    setTranscripts((prev) => [
+      ...prev,
+      {
+        id: `t-start-${Date.now()}`,
+        sessionId: targetSlotId,
+        speakerId: 'ai-facilitator',
+        speakerName: 'AI Facilitator (ERUS)',
+        seatNumber: null,
+        isFacilitator: true,
+        timestamp: '00:00',
+        timestampSeconds: 0,
+        text: welcomeIntroText,
+        type: 'intro',
+        sentiment: 'positive',
+      },
+    ]);
+
+    // Notify backend
+    fetch(`/api/college/slots/${encodeURIComponent(targetSlotId)}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch((err) => console.warn('Backend start session sync:', err));
+  };
+
+  // Deadlock intervention helper using unique non-repeating dynamic prompt generator
+  const triggerDeadlockIntervention = (currentSession: GDSession) => {
     const nextPrompt = getNextUniqueFacilitatorPrompt(
       currentSession.topic,
       transcripts,
@@ -512,7 +565,7 @@ function GDAppContent() {
       });
     }
 
-    const activeNewSession = { ...newSessions[0], status: (newSessions[0].status || 'scheduled') as any };
+    const activeNewSession = { ...newSessions[0], status: 'active' as const };
     setSession(activeNewSession);
     setTranscripts([
       {
@@ -577,6 +630,7 @@ function GDAppContent() {
             transcripts={transcripts}
             setTranscripts={setTranscripts}
             onFinishSession={handleFinishSession}
+            onStartSession={handleStartSession}
             voiceMuted={voiceMuted}
             elapsedSeconds={elapsedSeconds}
             availableSlots={availableSlots}
@@ -609,6 +663,7 @@ function GDAppContent() {
             transcripts={transcripts}
             onViewStudentReport={handleViewStudentReport}
             onBackToRoom={() => setCurrentTab('room')}
+            onStartSession={handleStartSession}
           />
         )}
 

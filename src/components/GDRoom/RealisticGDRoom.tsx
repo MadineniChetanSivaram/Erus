@@ -33,7 +33,8 @@ import {
   GraduationCap,
   Wifi,
   WifiOff,
-  User
+  User,
+  Lock
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -49,6 +50,7 @@ interface RealisticGDRoomProps {
   transcripts: TranscriptEntry[];
   setTranscripts: React.Dispatch<React.SetStateAction<TranscriptEntry[]>>;
   onFinishSession: () => void;
+  onStartSession?: (slotId?: string) => void;
   voiceMuted: boolean;
   elapsedSeconds: number;
   availableSlots?: GDSession[];
@@ -64,6 +66,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   transcripts,
   setTranscripts,
   onFinishSession,
+  onStartSession,
   voiceMuted,
   elapsedSeconds,
   availableSlots = [],
@@ -86,6 +89,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
 
   const isFaculty = currentUser?.role === 'faculty';
+  const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
+  const isSessionActive = session.status === 'active';
 
   // Real-time media (webcam video stream & live audio level analyser)
   const {
@@ -105,19 +110,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     setIsRoomAudioMuted(next);
     roomVoice.setMuted(next);
   };
-
-  // Synchronize audio engine session-active state strictly with ongoing session status
-  useEffect(() => {
-    const isOngoing = session.status === 'active';
-    roomVoice.setSessionActive(isOngoing && !voiceMuted && !isRoomAudioMuted);
-    if (!isOngoing) {
-      roomVoice.stop();
-    }
-    return () => {
-      roomVoice.setSessionActive(false);
-      roomVoice.stop();
-    };
-  }, [session.status, voiceMuted, isRoomAudioMuted]);
 
   useEffect(() => {
     if (session.roomLayout) {
@@ -153,9 +145,17 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     localVolume: rtcLocalVolume,
     toggleMute: rtcToggleMute,
     broadcastTranscript: rtcBroadcastTranscript,
+    startSession: rtcStartSession,
   } = useWebRTCRoom({
     slotId: session.slotId || session.id || 'slot-dit-001',
     currentUser,
+    onSessionStarted: () => {
+      setSession((prev) => ({
+        ...prev,
+        status: 'active',
+        startedAt: prev.startedAt || Date.now(),
+      }));
+    },
     onNewTranscript: (newTx) => {
       setTranscripts((prev) => {
         if (prev.some((t) => t.id === newTx.id)) return prev;
@@ -187,8 +187,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isFacilitatorSpeaking: true,
       }));
 
-      // Audibly speak AI intervention using roomVoice strictly when session is active
-      if (session.status === 'active' && !voiceMuted && !isRoomAudioMuted) {
+      // Audibly speak AI intervention using roomVoice
+      if (!voiceMuted) {
         roomVoice.speakAsFacilitator(intervention.text, () => {
           setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
         });
@@ -408,6 +408,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   }, [isFaculty, stopAudioAnalyser]);
 
   const toggleMicRecognition = () => {
+    if (!isSessionActive && !isFaculty) {
+      alert('The session is currently waiting for Faculty In-Charge to commence. Microphones are muted.');
+      return;
+    }
+
     if (!recognitionRef.current) {
       alert('Speech recognition is not supported in this browser. You can click Quick Speaking Points to speak directly.');
       return;
@@ -458,30 +463,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
-  // Start the discussion session on user action
-  const handleStartSession = () => {
-    setSession((prev) => ({
-      ...prev,
-      status: 'active',
-      startedAt: Date.now(),
-      silenceTimerSeconds: 0,
-    }));
-    roomVoice.setSessionActive(true);
-    speakFacilitator(
-      session.facilitatorSpeech ||
-        `Good morning participants. Welcome to this group discussion on: "${session.topic}". Each candidate will receive an opportunity to put forth their views. Kindly maintain decorum, listen actively, and avoid interruptions. Who would like to start?`,
-      'introduce',
-      'intro'
-    );
-  };
-
   // Trigger Facilitator speech and vocalize
   const speakFacilitator = (text: string, actionType: string = 'probing_question', phase?: GDFacilitatorPhase) => {
-    // Only speak facilitator if session is active or starting
-    if (session.status !== 'active' && phase !== 'intro') {
-      return;
-    }
-
     setIsAiProcessing(true);
     setSession((prev) => ({
       ...prev,
@@ -565,6 +548,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // User or Faculty submits a spoken statement / guidance
   const handleSendUserStatement = async (textToSend?: string) => {
+    if (!isSessionActive && !isFaculty) return;
     const text = (textToSend || liveSpeechTranscript).trim();
     if (!text) return;
 
@@ -695,9 +679,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Simulate realistic peer turns to make the room alive (calls backend or uses fallback)
   const scheduleNextTurnAfterUser = async () => {
-    if (session.status !== 'active') return;
+    if (!isSessionActive) return;
     setTimeout(async () => {
-      if (session.status !== 'active') return;
+      if (!isSessionActive) return;
       try {
         const res = await fetch('/api/session/simulate-peer', {
           method: 'POST',
@@ -886,7 +870,52 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {session.description}
             </p>
 
-            {session.status === 'active' ? (
+            {/* Waiting Lobby Banner (Pre-Session) OR 20-Second Silence Deadlock Watchdog (Active Session) */}
+            {!isSessionActive ? (
+              <div className="mt-3 p-3 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 dark:border-amber-700/40 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                        Session Status: Waiting Lobby
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                        {rtcPeers.length + (isFaculty ? 0 : 1)} Participant(s) In Room
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300/80 mt-0.5">
+                      {canStartSession
+                        ? 'All participants are waiting in the lobby with muted microphones. Click "Start Group Discussion" when ready.'
+                        : `Waiting for Faculty In-Charge ${session.assignedFacultyName ? `(${session.assignedFacultyName}) ` : ''}to start the session. Microphones and AI speech are muted.`}
+                    </p>
+                  </div>
+                </div>
+
+                {canStartSession ? (
+                  <button
+                    id="faculty-start-gd-banner-btn"
+                    onClick={() => {
+                      if (onStartSession) {
+                        onStartSession(session.id);
+                      }
+                      rtcStartSession();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>Start Group Discussion</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-300/60 dark:border-amber-700/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                    <span>Waiting for Faculty to Start</span>
+                  </div>
+                )}
+              </div>
+            ) : (
               /* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */
               <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
@@ -936,87 +965,56 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </span>
                 </div>
               </div>
-            ) : session.status === 'completed' ? (
-              <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                  <Award className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">Discussion Session Completed</span>
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400">
-                    The discussion has concluded and the floor is closed. The AI comprehensive performance report is generated.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3 p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                    <Play className="w-4 h-4 fill-indigo-600 dark:fill-indigo-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white">Session Scheduled • Ready to Begin</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
-                        Floor Inactive
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      Floor audio and AI Facilitator speech are silent. Click &ldquo;Start Discussion Session&rdquo; when all participants are ready.
-                    </p>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
 
           {/* Quick Facilitator Action Bar */}
           <div className="flex items-center gap-2 flex-wrap">
-            {session.status === 'scheduled' ? (
+            {canStartSession && !isSessionActive && (
               <button
-                id="start-session-btn"
-                onClick={handleStartSession}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-teal-600 hover:from-indigo-500 hover:to-teal-500 text-white shadow-md shadow-indigo-700/20 dark:shadow-indigo-900/30 transition-all active:scale-95 cursor-pointer"
+                id="faculty-start-gd-btn"
+                onClick={() => {
+                  if (onStartSession) {
+                    onStartSession(session.id);
+                  }
+                  rtcStartSession();
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-700/20 transition-all active:scale-95 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
-                <span>Start Discussion Session</span>
+                <span>Start Group Discussion</span>
               </button>
-            ) : (
-              <>
-                <button
-                  id="ai-probe-btn"
-                  onClick={() => requestAiIntervention('probing')}
-                  disabled={isAiProcessing || session.status !== 'active'}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>AI Probing Question</span>
-                </button>
-
-                <button
-                  id="ai-rules-btn"
-                  onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
-                  disabled={isAiProcessing || session.status !== 'active'}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
-                >
-                  <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Explain Rules</span>
-                </button>
-
-                <button
-                  id="finish-session-btn"
-                  onClick={() => {
-                    roomVoice.setSessionActive(false);
-                    roomVoice.stop();
-                    onFinishSession();
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 cursor-pointer"
-                >
-                  <Award className="w-4 h-4" />
-                  <span>Conclude & Generate Report</span>
-                </button>
-              </>
             )}
+
+            <button
+              id="ai-probe-btn"
+              onClick={() => requestAiIntervention('probing')}
+              disabled={!isSessionActive || isAiProcessing}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>AI Probing Question</span>
+            </button>
+
+            <button
+              id="ai-rules-btn"
+              onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
+              disabled={!isSessionActive || isAiProcessing}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Explain Rules</span>
+            </button>
+
+            <button
+              id="finish-session-btn"
+              onClick={onFinishSession}
+              disabled={!isSessionActive}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
+            >
+              <Award className="w-4 h-4" />
+              <span>Conclude & Generate Report</span>
+            </button>
           </div>
         </div>
 
@@ -1703,18 +1701,25 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <button
                     id="mic-speak-btn"
                     onClick={toggleMicRecognition}
-                    className={`relative p-3 rounded-full font-semibold transition-all shadow-lg flex items-center justify-center cursor-pointer ${
-                      isListeningMic
-                        ? 'bg-red-600 hover:bg-red-700 text-white ring-4 ring-red-500/40 animate-pulse'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    disabled={!isSessionActive && !isFaculty}
+                    className={`relative p-3 rounded-full font-semibold transition-all shadow-lg flex items-center justify-center ${
+                      !isSessionActive && !isFaculty
+                        ? 'bg-slate-800/60 text-slate-500 border border-slate-700/50 cursor-not-allowed opacity-60'
+                        : isListeningMic
+                        ? 'bg-red-600 hover:bg-red-700 text-white ring-4 ring-red-500/40 animate-pulse cursor-pointer'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer'
                     }`}
                     title={
-                      isFaculty
+                      !isSessionActive && !isFaculty
+                        ? 'Microphone locked. Waiting for Faculty In-Charge to commence session.'
+                        : isFaculty
                         ? (isListeningMic ? 'Stop Speaking (Moderator Mic Live)' : 'Push to Speak as Faculty Moderator')
                         : (isListeningMic ? 'Mute Microphone (Speaking Active)' : 'Unmute Microphone (Push to Speak)')
                     }
                   >
-                    {isListeningMic ? (
+                    {!isSessionActive && !isFaculty ? (
+                      <Lock className="w-5 h-5 text-amber-400" />
+                    ) : isListeningMic ? (
                       <Mic className="w-5 h-5 text-white animate-bounce" />
                     ) : (
                       <MicOff className="w-5 h-5 text-rose-400" />
@@ -1904,20 +1909,32 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {isFaculty
+                          {!isSessionActive && !isFaculty
+                            ? `Waiting for Faculty In-Charge ${session.assignedFacultyName ? `(${session.assignedFacultyName}) ` : ''}to start the session. Microphones are muted.`
+                            : isFaculty
                             ? 'Unmute microphone to speak live to the room, or click directives below.'
                             : 'Click Unmute to speak live to the room — no typing or send button needed.'}
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      onClick={toggleMicRecognition}
-                      className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                      <Mic className="w-3.5 h-3.5" />
-                      <span>Unmute & Speak Live</span>
-                    </button>
+                    {!isSessionActive && !isFaculty ? (
+                      <button
+                        disabled
+                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 text-xs font-semibold flex items-center gap-1.5 cursor-not-allowed border border-slate-300 dark:border-slate-700"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Muted in Lobby</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={toggleMicRecognition}
+                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Unmute & Speak Live</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1954,6 +1971,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       🎯 Direct Group to Conclude
                     </button>
                   </>
+                ) : !isSessionActive ? (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium py-1">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Speaking points locked until Faculty In-Charge commences session</span>
+                  </div>
                 ) : (
                   quickPrompts.map((prompt, idx) => (
                     <button

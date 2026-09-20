@@ -47,7 +47,7 @@ export interface GDSession {
   durationMinutes: number;
   difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
   assessmentRubric: string;
-  status: 'scheduled' | 'active' | 'completed';
+  status: 'scheduled' | 'waiting' | 'active' | 'completed';
   students: Student[];
   currentPhase: GDFacilitatorPhase;
   facilitatorSpeech: string;

@@ -2672,6 +2672,42 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
   }
 });
 
+// Start GD Slot (Triggered by Faculty In-Charge or Admin)
+app.post('/api/college/slots/:id/start', async (req, res) => {
+  try {
+    const slotId = req.params.id;
+
+    if (isDbConnected && prisma) {
+      await prisma.gDSession.updateMany({
+        where: { id: slotId },
+        data: { status: 'active' },
+      });
+    }
+
+    // In-memory fallback
+    const slot = IN_MEM_SLOTS.find((s) => s.id === slotId);
+    if (slot) {
+      slot.status = 'active';
+    }
+
+    const room = LIVE_ROOMS.get(slotId);
+    if (room) {
+      room.status = 'active';
+      room.silenceTimerSeconds = 0;
+      io.to(`room-${slotId}`).emit('session-started', {
+        slotId,
+        status: 'active',
+        topic: room.topic,
+      });
+    }
+
+    res.json({ success: true, slotId, status: 'active' });
+  } catch (err: any) {
+    console.error('[Start Slot Error]:', err);
+    res.status(500).json({ success: false, error: 'Failed to start GD slot.' });
+  }
+});
+
 // ==========================================
 // REAL-TIME MULTI-USER WEBRTC AUDIO & ROOM GATEWAY (SOCKET.IO)
 // ==========================================
@@ -2701,7 +2737,7 @@ interface LiveGDRoomState {
   currentSpeakerId: string | null;
   currentSpeakerSocketId: string | null;
   silenceTimerSeconds: number;
-  status: 'active' | 'paused' | 'completed';
+  status: 'active' | 'paused' | 'completed' | 'waiting' | 'scheduled';
   topic: string;
   transcripts: BackendTranscript[];
   silenceInterval?: NodeJS.Timeout;
@@ -2719,7 +2755,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       currentSpeakerId: null,
       currentSpeakerSocketId: null,
       silenceTimerSeconds: 0,
-      status: 'active',
+      status: 'waiting',
       topic: topic || currentLiveSession.topic,
       transcripts: [...liveTranscripts],
     };
@@ -2901,12 +2937,28 @@ io.on('connection', (socket) => {
       transcripts: room.transcripts,
       topic: room.topic,
       silenceTimerSeconds: room.silenceTimerSeconds,
+      status: room.status,
     });
 
     // Notify all other peers in the room
     socket.to(`room-${safeSlotId}`).emit('peer-joined', {
       peer,
     });
+  });
+
+  // 1.5 Start Discussion Session (Faculty In-Charge / Host)
+  socket.on('start-session', ({ slotId }: { slotId: string }) => {
+    const safeSlotId = slotId || 'slot-dit-001';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (room) {
+      room.status = 'active';
+      room.silenceTimerSeconds = 0;
+      io.to(`room-${safeSlotId}`).emit('session-started', {
+        slotId: safeSlotId,
+        status: 'active',
+        topic: room.topic,
+      });
+    }
   });
 
   // 2. WebRTC N-Way Signaling Relay (All-to-All mesh)

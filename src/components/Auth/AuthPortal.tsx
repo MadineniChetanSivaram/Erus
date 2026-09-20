@@ -78,7 +78,6 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
 
   // Ensure AI speech engine is strictly silenced when on the authentication portal
   useEffect(() => {
-    roomVoice.setSessionActive(false);
     roomVoice.stop();
   }, []);
 
