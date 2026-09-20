@@ -185,13 +185,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Active display students: merge static mock participants with live connected WebRTC peers
   const activeDisplayStudents = useMemo(() => {
-    return session.students.map((st) => {
+    const targetUserSeat = !isFaculty
+      ? (rtcAssignedSeat || (currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber : 1) || 1)
+      : null;
+
+    // Sort students by seatNumber to guarantee seats 1..15 are in deterministic order
+    const sorted = [...session.students].sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
+
+    return sorted.map((st, idx) => {
+      const fixedSeatNumber = st.seatNumber || (idx + 1);
+      const isThisSeatUser = targetUserSeat !== null && (fixedSeatNumber === targetUserSeat || (!rtcAssignedSeat && st.isUser));
+
       // Check if current user is sitting in this seat
-      if (!isFaculty && (st.seatNumber === rtcAssignedSeat || st.isUser)) {
+      if (isThisSeatUser) {
         return {
           ...st,
+          id: currentUser?.id || st.id,
           isUser: true,
-          seatNumber: rtcAssignedSeat,
+          seatNumber: fixedSeatNumber,
           name: currentUser?.name || st.name,
           avatar: currentUser?.avatar || st.avatar,
           college: currentUser?.college || st.college,
@@ -202,11 +213,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
 
       // Check if another real peer is connected in this seat
-      const realPeer = rtcPeers.find((p) => p.seatNumber === st.seatNumber);
+      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber);
       if (realPeer) {
         return {
           ...st,
           id: realPeer.userId,
+          seatNumber: fixedSeatNumber,
           name: realPeer.name,
           avatar: realPeer.avatar || st.avatar,
           college: realPeer.college || st.college,
@@ -224,8 +236,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       if (!autoSimulatePeers) {
         return {
           ...st,
-          id: `seat-${st.seatNumber}-empty`,
-          name: `Seat ${st.seatNumber}`,
+          id: `seat-${fixedSeatNumber}-empty`,
+          seatNumber: fixedSeatNumber,
+          name: `Seat ${fixedSeatNumber}`,
           college: 'Waiting to join...',
           avatar: '',
           isUser: false,
@@ -239,7 +252,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
-      return st;
+      return {
+        ...st,
+        seatNumber: fixedSeatNumber,
+        isUser: false,
+      };
     });
   }, [session.students, rtcPeers, rtcAssignedSeat, currentUser, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn, autoSimulatePeers]);
 
@@ -1134,10 +1151,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
             {/* 1. ROUND TABLE LAYOUT */}
             {currentLayout === 'round_table' && (
-              <div className="relative z-10 my-4 flex-1 flex items-center justify-center overflow-x-auto py-16 sm:py-20 px-3 sm:px-6 scrollbar-thin">
-                <div className={`h-64 sm:h-72 rounded-[48px] sm:rounded-[64px] bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 dark:from-slate-800/90 dark:via-slate-850 dark:to-slate-900 border-4 border-slate-300 dark:border-slate-700/80 shadow-lg dark:shadow-2xl relative flex items-center justify-center p-4 transition-all duration-300 ${
+              <div className="relative z-10 my-4 flex-1 flex items-center justify-start lg:justify-center overflow-x-auto py-16 sm:py-20 px-4 sm:px-8 scrollbar-thin scroll-smooth">
+                <div className={`h-64 sm:h-72 rounded-[48px] sm:rounded-[64px] bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 dark:from-slate-800/90 dark:via-slate-850 dark:to-slate-900 border-4 border-slate-300 dark:border-slate-700/80 shadow-lg dark:shadow-2xl relative flex items-center justify-center p-4 transition-all duration-300 mx-auto ${
                   session.students.length > 8
-                    ? 'min-w-[760px] sm:min-w-[960px] w-full max-w-5xl'
+                    ? 'w-full min-w-[700px] max-w-5xl'
                     : 'w-full max-w-2xl'
                 }`}>
                   
@@ -1168,8 +1185,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     <div className="absolute inset-8 rounded-full border border-indigo-200/50 dark:border-indigo-900/40 pointer-events-none" />
                   </div>
 
-                  {/* Seating Pods: TOP ROW */}
-                  <div className="absolute -top-12 sm:-top-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
+                  {/* Seating Pods: TOP ROW (Seats 1 to 8) */}
+                  <div className="absolute -top-12 sm:-top-14 inset-x-3 sm:inset-x-8 flex justify-between gap-1 sm:gap-2">
                     {activeDisplayStudents.slice(0, Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
@@ -1185,8 +1202,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     ))}
                   </div>
 
-                  {/* Seating Pods: BOTTOM ROW */}
-                  <div className="absolute -bottom-12 sm:-bottom-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
+                  {/* Seating Pods: BOTTOM ROW (Seats 9 to 15) */}
+                  <div className="absolute -bottom-12 sm:-bottom-14 inset-x-3 sm:inset-x-8 flex justify-between gap-1 sm:gap-2">
                     {activeDisplayStudents.slice(Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
@@ -1208,9 +1225,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
             {/* 2. SPEAKER IN MIDDLE OF ROUND TABLE LAYOUT */}
             {currentLayout === 'speaker_center' && (
-              <div className="relative z-10 my-4 flex-1 flex items-center justify-center overflow-x-auto py-16 sm:py-20 px-3 sm:px-6 scrollbar-thin">
-                <div className={`min-h-[320px] sm:min-h-[360px] rounded-[56px] sm:rounded-[72px] bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 dark:from-slate-800/90 dark:via-slate-850 dark:to-slate-900 border-4 border-slate-300 dark:border-slate-700/80 shadow-xl dark:shadow-2xl relative flex items-center justify-center p-4 transition-all duration-300 ${
-                  session.students.length > 8 ? 'min-w-[780px] sm:min-w-[980px] w-full max-w-5xl' : 'w-full max-w-2xl'
+              <div className="relative z-10 my-4 flex-1 flex items-center justify-start lg:justify-center overflow-x-auto py-16 sm:py-20 px-4 sm:px-8 scrollbar-thin scroll-smooth">
+                <div className={`min-h-[320px] sm:min-h-[360px] rounded-[56px] sm:rounded-[72px] bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 dark:from-slate-800/90 dark:via-slate-850 dark:to-slate-900 border-4 border-slate-300 dark:border-slate-700/80 shadow-xl dark:shadow-2xl relative flex items-center justify-center p-4 transition-all duration-300 mx-auto ${
+                  session.students.length > 8 ? 'w-full min-w-[720px] max-w-5xl' : 'w-full max-w-2xl'
                 }`}>
                   
                   {/* Table Surface with Inset Ambient Ring */}
@@ -1277,8 +1294,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
                   </div>
 
-                  {/* Outer Ring Seating: TOP ROW */}
-                  <div className="absolute -top-12 sm:-top-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
+                  {/* Outer Ring Seating: TOP ROW (Seats 1 to 8) */}
+                  <div className="absolute -top-12 sm:-top-14 inset-x-3 sm:inset-x-8 flex justify-between gap-1 sm:gap-2">
                     {activeDisplayStudents.slice(0, Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
@@ -1294,8 +1311,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     ))}
                   </div>
 
-                  {/* Outer Ring Seating: BOTTOM ROW */}
-                  <div className="absolute -bottom-12 sm:-bottom-14 inset-x-2 sm:inset-x-6 flex justify-between gap-1 sm:gap-2">
+                  {/* Outer Ring Seating: BOTTOM ROW (Seats 9 to 15) */}
+                  <div className="absolute -bottom-12 sm:-bottom-14 inset-x-3 sm:inset-x-8 flex justify-between gap-1 sm:gap-2">
                     {activeDisplayStudents.slice(Math.ceil(activeDisplayStudents.length / 2)).map((student) => (
                       <StudentPodCard 
                         key={student.id} 
