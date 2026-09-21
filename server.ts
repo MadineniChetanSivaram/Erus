@@ -315,6 +315,283 @@ function savePersistentState() {
 
 loadPersistentState();
 
+// ==========================================
+// PRISMA POSTGRESQL CLIENT & DUAL-PERSISTENCE
+// ==========================================
+let prisma: PrismaClient | null = null;
+let isDbConnected = false;
+
+async function syncDatabaseWithPersistentState() {
+  if (!prisma || !isDbConnected) return;
+  try {
+    const collegeCount = await prisma.college.count();
+    if (collegeCount === 0) {
+      console.log('[Database] Fresh PostgreSQL detected. Seeding from persistent state...');
+      for (const col of persistentState.colleges) {
+        await prisma.college.upsert({
+          where: { code: col.code },
+          update: {
+            name: col.name,
+            contactEmail: col.contactEmail,
+            phone: col.phone || '',
+            address: col.address || '',
+            status: col.status || 'active',
+          },
+          create: {
+            name: col.name,
+            code: col.code,
+            contactEmail: col.contactEmail,
+            phone: col.phone || '',
+            address: col.address || '',
+            status: col.status || 'active',
+          },
+        });
+      }
+
+      for (const u of persistentState.users) {
+        const collegeRec = await prisma.college.findUnique({ where: { code: u.collegeCode || 'DIT' } });
+        const passHash = u.password.startsWith('$2') ? u.password : await bcrypt.hash(u.password, 10);
+        
+        await prisma.user.upsert({
+          where: { email: u.email.toLowerCase() },
+          update: {
+            name: u.name,
+            role: u.role,
+            college: u.college,
+            collegeId: collegeRec?.id || null,
+          },
+          create: {
+            email: u.email.toLowerCase(),
+            passwordHash: passHash,
+            name: u.name,
+            role: u.role,
+            college: u.college,
+            collegeId: collegeRec?.id || null,
+            avatar: u.avatar,
+            ...(u.role === 'student'
+              ? {
+                  studentProfile: {
+                    create: {
+                      studentId: u.studentId || `STU-${Date.now().toString().slice(-4)}`,
+                      course: u.course || 'B.Tech CSE',
+                      batch: u.batch || '2022-2026',
+                      seatNumber: u.seatNumber || 1,
+                    },
+                  },
+                }
+              : u.role === 'faculty'
+              ? {
+                  facultyProfile: {
+                    create: {
+                      facultyId: u.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+                      department: u.department || 'Computer Science & Engineering',
+                      designation: u.designation || 'Faculty Member',
+                    },
+                  },
+                }
+              : u.role === 'college_admin'
+              ? {
+                  collegeAdminProfile: {
+                    create: {
+                      adminId: u.adminId || `CADM-${u.collegeCode || 'DIT'}-001`,
+                      department: u.department || 'Academic Administration',
+                    },
+                  },
+                }
+              : {}),
+          },
+        });
+      }
+
+      for (const [code, slotList] of Object.entries(persistentState.slots)) {
+        const col = await prisma.college.findUnique({ where: { code } });
+        for (const slot of slotList) {
+          await prisma.gDSession.upsert({
+            where: { id: slot.id },
+            update: {
+              topic: slot.topic,
+              description: slot.description,
+              slotTiming: slot.slotTiming,
+              slotName: slot.slotName,
+              durationMinutes: slot.durationMinutes,
+              maxCapacity: slot.maxCapacity,
+              enrolledCount: slot.enrolledCount,
+              assignedFacultyId: slot.assignedFacultyId,
+              assignedFacultyName: slot.assignedFacultyName,
+              status: slot.status,
+            },
+            create: {
+              id: slot.id,
+              topic: slot.topic,
+              description: slot.description,
+              slotTiming: slot.slotTiming,
+              slotName: slot.slotName,
+              durationMinutes: slot.durationMinutes,
+              maxCapacity: slot.maxCapacity,
+              enrolledCount: slot.enrolledCount,
+              assignedFacultyId: slot.assignedFacultyId,
+              assignedFacultyName: slot.assignedFacultyName,
+              collegeId: col?.id,
+              status: slot.status,
+            },
+          });
+        }
+      }
+      console.log('[Database] Seeding to PostgreSQL completed successfully.');
+    } else {
+      console.log('[Database] PostgreSQL records found. Hydrating persistent memory state from DB...');
+      const dbColleges = await prisma.college.findMany({
+        include: {
+          users: {
+            include: {
+              studentProfile: true,
+              facultyProfile: true,
+              collegeAdminProfile: true,
+            },
+          },
+          sessions: true,
+        },
+      });
+
+      if (dbColleges.length > 0) {
+        persistentState.colleges = dbColleges.map((c) => {
+          const adminUser = c.users.find((u) => u.role === 'college_admin');
+          return {
+            id: c.id,
+            name: c.name,
+            code: c.code,
+            contactEmail: c.contactEmail,
+            phone: c.phone || '',
+            address: c.address || '',
+            status: c.status || 'active',
+            studentCount: c.users.filter((u) => u.role === 'student').length,
+            facultyCount: c.users.filter((u) => u.role === 'faculty').length,
+            slotCount: c.sessions.length,
+            adminEmail: adminUser?.email || c.contactEmail,
+            adminName: adminUser?.name || `${c.code} Administrator`,
+            createdAt: c.createdAt.toISOString(),
+          };
+        });
+
+        for (const c of dbColleges) {
+          const students = c.users
+            .filter((u) => u.role === 'student')
+            .map((u) => ({
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              studentId: u.studentProfile?.studentId || 'STU-001',
+              course: u.studentProfile?.course || 'B.Tech CSE',
+              batch: u.studentProfile?.batch || '2022-2026',
+              seatNumber: u.studentProfile?.seatNumber || 1,
+              college: c.name,
+              collegeCode: c.code,
+            }));
+          if (students.length > 0) {
+            persistentState.students[c.code] = students;
+          }
+
+          const faculty = c.users
+            .filter((u) => u.role === 'faculty')
+            .map((u) => ({
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              facultyId: u.facultyProfile?.facultyId || 'FAC-001',
+              department: u.facultyProfile?.department || 'Computer Science & Engineering',
+              designation: u.facultyProfile?.designation || 'Professor',
+              college: c.name,
+              collegeCode: c.code,
+              assignedSlotsCount: 0,
+            }));
+          if (faculty.length > 0) {
+            persistentState.faculty[c.code] = faculty;
+          }
+
+          const slots = c.sessions.map((s) => ({
+            id: s.id,
+            slotName: s.slotName || s.topic,
+            topic: s.topic,
+            description: s.description || '',
+            slotTiming: s.slotTiming || '10:30 AM - 10:45 AM',
+            status: s.status,
+            durationMinutes: s.durationMinutes,
+            enrolledCount: s.enrolledCount,
+            maxCapacity: s.maxCapacity,
+            assignedFacultyId: s.assignedFacultyId || undefined,
+            assignedFacultyName: s.assignedFacultyName || undefined,
+            collegeCode: c.code,
+            createdAt: s.createdAt.toISOString(),
+          }));
+          if (slots.length > 0) {
+            persistentState.slots[c.code] = slots;
+          }
+        }
+
+        const allDbUsers = await prisma.user.findMany({
+          include: {
+            studentProfile: true,
+            facultyProfile: true,
+            collegeAdminProfile: true,
+            collegeOrg: true,
+          },
+        });
+
+        for (const u of allDbUsers) {
+          const existingIdx = persistentState.users.findIndex((pu) => pu.email.toLowerCase() === u.email.toLowerCase());
+          const mappedUser: StoredAuthUser = {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role as any,
+            password: u.passwordHash,
+            college: u.college,
+            collegeCode: u.collegeOrg?.code || undefined,
+            department: u.facultyProfile?.department || u.collegeAdminProfile?.department,
+            designation: u.facultyProfile?.designation,
+            course: u.studentProfile?.course,
+            batch: u.studentProfile?.batch,
+            seatNumber: u.studentProfile?.seatNumber,
+            studentId: u.studentProfile?.studentId,
+            facultyId: u.facultyProfile?.facultyId,
+            adminId: u.collegeAdminProfile?.adminId,
+            avatar: u.avatar || undefined,
+          };
+          if (existingIdx >= 0) {
+            persistentState.users[existingIdx] = mappedUser;
+          } else {
+            persistentState.users.push(mappedUser);
+          }
+        }
+
+        savePersistentState();
+        console.log(`[Database] Hydrated ${dbColleges.length} colleges, ${allDbUsers.length} users from PostgreSQL.`);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database] Sync error:', err);
+  }
+}
+
+if (process.env.DATABASE_URL) {
+  try {
+    prisma = new PrismaClient();
+    prisma.$connect()
+      .then(async () => {
+        isDbConnected = true;
+        console.log('[Database] Connected to PostgreSQL via Prisma');
+        await syncDatabaseWithPersistentState();
+      })
+      .catch((err: any) => {
+        console.warn('[Database] Prisma connection error (using persistent file/in-memory fallback):', err.message);
+      });
+  } catch (err: any) {
+    console.warn('[Database] Prisma initialization error:', err);
+  }
+} else {
+  console.log('[Database] No DATABASE_URL configured. Running with persistent file store (.erus_backend_state.json).');
+}
+
 // --- ADMIN COLLEGES ---
 app.get('/api/admin/colleges', (req, res) => {
   const updatedColleges = persistentState.colleges.map((c) => {
@@ -331,7 +608,7 @@ app.get('/api/admin/colleges', (req, res) => {
   res.json({ success: true, colleges: updatedColleges });
 });
 
-app.post('/api/admin/colleges', (req, res) => {
+app.post('/api/admin/colleges', async (req, res) => {
   const payload = req.body;
   if (!payload || !payload.name || !payload.code) {
     return res.status(400).json({ success: false, error: 'Name and code are required' });
@@ -369,6 +646,57 @@ app.post('/api/admin/colleges', (req, res) => {
   persistentState.users = [adminUser, ...persistentState.users.filter((u) => u.email.toLowerCase() !== adminUser.email.toLowerCase())];
   savePersistentState();
 
+  if (isDbConnected && prisma) {
+    try {
+      const dbCol = await prisma.college.upsert({
+        where: { code: cleanCode },
+        update: {
+          name: newCol.name,
+          contactEmail: newCol.contactEmail,
+          phone: newCol.phone,
+          address: newCol.address,
+          status: newCol.status,
+        },
+        create: {
+          name: newCol.name,
+          code: cleanCode,
+          contactEmail: newCol.contactEmail,
+          phone: newCol.phone,
+          address: newCol.address,
+          status: newCol.status,
+        },
+      });
+
+      const hashedAdminPass = await bcrypt.hash(adminPass, 10);
+      await prisma.user.upsert({
+        where: { email: adminUser.email.toLowerCase() },
+        update: {
+          name: adminUser.name,
+          passwordHash: hashedAdminPass,
+          college: newCol.name,
+          collegeId: dbCol.id,
+        },
+        create: {
+          email: adminUser.email.toLowerCase(),
+          passwordHash: hashedAdminPass,
+          name: adminUser.name,
+          role: 'college_admin',
+          college: newCol.name,
+          collegeId: dbCol.id,
+          collegeAdminProfile: {
+            create: {
+              adminId: adminUser.adminId!,
+              department: 'Academic Administration',
+            },
+          },
+        },
+      });
+      console.log(`[Database] College ${cleanCode} and admin persisted to PostgreSQL.`);
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to persist college to PostgreSQL:', dbErr.message);
+    }
+  }
+
   res.json({
     success: true,
     college: newCol,
@@ -402,7 +730,7 @@ app.get('/api/admin/stats', (req, res) => {
       totalStudents: totalStu || 215,
       totalFaculty: totalFac || 32,
       totalSlots: totalSl || 14,
-      activeLiveGDs: (LIVE_ROOMS ? LIVE_ROOMS.size : 0) || 1,
+      activeLiveGDs: (typeof LIVE_ROOMS !== 'undefined' ? LIVE_ROOMS.size : 0) || 1,
     },
   });
 });
@@ -435,7 +763,7 @@ app.get('/api/college/students', (req, res) => {
   res.json({ success: true, students });
 });
 
-app.post('/api/college/students', (req, res) => {
+app.post('/api/college/students', async (req, res) => {
   const { students, student, collegeCode } = req.body;
   const code = (collegeCode || 'DIT').toUpperCase();
   const incoming: any[] = Array.isArray(students) ? students : student ? [student] : [];
@@ -476,6 +804,43 @@ app.post('/api/college/students', (req, res) => {
   });
 
   savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      const col = await prisma.college.findUnique({ where: { code } });
+      const defaultPassHash = await bcrypt.hash('password123', 10);
+      for (const st of addedStudents) {
+        await prisma.user.upsert({
+          where: { email: st.email.toLowerCase() },
+          update: {
+            name: st.name,
+            college: st.college,
+            collegeId: col?.id,
+          },
+          create: {
+            email: st.email.toLowerCase(),
+            passwordHash: defaultPassHash,
+            name: st.name,
+            role: 'student',
+            college: st.college,
+            collegeId: col?.id,
+            studentProfile: {
+              create: {
+                studentId: st.studentId,
+                course: st.course,
+                batch: st.batch,
+                seatNumber: st.seatNumber,
+              },
+            },
+          },
+        });
+      }
+      console.log(`[Database] Persisted ${addedStudents.length} students to PostgreSQL.`);
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to persist students to PostgreSQL:', dbErr.message);
+    }
+  }
+
   res.json({ success: true, addedCount: addedStudents.length, students: persistentState.students[code] });
 });
 
@@ -485,7 +850,7 @@ app.get('/api/college/faculty', (req, res) => {
   res.json({ success: true, faculty });
 });
 
-app.post('/api/college/faculty', (req, res) => {
+app.post('/api/college/faculty', async (req, res) => {
   const payload = req.body;
   const code = (payload.collegeCode || 'DIT').toUpperCase();
 
@@ -520,6 +885,40 @@ app.post('/api/college/faculty', (req, res) => {
   });
 
   savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      const col = await prisma.college.findUnique({ where: { code } });
+      const passHash = await bcrypt.hash(payload.password || 'faculty123', 10);
+      await prisma.user.upsert({
+        where: { email: newFac.email.toLowerCase() },
+        update: {
+          name: newFac.name,
+          college: newFac.college,
+          collegeId: col?.id,
+        },
+        create: {
+          email: newFac.email.toLowerCase(),
+          passwordHash: passHash,
+          name: newFac.name,
+          role: 'faculty',
+          college: newFac.college,
+          collegeId: col?.id,
+          facultyProfile: {
+            create: {
+              facultyId: newFac.facultyId,
+              department: newFac.department,
+              designation: newFac.designation,
+            },
+          },
+        },
+      });
+      console.log(`[Database] Persisted faculty ${newFac.name} to PostgreSQL.`);
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to persist faculty to PostgreSQL:', dbErr.message);
+    }
+  }
+
   res.json({ success: true, faculty: newFac });
 });
 
@@ -529,7 +928,7 @@ app.get('/api/college/slots', (req, res) => {
   res.json({ success: true, slots });
 });
 
-app.post('/api/college/slots', (req, res) => {
+app.post('/api/college/slots', async (req, res) => {
   const payload = req.body;
   const code = (payload.collegeCode || 'DIT').toUpperCase();
 
@@ -555,18 +954,118 @@ app.post('/api/college/slots', (req, res) => {
 
   persistentState.slots[code].unshift(newSlot);
   savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      const col = await prisma.college.findUnique({ where: { code } });
+      await prisma.gDSession.upsert({
+        where: { id: newSlot.id },
+        update: {
+          topic: newSlot.topic,
+          description: newSlot.description,
+          slotTiming: newSlot.slotTiming,
+          slotName: newSlot.slotName,
+          durationMinutes: newSlot.durationMinutes,
+          maxCapacity: newSlot.maxCapacity,
+          enrolledCount: newSlot.enrolledCount,
+          assignedFacultyId: newSlot.assignedFacultyId,
+          assignedFacultyName: newSlot.assignedFacultyName,
+          status: newSlot.status,
+        },
+        create: {
+          id: newSlot.id,
+          topic: newSlot.topic,
+          description: newSlot.description,
+          slotTiming: newSlot.slotTiming,
+          slotName: newSlot.slotName,
+          durationMinutes: newSlot.durationMinutes,
+          maxCapacity: newSlot.maxCapacity,
+          enrolledCount: newSlot.enrolledCount,
+          assignedFacultyId: newSlot.assignedFacultyId,
+          assignedFacultyName: newSlot.assignedFacultyName,
+          collegeId: col?.id,
+          status: newSlot.status,
+        },
+      });
+      console.log(`[Database] Persisted slot ${newSlot.topic} to PostgreSQL.`);
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to persist slot to PostgreSQL:', dbErr.message);
+    }
+  }
+
   res.json({ success: true, slot: newSlot });
 });
 
+app.post('/api/college/slots/:id/complete', async (req, res) => {
+  const slotId = req.params.id;
+  for (const list of Object.values(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) {
+      found.status = 'completed';
+    }
+  }
+  savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.updateMany({
+        where: { id: slotId },
+        data: { status: 'completed' },
+      });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to mark slot completed in DB:', dbErr.message);
+    }
+  }
+
+  res.json({ success: true, slotId, status: 'completed' });
+});
+
+app.post('/api/college/slots/:id/start', async (req, res) => {
+  const slotId = req.params.id;
+  for (const list of Object.values(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) {
+      found.status = 'active';
+    }
+  }
+  savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.updateMany({
+        where: { id: slotId },
+        data: { status: 'active' },
+      });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to mark slot active in DB:', dbErr.message);
+    }
+  }
+
+  if (typeof LIVE_ROOMS !== 'undefined') {
+    const room = LIVE_ROOMS.get(slotId);
+    if (room) {
+      room.status = 'active';
+      room.silenceTimerSeconds = 0;
+      io.to(`room-${slotId}`).emit('session-started', {
+        slotId,
+        status: 'active',
+        topic: room.topic,
+      });
+    }
+  }
+
+  res.json({ success: true, slotId, status: 'active' });
+});
+
 // --- AUTH ENDPOINTS ---
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { role, identifier, password } = req.body;
   if (!identifier) {
     return res.status(400).json({ success: false, error: 'Identifier is required' });
   }
 
   const cleanId = identifier.trim().toLowerCase();
-  const user = persistentState.users.find((u) => {
+  let user = persistentState.users.find((u) => {
     const matchRole = !role || u.role === role;
     const matchId =
       u.email.toLowerCase() === cleanId ||
@@ -577,39 +1076,94 @@ app.post('/api/auth/login', (req, res) => {
     return matchRole && matchId;
   });
 
+  if (!user && isDbConnected && prisma) {
+    try {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          ...(role ? { role } : {}),
+          OR: [
+            { email: { equals: cleanId, mode: 'insensitive' } },
+            { name: { contains: cleanId, mode: 'insensitive' } },
+            { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } },
+            { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } },
+            { collegeAdminProfile: { adminId: { equals: cleanId, mode: 'insensitive' } } },
+          ],
+        },
+        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
+      });
+
+      if (dbUser) {
+        user = {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role as any,
+          password: dbUser.passwordHash,
+          college: dbUser.college,
+          collegeCode: dbUser.collegeOrg?.code,
+          department: dbUser.facultyProfile?.department || dbUser.collegeAdminProfile?.department,
+          designation: dbUser.facultyProfile?.designation,
+          course: dbUser.studentProfile?.course,
+          batch: dbUser.studentProfile?.batch,
+          seatNumber: dbUser.studentProfile?.seatNumber,
+          studentId: dbUser.studentProfile?.studentId,
+          facultyId: dbUser.facultyProfile?.facultyId,
+          adminId: dbUser.collegeAdminProfile?.adminId,
+          avatar: dbUser.avatar || undefined,
+        };
+        persistentState.users.push(user);
+        savePersistentState();
+      }
+    } catch (dbErr: any) {
+      console.warn('[Database] DB lookup error during login:', dbErr.message);
+    }
+  }
+
   if (!user) {
     return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
   }
 
-  if (password && user.password && user.password !== password) {
-    return res.status(401).json({ success: false, error: 'Incorrect password.' });
+  if (password && user.password) {
+    let isMatch = false;
+    if (user.password.startsWith('$2')) {
+      isMatch = await bcrypt.compare(password, user.password);
+    } else {
+      isMatch = user.password === password;
+    }
+
+    if (!isMatch) {
+      return res.status(401).json({ success: false, error: 'Incorrect password.' });
+    }
   }
 
   const { password: _, ...cleanUser } = user;
+  const token = jwt.sign({ id: cleanUser.id, email: cleanUser.email, role: cleanUser.role }, JWT_SECRET, { expiresIn: '7d' });
   res.json({
     success: true,
     user: cleanUser,
-    token: `jwt-${cleanUser.id}-${Date.now()}`,
+    token,
   });
 });
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const userData = req.body;
   if (!userData || !userData.email || !userData.name) {
     return res.status(400).json({ success: false, error: 'Name and email are required.' });
   }
 
-  const existing = persistentState.users.find((u) => u.email.toLowerCase() === userData.email.trim().toLowerCase());
+  const cleanEmail = userData.email.trim().toLowerCase();
+  const existing = persistentState.users.find((u) => u.email.toLowerCase() === cleanEmail);
   if (existing) {
     return res.status(400).json({ success: false, error: 'Email already registered.' });
   }
 
+  const role = userData.role || 'student';
   const newUser: StoredAuthUser = {
-    id: `${userData.role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`,
+    id: `${role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`,
     name: userData.name.trim(),
-    email: userData.email.trim(),
+    email: cleanEmail,
     password: userData.password || 'password123',
-    role: userData.role || 'student',
+    role: role,
     college: userData.college || 'Engineering Institute',
     collegeCode: userData.collegeCode || 'DIT',
     course: userData.course,
@@ -625,29 +1179,115 @@ app.post('/api/auth/register', (req, res) => {
   persistentState.users.push(newUser);
   savePersistentState();
 
+  if (isDbConnected && prisma) {
+    try {
+      const col = await prisma.college.findUnique({ where: { code: newUser.collegeCode || 'DIT' } });
+      const passHash = await bcrypt.hash(newUser.password, 10);
+      await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          passwordHash: passHash,
+          name: newUser.name,
+          role: newUser.role,
+          college: newUser.college,
+          collegeId: col?.id,
+          avatar: newUser.avatar,
+          ...(role === 'student'
+            ? {
+                studentProfile: {
+                  create: {
+                    studentId: newUser.studentId || `STU-${Date.now().toString().slice(-4)}`,
+                    course: newUser.course || 'General Engineering',
+                    batch: newUser.batch || '2024-2028',
+                    seatNumber: newUser.seatNumber || 1,
+                  },
+                },
+              }
+            : {
+                facultyProfile: {
+                  create: {
+                    facultyId: newUser.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+                    department: newUser.department || 'Engineering',
+                    designation: newUser.designation || 'Faculty Evaluator',
+                  },
+                },
+              }),
+        },
+      });
+      console.log(`[Database] User ${newUser.email} registered to PostgreSQL.`);
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to register user to PostgreSQL:', dbErr.message);
+    }
+  }
+
   const { password: _, ...cleanUser } = newUser;
+  const token = jwt.sign({ id: cleanUser.id, email: cleanUser.email, role: cleanUser.role }, JWT_SECRET, { expiresIn: '7d' });
   res.json({
     success: true,
     user: cleanUser,
-    token: `jwt-${cleanUser.id}-${Date.now()}`,
+    token,
   });
 });
 
-app.get('/api/auth/me', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ success: false, error: 'No authorization header' });
-  }
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ success: false, error: 'No authorization header' });
+    }
 
-  const token = authHeader.replace('Bearer ', '').trim();
-  const userId = token.split('-')[1];
-  const user = persistentState.users.find((u) => u.id === userId) || persistentState.users[0];
+    const token = authHeader.replace('Bearer ', '').trim();
+    let userId: string | null = null;
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      userId = decoded.id;
+    } catch {
+      if (token.startsWith('jwt-')) {
+        userId = token.split('-')[1];
+      }
+    }
 
-  if (user) {
-    const { password: _, ...cleanUser } = user;
-    return res.json({ success: true, user: cleanUser });
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Invalid token' });
+    }
+
+    let user = persistentState.users.find((u) => u.id === userId);
+    if (!user && isDbConnected && prisma) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
+      });
+      if (dbUser) {
+        user = {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role as any,
+          password: dbUser.passwordHash,
+          college: dbUser.college,
+          collegeCode: dbUser.collegeOrg?.code,
+          department: dbUser.facultyProfile?.department || dbUser.collegeAdminProfile?.department,
+          designation: dbUser.facultyProfile?.designation,
+          course: dbUser.studentProfile?.course,
+          batch: dbUser.studentProfile?.batch,
+          seatNumber: dbUser.studentProfile?.seatNumber,
+          studentId: dbUser.studentProfile?.studentId,
+          facultyId: dbUser.facultyProfile?.facultyId,
+          adminId: dbUser.collegeAdminProfile?.adminId,
+          avatar: dbUser.avatar || undefined,
+        };
+      }
+    }
+
+    if (user) {
+      const { password: _, ...cleanUser } = user;
+      return res.json({ success: true, user: cleanUser });
+    }
+
+    return res.status(401).json({ success: false, error: 'Session invalid' });
+  } catch (err: any) {
+    return res.status(401).json({ success: false, error: 'Authentication failed' });
   }
-  res.status(401).json({ success: false, error: 'Session invalid' });
 });
 
 // Initialize Gemini Client safely
@@ -976,188 +1616,7 @@ let liveTranscripts: BackendTranscript[] = [
   },
 ];
 
-// Database Setup & Connection (PostgreSQL with Prisma + In-Memory Fallback)
-let prisma: PrismaClient | null = null;
-let isDbConnected = false;
-
-if (process.env.DATABASE_URL) {
-  try {
-    prisma = new PrismaClient();
-    prisma.$connect()
-      .then(() => {
-        isDbConnected = true;
-        console.log('[Database] Connected to PostgreSQL via Prisma');
-        seedDatabaseIfEmpty();
-      })
-      .catch((err: any) => {
-        console.warn('[Database] Prisma connection error (using in-memory fallback):', err.message);
-      });
-  } catch (err: any) {
-    console.warn('[Database] Prisma initialization error:', err);
-  }
-} else {
-  console.log('[Database] No DATABASE_URL configured. Running with in-memory persistence.');
-}
-
-async function seedDatabaseIfEmpty() {
-  if (!prisma || !isDbConnected) return;
-  try {
-    const count = await prisma.user.count();
-    if (count > 0) return;
-
-    console.log('[Database] Seeding default multi-role accounts and college in PostgreSQL...');
-    const hashedSuperAdminPass = await bcrypt.hash('admin123', 10);
-    const hashedCollegeAdminPass = await bcrypt.hash('college123', 10);
-    const hashedStudentPass = await bcrypt.hash('password123', 10);
-    const hashedFacultyPass = await bcrypt.hash('faculty123', 10);
-
-    // 1. Seed Default College
-    const ditCollege = await prisma.college.create({
-      data: {
-        name: 'Delhi Institute of Technology',
-        code: 'DIT',
-        contactEmail: 'admin@dit.edu.in',
-        phone: '+91 11 2659 1000',
-        address: 'Hauz Khas, New Delhi, Delhi 110016',
-        status: 'active',
-      },
-    });
-
-    // 2. Seed Super Admin (Platform Owner)
-    await prisma.user.create({
-      data: {
-        email: 'superadmin@erus.ai',
-        passwordHash: hashedSuperAdminPass,
-        name: 'Platform Super Admin',
-        role: 'super_admin',
-        college: 'ERUS Global Administration',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-      },
-    });
-
-    // 3. Seed College Admin for DIT
-    await prisma.user.create({
-      data: {
-        email: 'admin@dit.edu.in',
-        passwordHash: hashedCollegeAdminPass,
-        name: 'DIT College Administrator',
-        role: 'college_admin',
-        college: 'Delhi Institute of Technology',
-        collegeId: ditCollege.id,
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
-        collegeAdminProfile: {
-          create: {
-            adminId: 'CADM-DIT-001',
-            department: 'Academic & Placement Affairs',
-          },
-        },
-      },
-    });
-
-    // 4. Seed Rahul Kumar (Student)
-    await prisma.user.create({
-      data: {
-        email: 'rahul.kumar@dit.edu.in',
-        passwordHash: hashedStudentPass,
-        name: 'Rahul Kumar',
-        role: 'student',
-        college: 'Delhi Institute of Technology',
-        collegeId: ditCollege.id,
-        avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
-        studentProfile: {
-          create: {
-            studentId: 'STU-2022-041',
-            course: 'B.Tech CSE',
-            batch: '2022-2026',
-            seatNumber: 1,
-          },
-        },
-      },
-    });
-
-    // 5. Seed Priya Sharma (Student)
-    await prisma.user.create({
-      data: {
-        email: 'priya.sharma@sxec.edu.in',
-        passwordHash: hashedStudentPass,
-        name: 'Priya Sharma',
-        role: 'student',
-        college: 'St. Xavier Engineering College',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80',
-        studentProfile: {
-          create: {
-            studentId: 'STU-2022-089',
-            course: 'B.Tech IT',
-            batch: '2022-2026',
-            seatNumber: 2,
-          },
-        },
-      },
-    });
-
-    // 6. Seed Dr. Sunita Rao (Faculty)
-    await prisma.user.create({
-      data: {
-        email: 'sunita.rao@dit.edu.in',
-        passwordHash: hashedFacultyPass,
-        name: 'Dr. Sunita Rao',
-        role: 'faculty',
-        college: 'Delhi Institute of Technology',
-        collegeId: ditCollege.id,
-        avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-        facultyProfile: {
-          create: {
-            facultyId: 'FAC-CSE-102',
-            department: 'Computer Science & Engineering',
-            designation: 'Professor & Head of Department',
-          },
-        },
-      },
-    });
-
-    // 7. Seed Prof. Aravind Swamy (Faculty)
-    await prisma.user.create({
-      data: {
-        email: 'aravind.swamy@iitb.ac.in',
-        passwordHash: hashedFacultyPass,
-        name: 'Prof. Aravind Swamy',
-        role: 'faculty',
-        college: 'Indian Institute of Technology Bombay',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        facultyProfile: {
-          create: {
-            facultyId: 'FAC-AI-204',
-            department: 'Artificial Intelligence & Robotics',
-            designation: 'Associate Professor',
-          },
-        },
-      },
-    });
-
-    // 8. Seed Initial GD Slots for DIT
-    await prisma.gDSession.create({
-      data: {
-        topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-        description: 'Autonomous AI evaluation of technical arguments, ethics, and career roadmaps.',
-        durationMinutes: 15,
-        difficulty: 'Intermediate',
-        status: 'scheduled',
-        scheduledTime: '10:30 AM - 10:45 AM',
-        slotTiming: '10:30 AM - 10:45 AM',
-        slotName: 'Slot 1: AI & Tech Careers',
-        maxCapacity: 15,
-        enrolledCount: 8,
-        assignedFacultyId: 'FAC-CSE-102',
-        assignedFacultyName: 'Dr. Sunita Rao',
-        collegeId: ditCollege.id,
-      },
-    });
-
-    console.log('[Database] 4-Tier Role Seeding completed.');
-  } catch (err: any) {
-    console.warn('[Database] Seeding warning:', err);
-  }
-}
+// Note: Prisma Client & database sync are configured at the top of server.ts
 
 interface InMemCollege {
   id: string;
@@ -1452,212 +1911,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Authentication: Register new student or faculty
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const {
-      email,
-      password,
-      name,
-      role = 'student',
-      college,
-      avatar,
-      studentId,
-      course,
-      batch,
-      facultyId,
-      department,
-      designation,
-    } = req.body;
-
-    if (!email || !password || !name || !college) {
-      return res.status(400).json({ success: false, error: 'Name, email, college, and password are required.' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-
-    // Check PostgreSQL
-    if (isDbConnected && prisma) {
-      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      if (existing) {
-        return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
-      }
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      const user = await prisma.user.create({
-        data: {
-          email: cleanEmail,
-          passwordHash,
-          name: name.trim(),
-          role,
-          college: college.trim(),
-          avatar: avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
-          ...(role === 'student'
-            ? {
-                studentProfile: {
-                  create: {
-                    studentId: studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
-                    course: course?.trim() || 'General Engineering',
-                    batch: batch?.trim() || '2024-2028',
-                    seatNumber: 1,
-                  },
-                },
-              }
-            : {
-                facultyProfile: {
-                  create: {
-                    facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
-                    department: department?.trim() || 'Engineering',
-                    designation: designation?.trim() || 'Faculty Evaluator',
-                  },
-                },
-              }),
-        },
-        include: { studentProfile: true, facultyProfile: true },
-      });
-
-      const formatted = formatUserResponse(user);
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-      return res.json({ success: true, user: formatted, token });
-    }
-
-    // In-memory fallback
-    const exists = IN_MEM_USERS.some((u) => u.email.toLowerCase() === cleanEmail);
-    if (exists) {
-      return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const newId = `${role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`;
-    const newMemUser: InMemUser = {
-      id: newId,
-      email: cleanEmail,
-      passwordHash,
-      name: name.trim(),
-      role: role as any,
-      college: college.trim(),
-      avatar: avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
-      studentId: studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
-      course: course?.trim() || 'General Engineering',
-      batch: batch?.trim() || '2024-2028',
-      seatNumber: 1,
-      facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
-      department: department?.trim() || 'Engineering',
-      designation: designation?.trim() || 'Faculty Evaluator',
-    };
-
-    IN_MEM_USERS.push(newMemUser);
-    const formatted = formatUserResponse(newMemUser);
-    const token = jwt.sign({ id: newMemUser.id, email: newMemUser.email, role: newMemUser.role }, JWT_SECRET, { expiresIn: '7d' });
-    return res.json({ success: true, user: formatted, token });
-  } catch (err: any) {
-    console.error('[Auth Register Error]:', err);
-    res.status(500).json({ success: false, error: 'Server error during registration.' });
-  }
-});
-
-// Authentication: Login student, faculty, college admin, or super admin
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { role = 'student', identifier, password } = req.body;
-    if (!identifier || !password) {
-      return res.status(400).json({ success: false, error: 'Identifier and password are required.' });
-    }
-
-    const cleanId = identifier.trim().toLowerCase();
-
-    // Check PostgreSQL
-    if (isDbConnected && prisma) {
-      const user = await prisma.user.findFirst({
-        where: {
-          role,
-          OR: [
-            { email: { equals: cleanId, mode: 'insensitive' } },
-            role === 'student'
-              ? { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } }
-              : role === 'faculty'
-              ? { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } }
-              : role === 'college_admin'
-              ? { collegeAdminProfile: { adminId: { equals: cleanId, mode: 'insensitive' } } }
-              : { email: { equals: cleanId, mode: 'insensitive' } },
-          ],
-        },
-        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
-      });
-
-      if (!user) {
-        return res.status(401).json({ success: false, error: `Invalid ${role.replace('_', ' ')} credentials. Account not found.` });
-      }
-
-      const isMatch = await bcrypt.compare(password, user.passwordHash);
-      if (!isMatch) {
-        return res.status(401).json({ success: false, error: 'Invalid password. Please try again.' });
-      }
-
-      const formatted = formatUserResponse(user);
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-      return res.json({ success: true, user: formatted, token });
-    }
-
-    // In-memory fallback
-    const memUser = IN_MEM_USERS.find(
-      (u) =>
-        u.role === role &&
-        (u.email.toLowerCase() === cleanId ||
-          (role === 'student' && u.studentId?.toLowerCase() === cleanId) ||
-          (role === 'faculty' && u.facultyId?.toLowerCase() === cleanId) ||
-          (role === 'college_admin' && u.adminId?.toLowerCase() === cleanId))
-    );
-
-    if (!memUser) {
-      return res.status(401).json({ success: false, error: `Invalid ${role.replace('_', ' ')} credentials. User not found.` });
-    }
-
-    const isMatch = await bcrypt.compare(password, memUser.passwordHash);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, error: 'Invalid password. Please try again.' });
-    }
-
-    const formatted = formatUserResponse(memUser);
-    const token = jwt.sign({ id: memUser.id, email: memUser.email, role: memUser.role }, JWT_SECRET, { expiresIn: '7d' });
-    return res.json({ success: true, user: formatted, token });
-  } catch (err: any) {
-    console.error('[Auth Login Error]:', err);
-    res.status(500).json({ success: false, error: 'Server error during login.' });
-  }
-});
-
-// Authentication: Verify session token
-app.get('/api/auth/me', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, error: 'No token provided' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-
-    if (isDbConnected && prisma) {
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
-      });
-      if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-      return res.json({ success: true, user: formatUserResponse(user) });
-    }
-
-    const memUser = IN_MEM_USERS.find((u) => u.id === decoded.id);
-    if (!memUser) return res.status(404).json({ success: false, error: 'User not found' });
-    return res.json({ success: true, user: formatUserResponse(memUser) });
-  } catch (err) {
-    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
-  }
-});
 
 // Endpoint: GET Current Session & Transcripts
 app.get('/api/session/current', (req, res) => {
@@ -2379,6 +2632,38 @@ Provide JSON with:
       generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     };
 
+    if (isDbConnected && prisma) {
+      try {
+        let targetSessionId = report.sessionId;
+        const existingSession = await prisma.gDSession.findUnique({ where: { id: targetSessionId } });
+        if (!existingSession) {
+          const createdSession = await prisma.gDSession.create({
+            data: {
+              id: targetSessionId,
+              topic: report.topic || 'Group Discussion',
+              status: 'completed',
+            },
+          });
+          targetSessionId = createdSession.id;
+        }
+        await prisma.assessmentReport.create({
+          data: {
+            id: report.id,
+            sessionId: targetSessionId,
+            studentId: report.studentId,
+            overallScore: report.overallScore,
+            rubricJson: JSON.stringify(report.skills),
+            feedback: report.aiSummary,
+            strengths: (report.strengths || []).join('; '),
+            improvements: (report.areasForImprovement || []).join('; '),
+          },
+        });
+        console.log(`[Database] Assessment report ${report.id} saved to PostgreSQL.`);
+      } catch (dbErr: any) {
+        console.warn('[Database] Failed to save assessment report to PostgreSQL:', dbErr.message);
+      }
+    }
+
     res.json({ success: true, report });
   } catch (error: any) {
     console.error('Evaluation error:', error);
@@ -2483,856 +2768,6 @@ app.get('/api/topics', (req, res) => {
       },
     ],
   });
-});
-
-// ==========================================
-// SUPER ADMIN API ENDPOINTS (Platform Level)
-// ==========================================
-
-// Get All Onboarded Colleges with Aggregate Metrics
-app.get('/api/admin/colleges', async (req, res) => {
-  try {
-    if (isDbConnected && prisma) {
-      const colleges = await prisma.college.findMany({
-        include: {
-          users: {
-            include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true },
-          },
-          sessions: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const formatted = colleges.map((c) => {
-        const adminUser = c.users.find((u) => u.role === 'college_admin');
-        const studentCount = c.users.filter((u) => u.role === 'student').length;
-        const facultyCount = c.users.filter((u) => u.role === 'faculty').length;
-        return {
-          id: c.id,
-          name: c.name,
-          code: c.code,
-          contactEmail: c.contactEmail,
-          phone: c.phone || '+91 11 2000 3000',
-          address: c.address || 'Academic Campus',
-          status: c.status as any,
-          studentCount,
-          facultyCount,
-          slotCount: c.sessions.length,
-          adminEmail: adminUser?.email || c.contactEmail,
-          adminName: adminUser?.name || 'Administrator',
-          createdAt: c.createdAt.toISOString(),
-        };
-      });
-
-      return res.json({ success: true, colleges: formatted });
-    }
-
-    // In-Memory Fallback
-    const formatted = IN_MEM_COLLEGES.map((c) => {
-      const adminUser = IN_MEM_USERS.find((u) => u.role === 'college_admin' && (u.collegeId === c.id || u.collegeCode === c.code));
-      const studentCount = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === c.id || u.college === c.name)).length;
-      const facultyCount = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === c.id || u.college === c.name)).length;
-      const slotCount = IN_MEM_SLOTS.filter((s) => s.collegeId === c.id || s.collegeName === c.name).length;
-
-      return {
-        id: c.id,
-        name: c.name,
-        code: c.code,
-        contactEmail: c.contactEmail,
-        phone: c.phone || '+91 11 2000 3000',
-        address: c.address || 'Academic Campus',
-        status: c.status,
-        studentCount,
-        facultyCount,
-        slotCount,
-        adminEmail: adminUser?.email || c.contactEmail,
-        adminName: adminUser?.name || 'College Administrator',
-        createdAt: c.createdAt,
-      };
-    });
-
-    res.json({ success: true, colleges: formatted });
-  } catch (err: any) {
-    console.error('[Admin Colleges Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to retrieve colleges.' });
-  }
-});
-
-// Onboard New College & Auto-Generate College Admin Credentials
-app.post('/api/admin/colleges', async (req, res) => {
-  try {
-    const { name, code, contactEmail, phone, address, adminName, adminPassword } = req.body;
-    if (!name || !code || !contactEmail) {
-      return res.status(400).json({ success: false, error: 'College name, code, and contact email are required.' });
-    }
-
-    const cleanCode = code.trim().toUpperCase();
-    const cleanEmail = contactEmail.trim().toLowerCase();
-    const defaultPassword = adminPassword?.trim() || `Erus@${cleanCode}2026`;
-    const collegeAdminName = adminName?.trim() || `${cleanCode} Administrator`;
-
-    if (isDbConnected && prisma) {
-      const existing = await prisma.college.findUnique({ where: { code: cleanCode } });
-      if (existing) {
-        return res.status(400).json({ success: false, error: `A college with code "${cleanCode}" already exists.` });
-      }
-
-      const college = await prisma.college.create({
-        data: {
-          name: name.trim(),
-          code: cleanCode,
-          contactEmail: cleanEmail,
-          phone: phone?.trim() || '+91 98765 43210',
-          address: address?.trim() || 'University Campus Road',
-          status: 'active',
-        },
-      });
-
-      const passwordHash = await bcrypt.hash(defaultPassword, 10);
-      const adminUser = await prisma.user.create({
-        data: {
-          email: cleanEmail,
-          passwordHash,
-          name: collegeAdminName,
-          role: 'college_admin',
-          college: college.name,
-          collegeId: college.id,
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
-          collegeAdminProfile: {
-            create: {
-              adminId: `CADM-${cleanCode}-001`,
-              department: 'Academic & Placement Affairs',
-            },
-          },
-        },
-        include: { collegeAdminProfile: true },
-      });
-
-      return res.json({
-        success: true,
-        college: {
-          id: college.id,
-          name: college.name,
-          code: college.code,
-          contactEmail: college.contactEmail,
-          status: college.status,
-          studentCount: 0,
-          facultyCount: 0,
-          slotCount: 0,
-          adminEmail: adminUser.email,
-          adminName: adminUser.name,
-          createdAt: college.createdAt.toISOString(),
-        },
-        generatedCredentials: {
-          email: cleanEmail,
-          password: defaultPassword,
-          role: 'college_admin',
-          collegeName: college.name,
-          collegeCode: cleanCode,
-          adminId: `CADM-${cleanCode}-001`,
-        },
-      });
-    }
-
-    // In-memory fallback
-    const exists = IN_MEM_COLLEGES.some((c) => c.code === cleanCode);
-    if (exists) {
-      return res.status(400).json({ success: false, error: `A college with code "${cleanCode}" already exists.` });
-    }
-
-    const newCollegeId = `col-${Date.now().toString().slice(-4)}`;
-    const newCollege: InMemCollege = {
-      id: newCollegeId,
-      name: name.trim(),
-      code: cleanCode,
-      contactEmail: cleanEmail,
-      phone: phone?.trim() || '+91 98765 43210',
-      address: address?.trim() || 'University Campus Road',
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
-    IN_MEM_COLLEGES.unshift(newCollege);
-
-    const newAdminUser: InMemUser = {
-      id: `ca-${Date.now().toString().slice(-4)}`,
-      name: collegeAdminName,
-      email: cleanEmail,
-      passwordHash: bcrypt.hashSync(defaultPassword, 10),
-      role: 'college_admin',
-      college: newCollege.name,
-      collegeId: newCollege.id,
-      collegeCode: cleanCode,
-      adminId: `CADM-${cleanCode}-001`,
-      department: 'Academic & Placement Affairs',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
-    };
-    IN_MEM_USERS.push(newAdminUser);
-
-    res.json({
-      success: true,
-      college: {
-        id: newCollege.id,
-        name: newCollege.name,
-        code: newCollege.code,
-        contactEmail: newCollege.contactEmail,
-        status: newCollege.status,
-        studentCount: 0,
-        facultyCount: 0,
-        slotCount: 0,
-        adminEmail: newAdminUser.email,
-        adminName: newAdminUser.name,
-        createdAt: newCollege.createdAt,
-      },
-      generatedCredentials: {
-        email: cleanEmail,
-        password: defaultPassword,
-        role: 'college_admin',
-        collegeName: newCollege.name,
-        collegeCode: cleanCode,
-        adminId: `CADM-${cleanCode}-001`,
-      },
-    });
-  } catch (err: any) {
-    console.error('[Admin Add College Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to onboard college.' });
-  }
-});
-
-// Dispatch Credentials to College Admin
-app.post('/api/admin/colleges/:id/send-credentials', async (req, res) => {
-  const { id } = req.params;
-  try {
-    let collegeName = 'Institution';
-    let targetEmail = 'admin@college.edu.in';
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findUnique({
-        where: { id },
-        include: { users: { where: { role: 'college_admin' } } },
-      });
-      if (college) {
-        collegeName = college.name;
-        targetEmail = college.users[0]?.email || college.contactEmail;
-      }
-    } else {
-      const college = IN_MEM_COLLEGES.find((c) => c.id === id);
-      if (college) {
-        collegeName = college.name;
-        targetEmail = college.contactEmail;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Credentials successfully dispatched to ${targetEmail} for ${collegeName}.`,
-      recipient: targetEmail,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to dispatch credentials.' });
-  }
-});
-
-// Platform-Wide Analytics for Super Admin
-app.get('/api/admin/stats', async (req, res) => {
-  try {
-    if (isDbConnected && prisma) {
-      const [collegesCount, users] = await Promise.all([
-        prisma.college.count(),
-        prisma.user.findMany({ select: { role: true } }),
-      ]);
-      const totalStudents = users.filter((u) => u.role === 'student').length;
-      const totalFaculty = users.filter((u) => u.role === 'faculty').length;
-      const totalSlots = await prisma.gDSession.count();
-
-      return res.json({
-        success: true,
-        stats: {
-          totalColleges: collegesCount,
-          totalStudents,
-          totalFaculty,
-          totalSlots,
-          activeLiveGDs: 1,
-        },
-      });
-    }
-
-    const totalStudents = IN_MEM_USERS.filter((u) => u.role === 'student').length;
-    const totalFaculty = IN_MEM_USERS.filter((u) => u.role === 'faculty').length;
-
-    res.json({
-      success: true,
-      stats: {
-        totalColleges: IN_MEM_COLLEGES.length,
-        totalStudents,
-        totalFaculty,
-        totalSlots: IN_MEM_SLOTS.length,
-        activeLiveGDs: 1,
-      },
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve stats.' });
-  }
-});
-
-// ==========================================
-// COLLEGE ADMIN API ENDPOINTS (Institution Level)
-// ==========================================
-
-// Get College Admin Dashboard Stats
-app.get('/api/college/stats', async (req, res) => {
-  try {
-    const collegeCode = (req.query.collegeCode as string) || 'DIT';
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({
-        where: { code: collegeCode },
-        include: {
-          users: { include: { studentProfile: true, facultyProfile: true } },
-          sessions: true,
-        },
-      });
-
-      if (college) {
-        const totalStudents = college.users.filter((u) => u.role === 'student').length;
-        const totalFaculty = college.users.filter((u) => u.role === 'faculty').length;
-        const scheduledSlots = college.sessions.filter((s) => s.status === 'scheduled').length;
-        const completedSlots = college.sessions.filter((s) => s.status === 'completed').length;
-
-        return res.json({
-          success: true,
-          stats: {
-            collegeName: college.name,
-            collegeCode: college.code,
-            totalStudents,
-            totalFaculty,
-            scheduledSlots,
-            completedSlots,
-            totalSlots: college.sessions.length,
-          },
-        });
-      }
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const totalStudents = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === college.id || u.college === college.name)).length;
-    const totalFaculty = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === college.id || u.college === college.name)).length;
-    const collegeSlots = IN_MEM_SLOTS.filter((s) => s.collegeId === college.id || s.collegeName === college.name);
-    const scheduledSlots = collegeSlots.filter((s) => s.status === 'scheduled').length;
-    const completedSlots = collegeSlots.filter((s) => s.status === 'completed').length;
-
-    res.json({
-      success: true,
-      stats: {
-        collegeName: college.name,
-        collegeCode: college.code,
-        totalStudents,
-        totalFaculty,
-        scheduledSlots,
-        completedSlots,
-        totalSlots: collegeSlots.length,
-      },
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve college stats.' });
-  }
-});
-
-// Get Enrolled Students for College
-app.get('/api/college/students', async (req, res) => {
-  try {
-    const collegeCode = (req.query.collegeCode as string) || 'DIT';
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-      const students = await prisma.user.findMany({
-        where: {
-          role: 'student',
-          ...(college ? { collegeId: college.id } : {}),
-        },
-        include: { studentProfile: true },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const formatted = students.map((s) => ({
-        id: s.id,
-        name: s.name,
-        email: s.email,
-        studentId: s.studentProfile?.studentId || 'STU-001',
-        course: s.studentProfile?.course || 'Engineering',
-        batch: s.studentProfile?.batch || '2024-2028',
-        seatNumber: s.studentProfile?.seatNumber || 1,
-        college: s.college,
-        createdAt: s.createdAt.toISOString(),
-      }));
-
-      return res.json({ success: true, students: formatted });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const students = IN_MEM_USERS.filter((u) => u.role === 'student' && (u.collegeId === college.id || u.college === college.name))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        email: s.email,
-        studentId: s.studentId || 'STU-001',
-        course: s.course || 'B.Tech CSE',
-        batch: s.batch || '2022-2026',
-        seatNumber: s.seatNumber || 1,
-        college: s.college,
-        createdAt: new Date().toISOString(),
-      }));
-
-    res.json({ success: true, students });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve student roster.' });
-  }
-});
-
-// Add Single Student or Bulk Import Students (CSV)
-app.post('/api/college/students', async (req, res) => {
-  try {
-    const { students, student, collegeCode = 'DIT' } = req.body;
-    const studentList = students && Array.isArray(students) ? students : student ? [student] : [];
-
-    if (studentList.length === 0) {
-      return res.status(400).json({ success: false, error: 'No student data provided.' });
-    }
-
-    const defaultPasswordHash = await bcrypt.hash('password123', 10);
-    const addedStudents: any[] = [];
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-      const collegeName = college?.name || 'Delhi Institute of Technology';
-      const collegeId = college?.id;
-
-      for (const st of studentList) {
-        if (!st.email || !st.name) continue;
-        const cleanEmail = st.email.trim().toLowerCase();
-        const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
-        if (existing) continue;
-
-        const created = await prisma.user.create({
-          data: {
-            email: cleanEmail,
-            passwordHash: defaultPasswordHash,
-            name: st.name.trim(),
-            role: 'student',
-            college: collegeName,
-            collegeId,
-            avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
-            studentProfile: {
-              create: {
-                studentId: st.studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
-                course: st.course?.trim() || 'Computer Science & Engineering',
-                batch: st.batch?.trim() || '2024-2028',
-                seatNumber: parseInt(st.seatNumber, 10) || 1,
-              },
-            },
-          },
-          include: { studentProfile: true },
-        });
-
-        addedStudents.push({
-          id: created.id,
-          name: created.name,
-          email: created.email,
-          studentId: created.studentProfile?.studentId,
-          course: created.studentProfile?.course,
-          batch: created.studentProfile?.batch,
-        });
-      }
-
-      return res.json({ success: true, addedCount: addedStudents.length, students: addedStudents });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-
-    for (const st of studentList) {
-      if (!st.email || !st.name) continue;
-      const cleanEmail = st.email.trim().toLowerCase();
-      const existing = IN_MEM_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-      if (existing) continue;
-
-      const newId = `s-${Date.now().toString().slice(-4)}-${Math.floor(Math.random() * 1000)}`;
-      const newMemStudent: InMemUser = {
-        id: newId,
-        email: cleanEmail,
-        passwordHash: defaultPasswordHash,
-        name: st.name.trim(),
-        role: 'student',
-        college: college.name,
-        collegeId: college.id,
-        studentId: st.studentId?.trim() || `STU-${Date.now().toString().slice(-4)}`,
-        course: st.course?.trim() || 'Computer Science & Engineering',
-        batch: st.batch?.trim() || '2024-2028',
-        seatNumber: parseInt(st.seatNumber, 10) || 1,
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
-      };
-      IN_MEM_USERS.push(newMemStudent);
-      addedStudents.push({
-        id: newMemStudent.id,
-        name: newMemStudent.name,
-        email: newMemStudent.email,
-        studentId: newMemStudent.studentId,
-        course: newMemStudent.course,
-        batch: newMemStudent.batch,
-      });
-    }
-
-    res.json({ success: true, addedCount: addedStudents.length, students: addedStudents });
-  } catch (err: any) {
-    console.error('[Add Students Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to process student roster.' });
-  }
-});
-
-// Get Faculty Directory for College
-app.get('/api/college/faculty', async (req, res) => {
-  try {
-    const collegeCode = (req.query.collegeCode as string) || 'DIT';
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-      const faculty = await prisma.user.findMany({
-        where: {
-          role: 'faculty',
-          ...(college ? { collegeId: college.id } : {}),
-        },
-        include: { facultyProfile: true },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const formatted = faculty.map((f) => ({
-        id: f.id,
-        name: f.name,
-        email: f.email,
-        facultyId: f.facultyProfile?.facultyId || 'FAC-001',
-        department: f.facultyProfile?.department || 'Engineering',
-        designation: f.facultyProfile?.designation || 'Faculty Evaluator',
-        college: f.college,
-        avatar: f.avatar,
-        assignedSlotsCount: 2,
-      }));
-
-      return res.json({ success: true, faculty: formatted });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const faculty = IN_MEM_USERS.filter((u) => u.role === 'faculty' && (u.collegeId === college.id || u.college === college.name))
-      .map((f) => {
-        const slotsCount = IN_MEM_SLOTS.filter((s) => s.assignedFacultyId === f.facultyId || s.assignedFacultyName === f.name).length;
-        return {
-          id: f.id,
-          name: f.name,
-          email: f.email,
-          facultyId: f.facultyId || 'FAC-001',
-          department: f.department || 'Computer Science',
-          designation: f.designation || 'Faculty Evaluator',
-          college: f.college,
-          avatar: f.avatar,
-          assignedSlotsCount: slotsCount,
-        };
-      });
-
-    res.json({ success: true, faculty });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve faculty directory.' });
-  }
-});
-
-// Add New Faculty Member
-app.post('/api/college/faculty', async (req, res) => {
-  try {
-    const { name, email, facultyId, department, designation, collegeCode = 'DIT', password } = req.body;
-    if (!name || !email) {
-      return res.status(400).json({ success: false, error: 'Faculty name and email are required.' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPass = password?.trim() || 'faculty123';
-    const passwordHash = await bcrypt.hash(cleanPass, 10);
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      if (existing) {
-        return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
-      }
-
-      const created = await prisma.user.create({
-        data: {
-          email: cleanEmail,
-          passwordHash,
-          name: name.trim(),
-          role: 'faculty',
-          college: college?.name || 'Delhi Institute of Technology',
-          collegeId: college?.id,
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-          facultyProfile: {
-            create: {
-              facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
-              department: department?.trim() || 'Computer Science & Engineering',
-              designation: designation?.trim() || 'Assistant Professor',
-            },
-          },
-        },
-        include: { facultyProfile: true },
-      });
-
-      return res.json({
-        success: true,
-        faculty: {
-          id: created.id,
-          name: created.name,
-          email: created.email,
-          facultyId: created.facultyProfile?.facultyId,
-          department: created.facultyProfile?.department,
-          designation: created.facultyProfile?.designation,
-          assignedSlotsCount: 0,
-        },
-      });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const newFaculty: InMemUser = {
-      id: `fac-${Date.now().toString().slice(-4)}`,
-      name: name.trim(),
-      email: cleanEmail,
-      passwordHash,
-      role: 'faculty',
-      college: college.name,
-      collegeId: college.id,
-      facultyId: facultyId?.trim() || `FAC-${Date.now().toString().slice(-4)}`,
-      department: department?.trim() || 'Computer Science & Engineering',
-      designation: designation?.trim() || 'Assistant Professor',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-    };
-    IN_MEM_USERS.push(newFaculty);
-
-    res.json({
-      success: true,
-      faculty: {
-        id: newFaculty.id,
-        name: newFaculty.name,
-        email: newFaculty.email,
-        facultyId: newFaculty.facultyId,
-        department: newFaculty.department,
-        designation: newFaculty.designation,
-        assignedSlotsCount: 0,
-      },
-    });
-  } catch (err: any) {
-    console.error('[Add Faculty Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to add faculty member.' });
-  }
-});
-
-// Get All GD Slots for College
-app.get('/api/college/slots', async (req, res) => {
-  try {
-    const collegeCode = (req.query.collegeCode as string) || 'DIT';
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-      const sessions = await prisma.gDSession.findMany({
-        where: college ? { collegeId: college.id } : {},
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const formatted = sessions.map((s) => ({
-        id: s.id,
-        topic: s.topic,
-        description: s.description || 'AI Moderated Autonomous GD Session',
-        durationMinutes: s.durationMinutes,
-        difficulty: s.difficulty,
-        status: s.status,
-        scheduledTime: s.scheduledTime || 'Scheduled Session',
-        slotTiming: s.slotTiming || s.scheduledTime || '10:00 AM - 10:15 AM',
-        slotName: s.slotName || s.topic.slice(0, 30),
-        maxCapacity: s.maxCapacity,
-        enrolledCount: s.enrolledCount,
-        assignedFacultyId: s.assignedFacultyId || 'FAC-CSE-102',
-        assignedFacultyName: s.assignedFacultyName || 'Dr. Sunita Rao',
-        createdAt: s.createdAt.toISOString(),
-      }));
-
-      return res.json({ success: true, slots: formatted });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const slots = IN_MEM_SLOTS.filter((s) => s.collegeId === college.id || s.collegeName === college.name);
-
-    res.json({ success: true, slots });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: 'Failed to retrieve GD slots.' });
-  }
-});
-
-// Create/Schedule New GD Slot
-app.post('/api/college/slots', async (req, res) => {
-  try {
-    const {
-      topic,
-      description,
-      durationMinutes = 15,
-      difficulty = 'Intermediate',
-      scheduledTime,
-      slotTiming,
-      slotName,
-      maxCapacity = 15,
-      assignedFacultyId,
-      assignedFacultyName,
-      collegeCode = 'DIT',
-      studentIds = [],
-    } = req.body;
-
-    if (!topic) {
-      return res.status(400).json({ success: false, error: 'GD slot topic is required.' });
-    }
-
-    const timing = slotTiming || scheduledTime || '11:00 AM - 11:15 AM';
-    const name = slotName || `Slot: ${topic.slice(0, 25)}...`;
-
-    if (isDbConnected && prisma) {
-      const college = await prisma.college.findFirst({ where: { code: collegeCode } });
-
-      const newSession = await prisma.gDSession.create({
-        data: {
-          topic: topic.trim(),
-          description: description?.trim() || 'AI Autonomous Group Discussion Slot',
-          durationMinutes: parseInt(durationMinutes, 10) || 15,
-          difficulty,
-          status: 'scheduled',
-          scheduledTime: timing,
-          slotTiming: timing,
-          slotName: name,
-          maxCapacity: parseInt(maxCapacity, 10) || 15,
-          enrolledCount: studentIds.length || 6,
-          assignedFacultyId: assignedFacultyId || 'FAC-CSE-102',
-          assignedFacultyName: assignedFacultyName || 'Dr. Sunita Rao',
-          collegeId: college?.id,
-        },
-      });
-
-      return res.json({
-        success: true,
-        slot: {
-          id: newSession.id,
-          topic: newSession.topic,
-          description: newSession.description,
-          durationMinutes: newSession.durationMinutes,
-          difficulty: newSession.difficulty,
-          status: newSession.status,
-          scheduledTime: newSession.scheduledTime,
-          slotTiming: newSession.slotTiming,
-          slotName: newSession.slotName,
-          maxCapacity: newSession.maxCapacity,
-          enrolledCount: newSession.enrolledCount,
-          assignedFacultyId: newSession.assignedFacultyId,
-          assignedFacultyName: newSession.assignedFacultyName,
-          createdAt: newSession.createdAt.toISOString(),
-        },
-      });
-    }
-
-    // In-memory fallback
-    const college = IN_MEM_COLLEGES.find((c) => c.code === collegeCode) || IN_MEM_COLLEGES[0];
-    const newSlot: InMemSlot = {
-      id: `slot-${Date.now().toString().slice(-4)}`,
-      topic: topic.trim(),
-      description: description?.trim() || 'AI Autonomous Group Discussion Slot',
-      durationMinutes: parseInt(durationMinutes, 10) || 15,
-      difficulty,
-      status: 'scheduled',
-      scheduledTime: timing,
-      slotTiming: timing,
-      slotName: name,
-      maxCapacity: parseInt(maxCapacity, 10) || 15,
-      enrolledCount: studentIds.length || 6,
-      assignedFacultyId: assignedFacultyId || 'FAC-CSE-102',
-      assignedFacultyName: assignedFacultyName || 'Dr. Sunita Rao',
-      collegeId: college.id,
-      collegeName: college.name,
-      studentIds,
-      createdAt: new Date().toISOString(),
-    };
-    IN_MEM_SLOTS.unshift(newSlot);
-
-    res.json({ success: true, slot: newSlot });
-  } catch (err: any) {
-    console.error('[Create Slot Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to create GD slot.' });
-  }
-});
-
-// Mark GD Slot as Completed
-app.post('/api/college/slots/:id/complete', async (req, res) => {
-  try {
-    const slotId = req.params.id;
-
-    if (isDbConnected && prisma) {
-      await prisma.gDSession.updateMany({
-        where: { id: slotId },
-        data: { status: 'completed' },
-      });
-      return res.json({ success: true, slotId, status: 'completed' });
-    }
-
-    // In-memory fallback
-    const slot = IN_MEM_SLOTS.find((s) => s.id === slotId);
-    if (slot) {
-      slot.status = 'completed';
-    }
-
-    res.json({ success: true, slotId, status: 'completed' });
-  } catch (err: any) {
-    console.error('[Complete Slot Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to mark slot as completed.' });
-  }
-});
-
-// Start GD Slot (Triggered by Faculty In-Charge or Admin)
-app.post('/api/college/slots/:id/start', async (req, res) => {
-  try {
-    const slotId = req.params.id;
-
-    if (isDbConnected && prisma) {
-      await prisma.gDSession.updateMany({
-        where: { id: slotId },
-        data: { status: 'active' },
-      });
-    }
-
-    // In-memory fallback
-    const slot = IN_MEM_SLOTS.find((s) => s.id === slotId);
-    if (slot) {
-      slot.status = 'active';
-    }
-
-    const room = LIVE_ROOMS.get(slotId);
-    if (room) {
-      room.status = 'active';
-      room.silenceTimerSeconds = 0;
-      io.to(`room-${slotId}`).emit('session-started', {
-        slotId,
-        status: 'active',
-        topic: room.topic,
-      });
-    }
-
-    res.json({ success: true, slotId, status: 'active' });
-  } catch (err: any) {
-    console.error('[Start Slot Error]:', err);
-    res.status(500).json({ success: false, error: 'Failed to start GD slot.' });
-  }
 });
 
 // ==========================================
