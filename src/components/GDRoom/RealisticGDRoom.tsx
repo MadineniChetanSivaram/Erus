@@ -48,7 +48,16 @@ import { AuthUser } from '../../types/auth';
 import { roomVoice, facilitatorVoice } from '../../utils/speechSynthesis';
 import { useUserMedia } from '../../utils/useUserMedia';
 import { useWebRTCRoom } from '../../hooks/useWebRTCRoom';
-import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from '../../utils/facilitatorQuestionEngine';
+import { 
+  getNextUniqueFacilitatorPrompt, 
+  sessionQuestionTracker,
+  getStudentPreviousPresentation,
+  generateInitiationPrompt,
+  generateTargetedQuestionForStudent,
+  getNextTurnSpeaker,
+  generateStudentOpeningStatement,
+  generateStudentFollowUpStatement
+} from '../../utils/facilitatorQuestionEngine';
 import { SlotSelectionModal } from './SlotSelectionModal';
 import { LobbyAudioTester } from './LobbyAudioTester';
 
@@ -92,9 +101,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [isListeningMic, setIsListeningMic] = useState(false);
   const [interruptionWarning, setInterruptionWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [autoSimulatePeers, setAutoSimulatePeers] = useState(false);
+  const [autoSimulatePeers, setAutoSimulatePeers] = useState(true);
+  const [invitedStudentPrompt, setInvitedStudentPrompt] = useState<{ student: Student; reason: string; promptText?: string } | null>(null);
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
   const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
+
+  const hasInitiatedOpeningRef = useRef<boolean>(false);
+  const isTransitioningTurnRef = useRef<boolean>(false);
+  const lastFacilitatorInterventionTimeRef = useRef<number>(0);
 
   const isFaculty = currentUser?.role === 'faculty';
   const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
@@ -309,14 +323,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
-      // If peer simulation is disabled (Live Peer Mode), unoccupied seats display as open waiting desks
-      if (!autoSimulatePeers) {
+      // If seat has no assigned student, display as open waiting desk
+      if (!st.name || st.name.startsWith('Seat ') || st.isEmptySeat) {
         return {
           ...st,
           id: `seat-${fixedSeatNumber}-empty`,
           seatNumber: fixedSeatNumber,
           name: `Seat ${fixedSeatNumber}`,
-          college: 'Waiting to join...',
+          college: 'Open Candidate Seat',
           avatar: '',
           isUser: false,
           isRealPeer: false,
@@ -532,7 +546,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   };
 
   // Trigger Facilitator speech and vocalize
-  const speakFacilitator = (text: string, actionType: string = 'probing_question', phase?: GDFacilitatorPhase) => {
+  const speakFacilitator = (
+    text: string, 
+    actionType: string = 'probing_question', 
+    phase?: GDFacilitatorPhase,
+    onSpeechEnd?: () => void
+  ) => {
     setIsAiProcessing(true);
     setSession((prev) => ({
       ...prev,
@@ -566,6 +585,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     facilitatorVoice.speak(text, () => {
       setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
       setIsAiProcessing(false);
+      if (onSpeechEnd) {
+        onSpeechEnd();
+      }
     });
   };
 
@@ -736,143 +758,258 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
       }));
 
-      // If auto simulate is enabled, trigger peer response
+      // If auto simulate is enabled, automatically shift to the person who didn't speak yet!
       if (autoSimulatePeers) {
-        scheduleNextTurnAfterUser();
+        executeNextTurn(userStudent.id);
       }
     }, 4000);
   };
 
   handleSendUserStatementRef.current = handleSendUserStatement;
 
-  // Simulate realistic peer turns to make the room alive (calls backend or uses fallback)
-  const scheduleNextTurnAfterUser = async () => {
+  // Vocalize and activate speech for simulated peers with Indian English voice
+  const startPeerSpeech = (peer: Student, statementText: string) => {
     if (!isSessionActive) return;
+
+    studentTurnsSinceIntervention.current += 1;
+    const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
+    const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
+
+    setSession((prev) => ({
+      ...prev,
+      currentSpeakerId: peer.id,
+      silenceTimerSeconds: 0,
+      students: prev.students.map((s) =>
+        s.id === peer.id
+          ? {
+              ...s,
+              isSpeaking: true,
+              speakingTurns: (s.speakingTurns || 0) + 1,
+              speakingDurationSeconds: (s.speakingDurationSeconds || 0) + 20,
+              lastSpokenAt: Date.now(),
+            }
+          : { ...s, isSpeaking: false }
+      ),
+    }));
+
+    const peerTx: TranscriptEntry = {
+      id: `t-peer-${Date.now()}`,
+      sessionId: session.id,
+      speakerId: peer.id,
+      speakerName: peer.name,
+      seatNumber: peer.seatNumber,
+      isFacilitator: false,
+      timestamp: `${mins}:${secs}`,
+      timestampSeconds: elapsedSeconds,
+      text: statementText,
+      type: 'statement',
+      sentiment: 'positive',
+    };
+
+    setTranscripts((prev) => [...prev, peerTx]);
+
+    // Audibly speak as the peer student in authentic Indian English!
+    roomVoice.speakAsStudent(peer, statementText, () => {
+      setSession((prev) => ({
+        ...prev,
+        currentSpeakerId: null,
+        students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
+      }));
+
+      // When peer finishes speaking, automatically shift to the candidate who hasn't spoken yet!
+      setTimeout(() => {
+        executeNextTurn(peer.id);
+      }, 1500);
+    });
+  };
+
+  // Turn orchestration engine: shifts to candidate who hasn't spoken yet (speakingTurns === 0),
+  // or to the next person in sequence with lowest turn count
+  const executeNextTurn = async (completedStudentId?: string | null, questionAsked?: string) => {
+    if (!isSessionActive) return;
+    if (isTransitioningTurnRef.current) return;
+    isTransitioningTurnRef.current = true;
+
+    setSession((prev) => ({
+      ...prev,
+      currentSpeakerId: null,
+      students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
+    }));
+
+    // Find next speaker using turn-taking logic
+    const nextSpeaker = getNextTurnSpeaker(session.students, completedStudentId);
+    if (!nextSpeaker) {
+      isTransitioningTurnRef.current = false;
+      return;
+    }
+
+    // If next speaker is the active human user
+    if (nextSpeaker.isUser) {
+      isTransitioningTurnRef.current = false;
+      const isFirstTurn = (nextSpeaker.speakingTurns || 0) === 0;
+      setInvitedStudentPrompt({
+        student: nextSpeaker,
+        reason: isFirstTurn
+          ? `Floor has shifted to you! You have not spoken yet. Share your opening perspective on "${session.topic}".`
+          : `Floor has shifted back to you. Continue your argument or respond to the previous speaker.`,
+        promptText: questionAsked || undefined,
+      });
+      return;
+    }
+
+    // If next speaker is an autonomous peer
+    if (!autoSimulatePeers) {
+      isTransitioningTurnRef.current = false;
+      return;
+    }
+
     setTimeout(async () => {
+      isTransitioningTurnRef.current = false;
       if (!isSessionActive) return;
+
+      const latestStudentTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
+      const prevSpeakerInfo = latestStudentTranscript
+        ? { name: latestStudentTranscript.speakerName, text: latestStudentTranscript.text }
+        : undefined;
+
+      let peerStatement = '';
       try {
         const res = await fetch('/api/session/simulate-peer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ elapsedSeconds, excludeStudentId: isFaculty ? undefined : (activeStudentUser?.id || 's1') }),
+          body: JSON.stringify({
+            elapsedSeconds,
+            targetStudentId: nextSpeaker.id,
+            questionAsked,
+            mode: questionAsked ? 'targeted_answer' : ((nextSpeaker.speakingTurns || 0) === 0 ? 'initiation' : 'follow_up'),
+          }),
         });
         const data = await res.json();
-
-        if (data.success && data.transcript && data.student) {
-          const peer = data.student;
-          studentTurnsSinceIntervention.current += 1;
-          setSession((prev) => ({
-            ...prev,
-            currentSpeakerId: peer.id,
-            silenceTimerSeconds: 0,
-            students: prev.students.map((s) =>
-              s.id === peer.id
-                ? {
-                    ...s,
-                    isSpeaking: true,
-                    speakingTurns: s.speakingTurns + 1,
-                    speakingDurationSeconds: s.speakingDurationSeconds + 20,
-                  }
-                : { ...s, isSpeaking: false }
-            ),
-          }));
-
-          setTranscripts((prev) => [...prev, data.transcript]);
-
-          // Audibly speak as the peer student!
-          roomVoice.speakAsStudent(peer, data.transcript.text, () => {
-            setSession((prev) => ({
-              ...prev,
-              currentSpeakerId: null,
-              students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
-            }));
-
-            if (studentTurnsSinceIntervention.current >= 3) {
-              requestAiIntervention('probing');
-            }
-          });
-          return;
+        if (data.success && data.transcript && data.transcript.text) {
+          peerStatement = data.transcript.text;
         }
       } catch (err) {
-        console.warn('Simulate peer API fallback:', err);
+        console.warn('Backend peer simulation fallback:', err);
       }
 
-      // Fallback local simulation if offline
-      const candidates = isFaculty ? session.students : session.students.filter((s) => !s.isUser);
-      const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-      studentTurnsSinceIntervention.current += 1;
-      
-      const peerArguments: Record<string, string[]> = {
-        'Should Artificial Intelligence replace teachers?': [
-          'Building on Rahul’s thought, AI personalized tutoring can identify learning gaps in real-time, allowing teachers to spend more quality time on one-on-one emotional mentorship.',
-          'I would like to offer a counterpoint. What about the digital divide in rural schools? If we rely heavily on AI, students without high-speed access will fall further behind.',
-          'Looking at the assessment aspect, AI eliminates subjective bias in grading essays and STEM assignments, making competitive evaluations fairer.',
-          'However, the ability to inspire curiosity and cultivate moral ethics is uniquely human. An algorithm cannot teach empathy through life experience.',
-          'From an administrative view, AI assistants can automate syllabus planning, freeing up 10+ hours a week for professors to do research.',
-          'What about critical thinking in philosophy or creative writing? AI can generate prose, but cannot teach the visceral experience of original existential thought.',
-        ],
-        default: [
-          'I agree with the previous perspective, but we must also examine the economic viability and infrastructure costs.',
-          'Could we also consider how international regulatory standards might influence this implementation?',
-          'In my view, a hybrid phased approach offers the safest transition without disrupting current workflows.',
-          'We should also analyze user privacy and data ownership policies before deploying at national scale.',
-        ],
-      };
-
-      const pool = peerArguments[session.topic] || peerArguments.default;
-      const peerText = pool[Math.floor(Math.random() * pool.length)];
-
-      const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
-      const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
-
-      // Set peer speaking
-      setSession((prev) => ({
-        ...prev,
-        currentSpeakerId: chosen.id,
-        silenceTimerSeconds: 0,
-        students: prev.students.map((s) =>
-          s.id === chosen.id
-            ? {
-                ...s,
-                isSpeaking: true,
-                speakingTurns: s.speakingTurns + 1,
-                speakingDurationSeconds: s.speakingDurationSeconds + 20,
-              }
-            : { ...s, isSpeaking: false }
-        ),
-      }));
-
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          id: `t-peer-${Date.now()}`,
-          sessionId: session.id,
-          speakerId: chosen.id,
-          speakerName: chosen.name,
-          seatNumber: chosen.seatNumber,
-          isFacilitator: false,
-          timestamp: `${mins}:${secs}`,
-          timestampSeconds: elapsedSeconds,
-          text: peerText,
-          type: 'statement',
-          sentiment: 'positive',
-        },
-      ]);
-
-      // Audibly speak as the chosen peer student!
-      roomVoice.speakAsStudent(chosen, peerText, () => {
-        setSession((prev) => ({
-          ...prev,
-          currentSpeakerId: null,
-          students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
-        }));
-
-        if (studentTurnsSinceIntervention.current >= 3) {
-          requestAiIntervention('probing');
+      if (!peerStatement) {
+        if ((nextSpeaker.speakingTurns || 0) === 0 && !questionAsked) {
+          peerStatement = generateStudentOpeningStatement(nextSpeaker, session.topic);
+        } else {
+          peerStatement = generateStudentFollowUpStatement(nextSpeaker, session.topic, prevSpeakerInfo, questionAsked);
         }
-      });
-    }, 2000);
+      }
+
+      startPeerSpeech(nextSpeaker, peerStatement);
+    }, 1800);
   };
+
+  // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
+  const handleInitiateOpeningSpeaker = () => {
+    if (!isSessionActive || hasInitiatedOpeningRef.current || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
+
+    const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
+    if (studentTranscripts.length > 0) {
+      hasInitiatedOpeningRef.current = true;
+      return;
+    }
+
+    hasInitiatedOpeningRef.current = true;
+
+    // Select candidate to initiate (Seat 1 or first available student)
+    const openingCandidate = session.students.find((s) => !s.isEmptySeat) || session.students[0];
+    if (!openingCandidate) return;
+
+    const initiationPrompt = generateInitiationPrompt(openingCandidate, session.topic);
+
+    speakFacilitator(initiationPrompt, 'initiate_opening_speaker', 'intro', () => {
+      if (openingCandidate.isUser) {
+        setInvitedStudentPrompt({
+          student: openingCandidate,
+          reason: `AI Facilitator has invited you to initiate the discussion based on your previous presentation!`,
+          promptText: initiationPrompt,
+        });
+      } else if (autoSimulatePeers) {
+        setTimeout(() => {
+          const openingStmt = generateStudentOpeningStatement(openingCandidate, session.topic);
+          startPeerSpeech(openingCandidate, openingStmt);
+        }, 1200);
+      }
+    });
+  };
+
+  // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
+  const handleFacilitatorTargetedProbe = () => {
+    if (!isSessionActive || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
+    if (Date.now() - lastFacilitatorInterventionTimeRef.current < 12000) return;
+
+    lastFacilitatorInterventionTimeRef.current = Date.now();
+
+    // Prioritize student who hasn't spoken yet, or lowest turn count
+    const targetStudent = getNextTurnSpeaker(session.students, null) || session.students[0];
+    if (!targetStudent) return;
+
+    const latestStudentTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
+    const targetedQuestion = generateTargetedQuestionForStudent(targetStudent, session.topic, latestStudentTranscript);
+
+    speakFacilitator(targetedQuestion, 'targeted_question_student', 'probing', () => {
+      if (targetStudent.isUser) {
+        setInvitedStudentPrompt({
+          student: targetStudent,
+          reason: `AI Facilitator asked you directly: "${targetedQuestion}"`,
+          promptText: targetedQuestion,
+        });
+      } else if (autoSimulatePeers) {
+        setTimeout(() => {
+          const ansStmt = generateStudentFollowUpStatement(targetStudent, session.topic, { name: 'Facilitator' }, targetedQuestion);
+          startPeerSpeech(targetStudent, ansStmt);
+        }, 1200);
+      }
+    });
+  };
+
+  // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
+  useEffect(() => {
+    if (!isSessionActive) return;
+
+    const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
+
+    // 1. Opening silence (if no one speaks within 8 seconds of commencing)
+    if (studentTranscripts.length === 0 && !hasInitiatedOpeningRef.current) {
+      if (session.silenceTimerSeconds >= 8 || elapsedSeconds >= 8) {
+        handleInitiateOpeningSpeaker();
+        return;
+      }
+    }
+
+    // 2. Mid-discussion silence (if floor is silent for 10 seconds, ask question mentioning student by name)
+    if (studentTranscripts.length > 0 && !session.currentSpeakerId && !session.isFacilitatorSpeaking && !isTransitioningTurnRef.current) {
+      if (session.silenceTimerSeconds >= 10) {
+        handleFacilitatorTargetedProbe();
+        return;
+      }
+    }
+  }, [
+    isSessionActive,
+    session.silenceTimerSeconds,
+    elapsedSeconds,
+    session.currentSpeakerId,
+    session.isFacilitatorSpeaking,
+    transcripts.length,
+  ]);
+
+  // Reset initiation flag when a session is freshly started or restarted
+  useEffect(() => {
+    if (session.status === 'active') {
+      const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
+      if (studentTranscripts.length === 0) {
+        hasInitiatedOpeningRef.current = false;
+      }
+    } else {
+      hasInitiatedOpeningRef.current = false;
+      setInvitedStudentPrompt(null);
+    }
+  }, [session.status, session.startedAt]);
 
   const handleRaiseHandToggle = () => {
     const userStudent = session.students.find((s) => s.isUser) || session.students[0];
@@ -1016,26 +1153,19 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     </div>
                   </div>
 
-                  {canStartSession ? (
-                    <button
-                      id="faculty-start-gd-banner-btn"
-                      onClick={() => {
-                        if (onStartSession) {
-                          onStartSession(session.id);
-                        }
-                        rtcStartSession();
-                      }}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>Start Group Discussion</span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-300/60 dark:border-amber-700/50 text-amber-800 dark:text-amber-300 text-xs font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                      <span>Waiting for Faculty to Start</span>
-                    </div>
-                  )}
+                  <button
+                    id="start-gd-banner-btn"
+                    onClick={() => {
+                      if (onStartSession) {
+                        onStartSession(session.id);
+                      }
+                      rtcStartSession();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>Start Group Discussion</span>
+                  </button>
                 </div>
 
                 {/* Enhancement 1: Pre-Session Audio & Mic Test Widget */}
@@ -1096,9 +1226,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
           {/* Quick Facilitator Action Bar */}
           <div className="flex items-center gap-2 flex-wrap">
-            {canStartSession && session.status === 'waiting' && (
+            {session.status === 'waiting' && (
               <button
-                id="faculty-start-gd-btn"
+                id="start-gd-btn"
                 onClick={() => {
                   if (onStartSession) {
                     onStartSession(session.id);
@@ -1112,9 +1242,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               </button>
             )}
 
-            {canStartSession && isSessionActive && (
+            {isSessionActive && (
               <button
-                id="faculty-restart-gd-btn"
+                id="restart-gd-btn"
                 onClick={() => {
                   if (onStartSession) {
                     onStartSession(session.id);
@@ -1446,6 +1576,61 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* Autonomous Turn Invitation / Targeted Question Callout Banner */}
+            {invitedStudentPrompt && (
+              <div className="my-3 max-w-2xl w-full mx-auto p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-indigo-500/15 to-purple-500/15 border-2 border-indigo-400 dark:border-indigo-500/80 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in relative z-20 backdrop-blur-md">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-md shrink-0 ring-2 ring-indigo-300">
+                    Seat {invitedStudentPrompt.student.seatNumber}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                        <Radio className="w-3 h-3 text-amber-500 animate-pulse" />
+                        {invitedStudentPrompt.student.isUser ? "🌟 Floor Shifted to You!" : `🎙️ Floor Shifted to: ${invitedStudentPrompt.student.name}`}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
+                        {invitedStudentPrompt.student.speakingTurns === 0 ? 'First Speaker Turn' : 'Active Discussion Turn'}
+                      </span>
+                    </div>
+                    <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
+                      {invitedStudentPrompt.reason}
+                    </p>
+                    {invitedStudentPrompt.promptText && (
+                      <p className="text-xs italic text-indigo-800 dark:text-indigo-200/90 mt-1 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-indigo-200/50 dark:border-indigo-800/40">
+                        "{invitedStudentPrompt.promptText}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {invitedStudentPrompt.student.isUser && (
+                  <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                    <button
+                      onClick={() => {
+                        if (!isListeningMic) {
+                          toggleMicRecognition();
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center gap-1.5 cursor-pointer hover:scale-105 transition-all"
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>{isListeningMic ? 'Mic Active (Speaking...)' : 'Unmute & Speak'}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setInvitedStudentPrompt(null);
+                        executeNextTurn(invitedStudentPrompt.student.id);
+                      }}
+                      className="px-2.5 py-2 rounded-xl text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 cursor-pointer transition-all"
+                      title="Yield your turn to the next participant who hasn't spoken yet"
+                    >
+                      Pass Turn
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Middle Stage: The 3 Layout Visibility Types */}
 

@@ -295,7 +295,9 @@ function GDAppContent() {
 
     const welcomeIntroText = `Welcome participants to today's group discussion on "${session.topic}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
 
-    // Update active session status
+    sessionQuestionTracker.clear();
+
+    // Update active session status and reset speaking metrics for fresh live discussion
     setSession((prev) => ({
       ...prev,
       status: 'active',
@@ -304,11 +306,27 @@ function GDAppContent() {
       facilitatorSpeech: welcomeIntroText,
       isFacilitatorSpeaking: true,
       startedAt: Date.now(),
+      students: prev.students.map((s) => ({
+        ...s,
+        speakingTurns: 0,
+        speakingDurationSeconds: 0,
+        isSpeaking: false,
+      })),
     }));
 
     // Update availableSlots list
     setAvailableSlots((prevSlots) =>
-      prevSlots.map((s) => (s.id === targetSlotId ? { ...s, status: 'active', startedAt: Date.now() } : s))
+      prevSlots.map((s) => (s.id === targetSlotId ? { 
+        ...s, 
+        status: 'active', 
+        startedAt: Date.now(),
+        students: s.students.map((st) => ({
+          ...st,
+          speakingTurns: 0,
+          speakingDurationSeconds: 0,
+          isSpeaking: false,
+        })),
+      } : s))
     );
 
     // Speak introduction only if voice is not muted and currently viewing room
@@ -318,9 +336,8 @@ function GDAppContent() {
       });
     }
 
-    // Add intro transcript
-    setTranscripts((prev) => [
-      ...prev,
+    // Initialize clean transcripts list with AI welcome intro
+    setTranscripts([
       {
         id: `t-start-${Date.now()}`,
         sessionId: targetSlotId,

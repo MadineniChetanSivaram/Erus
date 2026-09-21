@@ -2047,26 +2047,52 @@ app.post('/api/session/speak', (req, res) => {
 // Endpoint: POST Simulate Peer Turn (Intelligent AI Student Response)
 app.post('/api/session/simulate-peer', async (req, res) => {
   try {
-    const { elapsedSeconds = 0, excludeStudentId } = req.body;
-    const candidates = currentLiveSession.students.filter((s) => !s.isUser && s.id !== excludeStudentId);
-    if (!candidates.length) {
-      return res.json({ success: false, message: 'No eligible peer students' });
+    const { elapsedSeconds = 0, excludeStudentId, targetStudentId, questionAsked, mode } = req.body;
+    
+    let selectedPeer: any = null;
+    if (targetStudentId) {
+      selectedPeer = currentLiveSession.students.find((s) => s.id === targetStudentId);
     }
 
-    const selectedPeer = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!selectedPeer) {
+      const candidates = currentLiveSession.students.filter((s) => !s.isUser && s.id !== excludeStudentId);
+      if (!candidates.length) {
+        return res.json({ success: false, message: 'No eligible peer students' });
+      }
+
+      // Priority 1: Candidates who haven't spoken yet (speakingTurns === 0)
+      const unspoken = candidates.filter((s) => (s.speakingTurns || 0) === 0);
+      if (unspoken.length > 0) {
+        selectedPeer = unspoken[0];
+      } else {
+        // Priority 2: Candidates with the fewest turns
+        candidates.sort((a, b) => (a.speakingTurns || 0) - (b.speakingTurns || 0));
+        selectedPeer = candidates[0];
+      }
+    }
+
     let peerStatement = '';
 
     if (ai) {
       const recentHistory = liveTranscripts.slice(-4).map((t) => `${t.speakerName}: "${t.text}"`).join('\n');
+      
+      let contextGuidance = 'Deliver a thoughtful collegiate follow-up argument building upon recent points.';
+      if (mode === 'initiation') {
+        contextGuidance = 'You have been called upon by the AI Facilitator to initiate the discussion based on your previous presentation. Give your opening statement on the topic, referencing practical research principles.';
+      } else if (questionAsked) {
+        contextGuidance = `The AI Facilitator specifically directed a question to you: "${questionAsked}". Address this question directly and constructively.`;
+      }
+
       const prompt = `You are simulating an Indian college student named ${selectedPeer.name} (${selectedPeer.course} at ${selectedPeer.college}) participating in a collegiate group discussion.
 Topic: "${currentLiveSession.topic}"
+Context: ${contextGuidance}
 Recent group statements:
 ${recentHistory}
 
 Language, Accent & Tone Guidelines:
 - Language: Authentic Indian Academic English as spoken in Indian university GDs.
 - Tone: Polite, articulate, well-structured, and collaborative.
-- Use natural collegiate phrasing such as: "Building upon what [Peer] pointed out...", "If we look at the ground reality in our context...", "I would like to offer a counter-perspective here...", "From a practical standpoint...", "We must also consider the grassroots implications...".
+- Use natural collegiate phrasing such as: "Building upon what was highlighted...", "If we look at the ground reality in our context...", "In response to that question...", "From a practical standpoint...", "We must also consider the systemic implications...".
 - Length: 2 to 3 concise, intelligent sentences. Avoid American slang or idioms. Speak strictly in natural Indian collegiate English.`;
 
       const response = await ai.models.generateContent({
@@ -2078,14 +2104,20 @@ Language, Accent & Tone Guidelines:
     }
 
     if (!peerStatement) {
-      const fallbackList = [
-        'Building upon what my colleague pointed out, if we look at our Indian educational context, digital infrastructure and affordable access must be addressed first.',
-        'I would like to present a constructive counter-perspective here. While technological automation offers great scale, human mentorship, empathy, and moral guidance cannot be replaced.',
-        'Looking at the ground reality in technical disciplines, hands-on laboratory verification remains absolutely vital to ensure real-world engineering competency.',
-        'A balanced hybrid pedagogical approach would allow faculty members to dedicate quality time towards individual student mentoring rather than administrative tasks.',
-        'From a practical implementation standpoint, we must also examine data privacy and whether our institutions have adequate regulatory safeguards in place.',
-      ];
-      peerStatement = fallbackList[Math.floor(Math.random() * fallbackList.length)];
+      if (mode === 'initiation') {
+        peerStatement = `Thank you, Facilitator. To open today's discussion on "${currentLiveSession.topic}", drawing from my previous academic research, I believe we must evaluate this through both technological feasibility and human accountability. We cannot rush implementation without proper governance.`;
+      } else if (questionAsked) {
+        peerStatement = `In response to the facilitator's question regarding this challenge: looking at the ground reality in our academic and professional institutions, sustainable rollout requires phased adoption and benchmark quality testing before full-scale deployment.`;
+      } else {
+        const fallbackList = [
+          'Building upon what my colleague pointed out, if we look at our Indian educational context, digital infrastructure and affordable access must be addressed first.',
+          'I would like to present a constructive counter-perspective here. While technological automation offers great scale, human mentorship, empathy, and moral guidance cannot be replaced.',
+          'Looking at the ground reality in technical disciplines, hands-on laboratory verification remains absolutely vital to ensure real-world engineering competency.',
+          'A balanced hybrid pedagogical approach would allow faculty members to dedicate quality time towards individual student mentoring rather than administrative tasks.',
+          'From a practical implementation standpoint, we must also examine data privacy and whether our institutions have adequate regulatory safeguards in place.',
+        ];
+        peerStatement = fallbackList[Math.floor(Math.random() * fallbackList.length)];
+      }
     }
 
     const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
@@ -2106,8 +2138,8 @@ Language, Accent & Tone Guidelines:
     };
 
     liveTranscripts.push(peerTranscript);
-    selectedPeer.speakingTurns += 1;
-    selectedPeer.speakingDurationSeconds += 20;
+    selectedPeer.speakingTurns = (selectedPeer.speakingTurns || 0) + 1;
+    selectedPeer.speakingDurationSeconds = (selectedPeer.speakingDurationSeconds || 0) + 20;
     currentLiveSession.currentSpeakerId = selectedPeer.id;
     currentLiveSession.silenceTimerSeconds = 0;
 
@@ -2864,7 +2896,9 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
 }
 
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
-  let deadlockQuestion = '';
+  const quietPeer = Array.from(room.peers.values()).find(p => p.role === 'student' && (p.speakingTurns || 0) === 0) 
+    || Array.from(room.peers.values())[0];
+  const candidateName = quietPeer?.name || 'participants';
 
   if (ai) {
     try {
@@ -2876,9 +2910,8 @@ The discussion has reached a complete deadlock—no participant has spoken for 2
 Recent points:
 ${recentHistory || '(Discussion is in initial phase)'}
 
-Generate a concise, insightful question to revive the discussion.
-MANDATORY FORMAT: Strictly start with or closely follow: "Let me ask a question. How do you think..."
-Keep it under 30 words, with a dignified Indian English moderator demeanor.`,
+Generate a concise, insightful question addressing candidate ${candidateName} by name to revive the discussion.
+Format: Address ${candidateName} politely by name, ask an insightful probing question under 30 words in dignified Indian English moderator tone.`,
       });
       deadlockQuestion = response.text?.trim() || '';
     } catch (err) {
@@ -2887,7 +2920,7 @@ Keep it under 30 words, with a dignified Indian English moderator demeanor.`,
   }
 
   if (!deadlockQuestion) {
-    deadlockQuestion = `Let me ask a question. How do you think ${room.topic.toLowerCase().includes('ai') ? 'AI can improve education without replacing the human touch of educators' : 'we can address the most significant challenges in this domain'}?`;
+    deadlockQuestion = `${candidateName}, since the floor is quiet, we would like to hear your perspective. How do you evaluate the core opportunities and risks regarding "${room.topic}"?`;
   }
 
   const mins = Math.floor(room.transcripts.length).toString().padStart(2, '0');
