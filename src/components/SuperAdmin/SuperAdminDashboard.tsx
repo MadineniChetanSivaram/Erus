@@ -155,7 +155,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 ERUS Global Platform Management
               </h1>
               <p className="text-purple-200/90 text-xs sm:text-sm mt-0.5 font-medium">
-                Onboard partner universities, manage college admins, and monitor platform GD activities
+                Onboard partner universities, manage college admins, and provision institutional access
               </p>
             </div>
           </div>
@@ -232,16 +232,16 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
         <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total GD Slots Conducted</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">College Administrators</span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <Calendar className="w-4 h-4" />
+              <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {stats.totalSlots}
+            {colleges.length || stats.totalColleges}
           </div>
           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
-            <span>●</span> Autonomous AI Facilitations
+            <span>●</span> Active Institutional Admins
           </span>
         </div>
       </div>
@@ -254,7 +254,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               Registered Colleges & Institutions
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Each institution has a designated College Admin who manages faculty, student rosters, and schedules slots.
+              Each institution has a designated College Admin who manages faculty, student rosters, and institutional operations.
             </p>
           </div>
 
@@ -280,7 +280,6 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 <th className="py-3.5 px-5">College Admin Email</th>
                 <th className="py-3.5 px-5 text-center">Students</th>
                 <th className="py-3.5 px-5 text-center">Faculty</th>
-                <th className="py-3.5 px-5 text-center">Slots</th>
                 <th className="py-3.5 px-5 text-right">Credentials & Actions</th>
               </tr>
             </thead>
@@ -305,9 +304,6 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                   </td>
                   <td className="py-4 px-5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
                     {c.facultyCount || 0}
-                  </td>
-                  <td className="py-4 px-5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                    {c.slotCount || 0}
                   </td>
                   <td className="py-4 px-5 text-right">
                     <div className="flex items-center justify-end gap-2">

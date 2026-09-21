@@ -101,6 +101,10 @@ function GDAppContent() {
 
   // Guard: Role-based navigation restrictions
   useEffect(() => {
+    if (currentUser?.role === 'super_admin' && currentTab !== 'super_admin') {
+      setCurrentTab('super_admin');
+      return;
+    }
     if (currentUser?.role === 'student' && (currentTab === 'faculty' || currentTab === 'college_admin' || currentTab === 'super_admin')) {
       setCurrentTab('room');
     }

@@ -89,7 +89,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       startTime: '09:30 AM',
       endTime: '10:00 AM',
       slotDate: 'Today',
-      participantCount: 15,
+      participantCount: 8,
     },
     {
       id: 'slot-cfg-2',
@@ -97,7 +97,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       startTime: '02:30 PM',
       endTime: '03:00 PM',
       slotDate: 'Today',
-      participantCount: 15,
+      participantCount: 8,
     },
   ]);
 
@@ -111,7 +111,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       startTime: preset ? preset.start : '04:30 PM',
       endTime: preset ? preset.end : '05:00 PM',
       slotDate: 'Today',
-      participantCount: 15,
+      participantCount: 8,
     };
     setSlots((prev) => [...prev, newSlot]);
   };
@@ -127,7 +127,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         if (s.id !== id) return s;
         return {
           ...s,
-          [field]: field === 'participantCount' ? Math.max(15, Number(value)) : value,
+          [field]: field === 'participantCount' ? Math.max(2, Math.min(30, Number(value) || 8)) : value,
         };
       })
     );
@@ -142,13 +142,11 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
     const selectedFaculty = facultyList.find((f) => f.facultyId === selectedFacultyId) || facultyList[0];
 
     const createdSessions: GDSession[] = slots.map((slot, index) => {
-      const maxCap = Math.max(15, slot.participantCount);
-      // Initialize with ~40% occupancy (e.g. 6 out of 15) so plenty of open seats remain for students to join
-      const initialEnrolled = Math.min(6, Math.max(0, maxCap - 9));
-      const seatedStudents: Student[] = generateSlotParticipants(initialEnrolled);
+      const studentCount = Math.max(2, Math.min(30, slot.participantCount || 8));
+      const seatedStudents: Student[] = generateSlotParticipants(studentCount);
 
       // Divide participants into 3 balanced breakout pods
-      const podSize = Math.ceil(seatedStudents.length / 3);
+      const podSize = Math.max(1, Math.ceil(seatedStudents.length / 3));
       const podAlphaIds = seatedStudents.slice(0, podSize).map((s) => s.id);
       const podBetaIds = seatedStudents.slice(podSize, podSize * 2).map((s) => s.id);
       const podGammaIds = seatedStudents.slice(podSize * 2).map((s) => s.id);
@@ -161,8 +159,8 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         slotName: slotNameStr,
         slotTiming: slotTimingStr,
         slotDate: slot.slotDate || 'Today',
-        maxCapacity: maxCap,
-        enrolledCount: initialEnrolled,
+        maxCapacity: Math.max(15, studentCount),
+        enrolledCount: studentCount,
         roomLayout: roomLayout,
         topic: topic.trim(),
         description: description.trim(),
@@ -176,8 +174,8 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         status: index === 0 ? 'active' : 'scheduled',
         students: seatedStudents,
         currentPhase: 'intro',
-        facilitatorSpeech: `Good morning participants of ${slotNameStr}. Today's discussion topic is: "${topic}". There are ${initialEnrolled} participants in this slot scheduled for ${slotTimingStr}. Everyone will get an opportunity to speak. The floor will be open shortly.`,
-        facilitatorAction: `Slot scheduled for ${slotTimingStr} (${initialEnrolled}/${maxCap} students)`,
+        facilitatorSpeech: `Good morning participants of ${slotNameStr}. Today's discussion topic is: "${topic}". There are ${studentCount} candidates participating in this slot scheduled for ${slotTimingStr}. Everyone will get an opportunity to speak. The floor will be open shortly.`,
+        facilitatorAction: `Slot scheduled for ${slotTimingStr} (${studentCount} students seated)`,
         isFacilitatorSpeaking: false,
         silenceTimerSeconds: 0,
         currentSpeakerId: null,
@@ -449,7 +447,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                   <span>2. Schedule Time Slots ({slots.length} Configured)</span>
                 </h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Each slot hosts a minimum of 15 students on this same topic.
+                  Configure custom timings and select the exact number of students for each slot.
                 </p>
               </div>
 
@@ -546,27 +544,32 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                       />
                     </div>
 
-                    {/* Capacity (Min 15) */}
+                    {/* Custom Capacity Option */}
                     <div className="sm:col-span-3 space-y-1">
                       <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
                         <span className="flex items-center gap-1">
                           <Users className="w-3 h-3 text-amber-500" />
-                          <span>Capacity:</span>
+                          <span>No. of Students:</span>
                         </span>
                         <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-mono">
-                          Min 15
+                          {slot.participantCount} seats
                         </span>
                       </label>
                       <select
                         value={slot.participantCount}
                         onChange={(e) => handleUpdateSlot(slot.id, 'participantCount', e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500 font-medium"
                       >
-                        <option value={15}>15 Students (Min)</option>
+                        <option value={4}>4 Students (Mini GD)</option>
+                        <option value={6}>6 Students (Focused)</option>
+                        <option value={8}>8 Students (Standard GD)</option>
+                        <option value={10}>10 Students</option>
+                        <option value={12}>12 Students</option>
+                        <option value={15}>15 Students</option>
                         <option value={18}>18 Students</option>
                         <option value={20}>20 Students</option>
                         <option value={24}>24 Students</option>
-                        <option value={30}>30 Students</option>
+                        <option value={30}>30 Students (Max)</option>
                       </select>
                     </div>
                   </div>

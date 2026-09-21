@@ -141,18 +141,20 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* GD Conference Room Tab */}
-          <button
-            id="tab-room-btn"
-            onClick={() => setCurrentTab('room')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-              currentTab === 'room'
-                ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Radio className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 animate-pulse shrink-0" />
-            <span>{isFaculty || isCollegeAdmin ? 'GD Room (Observer)' : 'GD Conference Room'}</span>
-          </button>
+          {!isSuperAdmin && (
+            <button
+              id="tab-room-btn"
+              onClick={() => setCurrentTab('room')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'room'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 animate-pulse shrink-0" />
+              <span>{isFaculty || isCollegeAdmin ? 'GD Room (Observer)' : 'GD Conference Room'}</span>
+            </button>
+          )}
 
           {/* Student Assessment Reports Tab */}
           {(isStudent || isFaculty || isCollegeAdmin) && (
@@ -188,7 +190,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
           {/* Unified GD Slot & Timer Pill (Active ONLY in live GD room) */}
-          {currentTab === 'room' && (
+          {!isSuperAdmin && currentTab === 'room' && (
             <div 
               className="flex items-center gap-1.5 sm:gap-2 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap shrink-0 h-9"
               title={session.slotTiming ? `${session.slotName || 'GD Session'} (${session.slotTiming})` : (session.slotName || 'GD Session')}
@@ -220,7 +222,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* Voice Engine Toggle (Active ONLY in live GD room) */}
-          {currentTab === 'room' && (
+          {!isSuperAdmin && currentTab === 'room' && (
             <button
               id="voice-mute-toggle"
               onClick={() => setVoiceMuted(!voiceMuted)}

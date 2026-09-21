@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
+import { generateSlotParticipants } from '../../data/mockGDData';
 import { 
   fetchCollegeStats, 
   fetchCollegeStudents, 
@@ -124,6 +125,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     durationMinutes: 15,
     difficulty: 'Intermediate',
     slotTiming: '10:30 AM - 10:45 AM',
+    participantCount: 8,
     maxCapacity: 15,
     assignedFacultyId: '',
     assignedFacultyName: '',
@@ -328,8 +330,10 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
 
     const newSessionId = `slot-${collegeCode.toLowerCase()}-${Date.now().toString().slice(-4)}`;
     
+    const requestedCount = Math.max(2, Math.min(15, newSlot.participantCount || 8));
+    
     // Auto-populate initial participants using the college's real students if available
-    const enrolledStudents = (students.length > 0 ? students.slice(0, 8) : []).map((stu, idx) => ({
+    const enrolledStudents = (students.length > 0 ? students.slice(0, requestedCount) : []).map((stu, idx) => ({
       id: stu.id || `s-${idx + 1}`,
       name: stu.name,
       college: stu.college || currentUser.college || 'Engineering Institute',
@@ -349,6 +353,19 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       sentiment: 'neutral' as const,
     }));
 
+    // If enrolled students are fewer than requestedCount, fill the remaining seats with generated AI peer participants
+    let finalStudents = [...enrolledStudents];
+    if (finalStudents.length < requestedCount) {
+      const remainingNeeded = requestedCount - finalStudents.length;
+      const fillers = generateSlotParticipants(remainingNeeded).map((f, i) => ({
+        ...f,
+        id: `peer-${Date.now()}-${i + 1}`,
+        seatNumber: finalStudents.length + i + 1,
+        isUser: false,
+      }));
+      finalStudents = [...finalStudents, ...fillers];
+    }
+
     const sessionObj: GDSession = {
       id: newSessionId,
       topic: newSlot.topic,
@@ -359,11 +376,11 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       status: 'scheduled',
       slotName: newSlot.slotName,
       slotTiming: newSlot.slotTiming,
-      maxCapacity: newSlot.maxCapacity || 15,
-      enrolledCount: enrolledStudents.length || 8,
+      maxCapacity: Math.max(15, requestedCount),
+      enrolledCount: finalStudents.length,
       assignedFacultyId: newSlot.assignedFacultyId,
       assignedFacultyName: newSlot.assignedFacultyName,
-      students: enrolledStudents,
+      students: finalStudents,
       currentPhase: 'intro',
       facilitatorSpeech: `Welcome candidates to ${newSlot.slotName}. The topic for today's discussion is "${newSlot.topic}".`,
       facilitatorAction: 'Waiting to start discussion',
@@ -382,8 +399,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       ...newSlot,
       id: newSessionId,
       collegeCode,
-      studentIds: students.slice(0, 8).map((s) => s.id),
-      enrolledCount: enrolledStudents.length || 8,
+      studentIds: students.slice(0, requestedCount).map((s) => s.id),
+      enrolledCount: finalStudents.length,
       rawSession: sessionObj,
     };
 
@@ -1229,11 +1246,92 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Student Capacity & Auto-Seating
-                </label>
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500">
-                  <span>Up to 15 students per slot. Registered students will be seated at Round Table seats 1-15 with autonomous AI Indian English personas filling available seats.</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
+                    <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Number of Students for this GD Session</span>
+                  </label>
+                  <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                    {newSlot.participantCount} Students
+                  </span>
+                </div>
+
+                {/* Quick Capacity Presets */}
+                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-medium">Quick Select:</span>
+                  {[4, 6, 8, 10, 12, 15].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setNewSlot({ ...newSlot, participantCount: count })}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        newSlot.participantCount === count
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom Number Input & Slider */}
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-8">
+                    <input
+                      type="range"
+                      min={2}
+                      max={15}
+                      value={newSlot.participantCount}
+                      onChange={(e) => setNewSlot({ ...newSlot, participantCount: parseInt(e.target.value, 10) || 8 })}
+                      className="w-full accent-amber-600 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 px-0.5 -mt-1 font-mono">
+                      <span>2 (Min)</span>
+                      <span>8 (Recommended)</span>
+                      <span>15 (Max)</span>
+                    </div>
+                  </div>
+                  <div className="col-span-4">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={2}
+                        max={15}
+                        value={newSlot.participantCount}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val)) {
+                            setNewSlot({ ...newSlot, participantCount: Math.max(2, Math.min(15, val)) });
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 text-xs text-center font-bold font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:ring-2 focus:ring-amber-500"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
+                        seats
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic Roster Allocation Preview Note */}
+                <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
+                  {students.length >= newSlot.participantCount ? (
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span><strong>{newSlot.participantCount} registered students</strong> will be seated (Seats 1 to {newSlot.participantCount}) from your enrolled roster.</span>
+                    </span>
+                  ) : students.length > 0 ? (
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span><strong>{students.length} registered students</strong> + <strong>{newSlot.participantCount - students.length} AI peer personas</strong> will be seated to fill all {newSlot.participantCount} seats.</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>All <strong>{newSlot.participantCount} seats</strong> will be filled by Indian English AI peer personas with automated multi-turn debate.</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
