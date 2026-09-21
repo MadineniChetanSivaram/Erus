@@ -27,6 +27,7 @@ import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
 import { clearStoredAuth, verifyCurrentSession, createCollegeSlot } from './utils/authApi';
+import { getStudentBookedSlotId, setStudentBookedSlotId as setStudentBookedSlotIdHelper, isSlotSelectableForStudent } from './utils/studentBooking';
 
 function GDAppContent() {
   // Authentication State
@@ -92,6 +93,19 @@ function GDAppContent() {
   const [activeReport, setActiveReport] = useState<StudentAssessmentReport>(SAMPLE_REPORT_RAHUL);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
+  const [studentBookedSlotId, setStudentBookedSlotId] = useState<string | null>(() => {
+    try {
+      const userRaw = localStorage.getItem('erus_auth_user');
+      if (userRaw) {
+        const u = JSON.parse(userRaw);
+        if (u.role === 'student') {
+          const key = u.id || u.email || 'student';
+          return getStudentBookedSlotId(key) || 'slot-dit-001';
+        }
+      }
+    } catch {}
+    return 'slot-dit-001';
+  });
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
     const slots = loadInitialSlots();
     return slots[0]?.status === 'active' ? 315 : 0;
@@ -165,7 +179,16 @@ function GDAppContent() {
 
     if (user.role === 'student') {
       setViewingStudentId(null);
-      const activeSlotId = session.id;
+      const studentKey = user.id || user.email || 'student';
+      let bookedSlotId = getStudentBookedSlotId(studentKey);
+      if (!bookedSlotId) {
+        bookedSlotId = session.id || 'slot-dit-001';
+        setStudentBookedSlotIdHelper(studentKey, bookedSlotId);
+      }
+      setStudentBookedSlotId(bookedSlotId);
+
+      const targetBookedSlot = availableSlots.find((s) => s.id === bookedSlotId) || session;
+      const activeSlotId = targetBookedSlot.id;
       const studentUserObj: Student = {
         ...INITIAL_SESSION.students[0],
         id: user.id || 'slot-stu-1',
@@ -174,6 +197,7 @@ function GDAppContent() {
         course: user.course,
         batch: user.batch,
         isUser: true,
+        bookedSlotId,
       };
       const initialStudentReport = generateStudentReport(studentUserObj, session.topic, session.durationMinutes);
       setActiveReport(initialStudentReport);
@@ -484,6 +508,27 @@ function GDAppContent() {
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
 
+    // Single Slot Policy: Enforce that students can only select their booked slot
+    if (currentUser && currentUser.role === 'student') {
+      const studentKey = currentUser.id || currentUser.email || 'student';
+      const check = isSlotSelectableForStudent(slotId, currentUser.role, studentKey, studentBookedSlotId);
+      if (!check.allowed) {
+        const bookedSlot = availableSlots.find((s) => s.id === (studentBookedSlotId || getStudentBookedSlotId(studentKey)));
+        alert(`Slot Locked: You have already booked ${bookedSlot?.slotName || 'a slot'}. Under institutional GD evaluation policy, students cannot select or switch to another slot.`);
+        return;
+      }
+      if (!studentBookedSlotId) {
+        const targetMaxCap = targetSlot.maxCapacity || 15;
+        const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 15;
+        if (targetSlot.status !== 'completed' && targetCurrentEnrolled >= targetMaxCap) {
+          alert(`Slot "${targetSlot.slotName || targetSlot.id}" is full (${targetCurrentEnrolled}/${targetMaxCap} students). Please select an open slot.`);
+          return;
+        }
+        setStudentBookedSlotIdHelper(studentKey, slotId);
+        setStudentBookedSlotId(slotId);
+      }
+    }
+
     // Handle Completed Session Click:
     // Never open the GD room again or play AI voice.
     // - Students see their individual 7-parameter assessment report.
@@ -742,6 +787,7 @@ function GDAppContent() {
             onSelectSlot={handleSelectSlot}
             onResetSlots={handleResetSlots}
             currentUser={currentUser}
+            bookedSlotId={studentBookedSlotId}
             onUpdateLayout={(newLayout) => {
               setSession((prev) => ({ ...prev, roomLayout: newLayout }));
               setAvailableSlots((prev) =>
@@ -757,10 +803,12 @@ function GDAppContent() {
             report={activeReport}
             onBackToRoom={() => {
               if (session.status === 'completed') {
-                const openSlot = availableSlots.find((s) => s.status !== 'completed');
-                if (openSlot) {
-                  handleSelectSlot(openSlot.id);
-                  return;
+                if (currentUser?.role !== 'student') {
+                  const openSlot = availableSlots.find((s) => s.status !== 'completed');
+                  if (openSlot) {
+                    handleSelectSlot(openSlot.id);
+                    return;
+                  }
                 }
               }
               setCurrentTab('room');
@@ -770,6 +818,7 @@ function GDAppContent() {
             targetStudentId={viewingStudentId}
             availableSlots={availableSlots}
             onSelectSlot={handleSelectSlot}
+            bookedSlotId={studentBookedSlotId}
           />
         )}
 

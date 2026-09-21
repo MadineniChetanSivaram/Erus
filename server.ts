@@ -285,6 +285,7 @@ let persistentState = {
   faculty: { ...DEFAULT_COLLEGE_FACULTY },
   slots: { ...DEFAULT_COLLEGE_SLOTS },
   users: [...DEFAULT_USERS],
+  studentBookings: { 's1': 'slot-dit-001' } as Record<string, string>,
 };
 
 function loadPersistentState() {
@@ -298,6 +299,7 @@ function loadPersistentState() {
         if (data.faculty && typeof data.faculty === 'object') persistentState.faculty = data.faculty;
         if (data.slots && typeof data.slots === 'object') persistentState.slots = data.slots;
         if (Array.isArray(data.users) && data.users.length > 0) persistentState.users = data.users;
+        if (data.studentBookings && typeof data.studentBookings === 'object') persistentState.studentBookings = data.studentBookings;
       }
     }
   } catch (err) {
@@ -1055,6 +1057,33 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
   }
 
   res.json({ success: true, slotId, status: 'active' });
+});
+
+// --- STUDENT SLOT BOOKING ENDPOINTS (Single Slot Policy) ---
+app.get('/api/student/:studentId/booked-slot', (req, res) => {
+  const { studentId } = req.params;
+  const bookedSlotId = persistentState.studentBookings[studentId] || null;
+  res.json({ success: true, studentId, bookedSlotId });
+});
+
+app.post('/api/student/book-slot', async (req, res) => {
+  const { studentId, slotId } = req.body;
+  if (!studentId || !slotId) {
+    return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
+  }
+
+  const existingBooking = persistentState.studentBookings[studentId];
+  if (existingBooking && existingBooking !== slotId) {
+    return res.status(403).json({
+      success: false,
+      error: 'Single Slot Policy: You have already booked another slot and cannot switch slots.',
+      bookedSlotId: existingBooking,
+    });
+  }
+
+  persistentState.studentBookings[studentId] = slotId;
+  savePersistentState();
+  res.json({ success: true, studentId, bookedSlotId: slotId });
 });
 
 // --- AUTH ENDPOINTS ---

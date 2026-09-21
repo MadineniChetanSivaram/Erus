@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { GDSession } from '../../types/gd';
 import { INSTITUTIONAL_FACULTY, FacultyMemberInfo } from '../../data/mockGDData';
+import { getStudentBookedSlotId } from '../../utils/studentBooking';
 
 interface SlotSelectionModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ interface SlotSelectionModalProps {
   onSelectSlot: (slotId: string) => void;
   onResetSlots?: () => void;
   currentUser?: any;
+  bookedSlotId?: string | null;
 }
 
 export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
@@ -40,6 +42,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
   onSelectSlot,
   onResetSlots,
   currentUser,
+  bookedSlotId,
 }) => {
   if (!isOpen) return null;
 
@@ -120,6 +123,20 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
   const activeTopicDetails = slotsForTopic[0] || slotsMatchingFaculty[0] || availableSlots[0];
   const activeFaculty = facultyList.find((f) => f.id === selectedFacultyId);
 
+  const effectiveBookedSlotId = useMemo(() => {
+    if (bookedSlotId) return bookedSlotId;
+    if (currentUser?.role === 'student') {
+      const studentKey = currentUser.id || currentUser.email || 'student';
+      return getStudentBookedSlotId(studentKey);
+    }
+    return null;
+  }, [bookedSlotId, currentUser]);
+
+  const bookedSlotDetails = useMemo(() => {
+    if (!effectiveBookedSlotId) return null;
+    return availableSlots.find((s) => s.id === effectiveBookedSlotId) || null;
+  }, [effectiveBookedSlotId, availableSlots]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-7 max-w-3xl w-full shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto transition-colors duration-200">
@@ -162,6 +179,28 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
             Filter slots by your assigned <strong>Faculty In-Charge</strong>. You will only see and join the discussion slots scheduled under your selected mentor.
           </p>
         </div>
+
+        {/* Single Slot Policy Notice Banner for Students */}
+        {currentUser?.role === 'student' && effectiveBookedSlotId && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 border border-blue-200 dark:border-blue-800/60 flex items-start gap-3 shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                  Single Slot Policy Active (FR-2)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-200 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-200">
+                  1 Slot / Candidate
+                </span>
+              </div>
+              <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
+                You are confirmed for <strong>{bookedSlotDetails?.slotName || effectiveBookedSlotId}</strong> ({bookedSlotDetails?.slotTiming || 'Scheduled Time'}, {bookedSlotDetails?.slotDate || 'Today'}). Under institutional academic policy, each student may only book and participate in a single discussion slot. All other slots are locked.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* 1. FACULTY IN-CHARGE SELECTOR */}
         <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50/70 dark:from-amber-950/30 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/60 space-y-3">
@@ -341,14 +380,22 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                 const seatsLeft = Math.max(0, maxCap - enrolled);
                 const occupancyPercent = Math.min(100, Math.round((enrolled / maxCap) * 100));
 
+                const isStudent = currentUser?.role === 'student';
+                const isBookedSlot = isStudent && Boolean(effectiveBookedSlotId) && slot.id === effectiveBookedSlotId;
+                const isLockedOtherSlot = isStudent && Boolean(effectiveBookedSlotId) && slot.id !== effectiveBookedSlotId;
+
                 return (
                   <div
                     key={slot.id}
                     className={`p-4 rounded-2xl border transition-all relative flex flex-col justify-between ${
                       isCompleted
                         ? 'bg-purple-50/40 dark:bg-purple-950/25 border-purple-300 dark:border-purple-800/60 shadow-xs'
+                        : isBookedSlot
+                        ? 'bg-emerald-50/80 dark:bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/30 shadow-md shadow-emerald-500/10'
                         : isSelected
                         ? 'bg-indigo-50/80 dark:bg-indigo-950/60 border-indigo-500 ring-2 ring-indigo-500/30 shadow-md shadow-indigo-500/10'
+                        : isLockedOtherSlot
+                        ? 'bg-slate-100/40 dark:bg-slate-900/30 border-slate-200 dark:border-slate-800 opacity-60'
                         : isFull
                         ? 'bg-slate-50/60 dark:bg-slate-950/40 border-rose-200/80 dark:border-rose-900/50'
                         : 'bg-slate-50/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -361,11 +408,17 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                           <span className={`w-2 h-2 rounded-full ${
                             isCompleted
                               ? 'bg-purple-500'
+                              : isBookedSlot
+                              ? 'bg-emerald-500'
+                              : isLockedOtherSlot
+                              ? 'bg-slate-400'
                               : isFull && !isSelected 
                               ? 'bg-rose-500' 
                               : 'bg-indigo-500'
                           }`} />
-                          <span>{slot.slotName || `Slot ${index + 1}`}</span>
+                          <span className={isLockedOtherSlot ? 'line-through decoration-slate-400/60' : ''}>
+                            {slot.slotName || `Slot ${index + 1}`}
+                          </span>
                         </span>
 
                         {/* Status Badges */}
@@ -373,6 +426,16 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold text-[10px] border border-purple-200 dark:border-purple-800 shadow-xs">
                             <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                             <span>COMPLETED</span>
+                          </span>
+                        ) : isBookedSlot ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white font-bold text-[10px] shadow-xs">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Your Confirmed Slot</span>
+                          </span>
+                        ) : isLockedOtherSlot ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-[10px] border border-slate-300 dark:border-slate-700">
+                            <Lock className="w-3 h-3" />
+                            <span>LOCKED FOR YOU</span>
                           </span>
                         ) : isSelected ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold text-[10px] shadow-xs">
@@ -460,22 +523,64 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            if (isLockedOtherSlot) {
+                              alert(`Slot Locked: You have booked ${bookedSlotDetails?.slotName || 'another slot'}. Students cannot view or switch to other discussion slots.`);
+                              return;
+                            }
                             onSelectSlot(slot.id);
                             onClose();
                           }}
-                          className="w-full py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer group"
+                          disabled={isLockedOtherSlot}
+                          className={`w-full py-2 px-3 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs ${
+                            isLockedOtherSlot
+                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed'
+                              : 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer group'
+                          }`}
                         >
-                          {currentUser?.role === 'student' ? (
+                          {isLockedOtherSlot ? (
+                            <>
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Slot Locked • Another Slot Booked</span>
+                            </>
+                          ) : currentUser?.role === 'student' ? (
                             <>
                               <FileText className="w-3.5 h-3.5" />
                               <span>View My Assessment Report</span>
+                              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                             </>
                           ) : (
                             <>
                               <BarChart3 className="w-3.5 h-3.5" />
                               <span>View Overall Analytics & Reports</span>
+                              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                             </>
                           )}
+                        </button>
+                      ) : isLockedOtherSlot ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed border border-slate-200 dark:border-slate-800 opacity-70"
+                          title={`Slot Locked: You have already booked ${bookedSlotDetails?.slotName || 'another slot'}. Students cannot select multiple slots.`}
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Slot Locked • Another Slot Booked</span>
+                        </button>
+                      ) : isBookedSlot && isSelected ? (
+                        <div className="w-full py-2 px-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 font-semibold text-xs flex items-center justify-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Joined in Your Confirmed Slot</span>
+                        </div>
+                      ) : isBookedSlot ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectSlot(slot.id);
+                            onClose();
+                          }}
+                          className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer group"
+                        >
+                          <span>Enter Your Booked Slot</span>
                           <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                         </button>
                       ) : isSelected ? (
@@ -502,7 +607,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                           }}
                           className="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:border-indigo-600 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-2xs group cursor-pointer"
                         >
-                          <span>Select & Join Slot</span>
+                          <span>Select & Book Slot</span>
                           <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                         </button>
                       )}

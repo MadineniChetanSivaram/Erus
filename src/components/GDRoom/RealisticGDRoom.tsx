@@ -75,6 +75,7 @@ interface RealisticGDRoomProps {
   onResetSlots?: () => void;
   currentUser?: AuthUser | null;
   onUpdateLayout?: (layout: GDRoomLayoutType) => void;
+  bookedSlotId?: string | null;
 }
 
 export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
@@ -91,6 +92,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   onResetSlots,
   currentUser,
   onUpdateLayout,
+  bookedSlotId,
 }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'rules' | 'analytics' | 'breakout'>('transcript');
   const [liveSpeechTranscript, setLiveSpeechTranscript] = useState('');
@@ -1356,6 +1358,35 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     const isCurrent = slot.id === session.id;
                     const seatsLeft = Math.max(0, maxCap - enrolled);
 
+                    const isStudent = currentUser?.role === 'student';
+                    const effectiveBookedSlotId = bookedSlotId;
+                    const isUserBookedSlot = isStudent && Boolean(effectiveBookedSlotId) && slot.id === effectiveBookedSlotId;
+                    const isLockedForStudent = isStudent && Boolean(effectiveBookedSlotId) && slot.id !== effectiveBookedSlotId;
+                    const bookedSlotObj = isLockedForStudent ? availableSlots.find((s) => s.id === effectiveBookedSlotId) : null;
+
+                    if (isLockedForStudent) {
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled
+                          title={`Slot Locked: You have already booked ${bookedSlotObj?.slotName || 'another slot'}. Under institutional GD evaluation policy, students cannot select or switch to another slot.`}
+                          className="px-2.5 py-1 rounded-lg text-xs transition-all flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed"
+                        >
+                          <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                          <span className="font-medium line-through decoration-slate-400/50">{slot.slotName || slot.id}</span>
+                          {slot.slotTiming && (
+                            <span className="text-[10px] font-mono text-slate-400/70">
+                              ({slot.slotTiming})
+                            </span>
+                          )}
+                          <span className="text-[9px] uppercase font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1 rounded">
+                            Locked
+                          </span>
+                        </button>
+                      );
+                    }
+
                     return (
                       <button
                         key={slot.id}
@@ -1377,6 +1408,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             ? (currentUser?.role === 'student'
                                 ? `GD Completed • Click to view your assessment report`
                                 : `GD Completed • Click to view overall session analytics`)
+                            : isUserBookedSlot
+                            ? `Your Confirmed Booked Slot • Joined`
                             : isCurrent
                             ? `Currently joined in this slot`
                             : isFull
@@ -1388,6 +1421,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             ? isCurrent
                               ? 'bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs cursor-pointer'
                               : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50 cursor-pointer'
+                            : isUserBookedSlot
+                            ? 'bg-emerald-600 text-white font-bold shadow-xs cursor-default ring-2 ring-emerald-400/30'
                             : isCurrent
                             ? 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
                             : isFull
@@ -1397,12 +1432,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       >
                         <span className="font-medium">{slot.slotName || slot.id}</span>
                         {slot.slotTiming && (
-                          <span className={`text-[10px] font-mono ${isCurrent ? 'text-white/80' : 'text-slate-400'}`}>
+                          <span className={`text-[10px] font-mono ${isCurrent || isUserBookedSlot ? 'text-white/80' : 'text-slate-400'}`}>
                             ({slot.slotTiming})
                           </span>
                         )}
                         <span className={`text-[10px] font-mono px-1 rounded font-bold ${
-                          isCurrent 
+                          isUserBookedSlot || isCurrent 
                             ? 'bg-white/20 text-white' 
                             : isCompleted
                             ? 'bg-purple-200/80 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
@@ -1416,6 +1451,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
                             isCurrent ? 'bg-white/25 text-white' : 'bg-purple-600 text-white'
                           }`}>Completed</span>
+                        ) : isUserBookedSlot ? (
+                          <span className="text-[10px] uppercase font-bold bg-white/25 px-1 rounded">Your Slot</span>
                         ) : isCurrent ? (
                           <span className="text-[10px] uppercase font-bold bg-white/25 px-1 rounded">Joined</span>
                         ) : isFull ? (
@@ -2659,6 +2696,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         availableSlots={availableSlots}
         currentSlotId={session.id}
         currentUser={currentUser}
+        bookedSlotId={bookedSlotId}
         onSelectSlot={(slotId) => {
           if (onSelectSlot) {
             onSelectSlot(slotId);

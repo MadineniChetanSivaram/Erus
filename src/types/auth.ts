@@ -16,6 +16,7 @@ export interface StudentUser extends BaseUser {
   course: string;
   batch: string;
   seatNumber: number;
+  bookedSlotId?: string;
 }
 
 export interface FacultyUser extends BaseUser {

@@ -27,7 +27,8 @@ import {
   X,
   FileText,
   Bookmark,
-  Tag
+  Tag,
+  Lock
 } from 'lucide-react';
 import { 
   StudentAssessmentReport, 
@@ -50,6 +51,7 @@ interface StudentReportViewProps {
   targetStudentId?: string | null;
   availableSlots?: GDSession[];
   onSelectSlot?: (slotId: string) => void;
+  bookedSlotId?: string | null;
 }
 
 export const StudentReportView: React.FC<StudentReportViewProps> = ({
@@ -61,6 +63,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   targetStudentId,
   availableSlots,
   onSelectSlot,
+  bookedSlotId,
 }) => {
   const isStudent = currentUser?.role === 'student';
   const isFaculty = currentUser?.role === 'faculty';
@@ -410,6 +413,26 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             {availableSlots.map((sl) => {
               const isSelected = sl.id === session.id;
               const isCompleted = sl.status === 'completed';
+              const studentKey = currentUser?.id || currentUser?.email || 'student';
+              const effectiveBooked = bookedSlotId || (isStudent ? (localStorage.getItem(`erus_student_booked_slot_${studentKey}`) || 'slot-dit-001') : null);
+              const isLockedForStudent = isStudent && Boolean(effectiveBooked) && sl.id !== effectiveBooked;
+              const bookedSlotObj = isLockedForStudent ? availableSlots.find((s) => s.id === effectiveBooked) : null;
+
+              if (isLockedForStudent) {
+                return (
+                  <button
+                    key={sl.id}
+                    type="button"
+                    disabled
+                    title={`Slot Locked: You have booked ${bookedSlotObj?.slotName || 'another slot'}. Under institutional policy, students can only access their assigned discussion session.`}
+                    className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed flex items-center gap-1"
+                  >
+                    <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                    <span className="line-through decoration-slate-400/50">{sl.slotName || sl.id}</span>
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={sl.id}

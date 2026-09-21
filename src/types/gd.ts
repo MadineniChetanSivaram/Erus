@@ -22,6 +22,7 @@ export interface Student {
   isRealPeer?: boolean;
   isEmptySeat?: boolean;
   volumeLevel?: number;
+  bookedSlotId?: string;
 }
 
 export interface BreakoutRoom {
