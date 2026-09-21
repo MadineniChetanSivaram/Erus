@@ -91,6 +91,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
       setIsOnboardOpen(false);
       setCredentialsModal(res.generatedCredentials);
       setBannerMsg(`Institution "${newCollege.name}" onboarded. Credentials generated below.`);
+      
+      if (res.college) {
+        setColleges((prev) => [res.college, ...prev.filter((c) => c.code?.toUpperCase() !== res.college.code?.toUpperCase())]);
+        setStats((prev) => ({ ...prev, totalColleges: (prev.totalColleges || 0) + 1 }));
+      }
+
       setNewCollege({
         name: '',
         code: '',

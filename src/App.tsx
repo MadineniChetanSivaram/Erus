@@ -784,6 +784,7 @@ function GDAppContent() {
             currentUser={currentUser}
             availableSlots={availableSlots}
             onOpenCreateSession={() => setIsCreateModalOpen(true)}
+            onCreateSlot={handleCreateSession}
             onEnterGDRoom={(slot) => {
               if (slot) {
                 handleSelectSlot(typeof slot === 'string' ? slot : (slot.id || ''));

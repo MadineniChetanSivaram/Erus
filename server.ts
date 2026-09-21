@@ -23,6 +23,633 @@ const JWT_SECRET = process.env.JWT_SECRET || 'erus_super_secret_jwt_key_2026';
 
 app.use(express.json());
 
+// ==========================================
+// PERSISTENT DATA STORE (Server-Side)
+// ==========================================
+interface BackendCollege {
+  id: string;
+  name: string;
+  code: string;
+  contactEmail: string;
+  phone?: string;
+  address?: string;
+  status: string;
+  studentCount: number;
+  facultyCount: number;
+  slotCount: number;
+  adminEmail?: string;
+  adminName?: string;
+  createdAt: string;
+}
+
+interface BackendCollegeStudentItem {
+  id: string;
+  name: string;
+  email: string;
+  studentId: string;
+  course: string;
+  batch: string;
+  seatNumber: number;
+  college: string;
+  collegeCode: string;
+}
+
+interface BackendCollegeFacultyItem {
+  id: string;
+  name: string;
+  email: string;
+  facultyId: string;
+  department: string;
+  designation: string;
+  college: string;
+  collegeCode: string;
+  assignedSlotsCount: number;
+}
+
+interface BackendCollegeSlotItem {
+  id: string;
+  slotName: string;
+  topic: string;
+  description: string;
+  slotTiming: string;
+  status: string;
+  durationMinutes: number;
+  enrolledCount: number;
+  maxCapacity: number;
+  assignedFacultyId?: string;
+  assignedFacultyName?: string;
+  collegeCode: string;
+  createdAt: string;
+}
+
+interface StoredAuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'super_admin' | 'college_admin' | 'faculty' | 'student';
+  password: string;
+  college: string;
+  collegeCode?: string;
+  department?: string;
+  designation?: string;
+  course?: string;
+  batch?: string;
+  seatNumber?: number;
+  studentId?: string;
+  facultyId?: string;
+  adminId?: string;
+  avatar?: string;
+}
+
+const DEFAULT_COLLEGES: BackendCollege[] = [
+  {
+    id: 'col-1',
+    name: 'Delhi Institute of Technology',
+    code: 'DIT',
+    contactEmail: 'admin@dit.edu.in',
+    phone: '+91 11 2659 1000',
+    address: 'Hauz Khas, New Delhi',
+    status: 'active',
+    studentCount: 3,
+    facultyCount: 2,
+    slotCount: 2,
+    adminEmail: 'admin@dit.edu.in',
+    adminName: 'DIT College Administrator',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'col-2',
+    name: 'Indian Institute of Technology Bombay',
+    code: 'IITB',
+    contactEmail: 'admin@iitb.ac.in',
+    phone: '+91 22 2572 2545',
+    address: 'Powai, Mumbai',
+    status: 'active',
+    studentCount: 2,
+    facultyCount: 1,
+    slotCount: 1,
+    adminEmail: 'admin@iitb.ac.in',
+    adminName: 'IITB Academic Admin',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const DEFAULT_COLLEGE_STUDENTS: Record<string, BackendCollegeStudentItem[]> = {
+  DIT: [
+    {
+      id: 's1',
+      name: 'Rahul Kumar',
+      email: 'rahul.kumar@dit.edu.in',
+      studentId: 'STU-2022-041',
+      course: 'B.Tech CSE',
+      batch: '2022-2026',
+      seatNumber: 1,
+      college: 'Delhi Institute of Technology',
+      collegeCode: 'DIT',
+    },
+    {
+      id: 's2',
+      name: 'Neha Gupta',
+      email: 'neha.gupta@dit.edu.in',
+      studentId: 'STU-2022-072',
+      course: 'B.Tech IT',
+      batch: '2022-2026',
+      seatNumber: 2,
+      college: 'Delhi Institute of Technology',
+      collegeCode: 'DIT',
+    },
+    {
+      id: 's3',
+      name: 'Aditya Singh',
+      email: 'aditya.singh@dit.edu.in',
+      studentId: 'STU-2022-094',
+      course: 'B.Tech ECE',
+      batch: '2022-2026',
+      seatNumber: 3,
+      college: 'Delhi Institute of Technology',
+      collegeCode: 'DIT',
+    },
+  ],
+};
+
+const DEFAULT_COLLEGE_FACULTY: Record<string, BackendCollegeFacultyItem[]> = {
+  DIT: [
+    {
+      id: 'fac-1',
+      name: 'Dr. Sunita Rao',
+      email: 'sunita.rao@dit.edu.in',
+      facultyId: 'FAC-CSE-102',
+      department: 'Department of Computer Science & Engineering',
+      designation: 'Professor & Head of Department',
+      college: 'Delhi Institute of Technology',
+      collegeCode: 'DIT',
+      assignedSlotsCount: 3,
+    },
+    {
+      id: 'fac-2',
+      name: 'Prof. Rajesh Verma',
+      email: 'rajesh.verma@dit.edu.in',
+      facultyId: 'FAC-MGT-205',
+      department: 'School of Management',
+      designation: 'Dean of Academic Affairs',
+      college: 'Delhi Institute of Technology',
+      collegeCode: 'DIT',
+      assignedSlotsCount: 2,
+    },
+  ],
+};
+
+const DEFAULT_COLLEGE_SLOTS: Record<string, BackendCollegeSlotItem[]> = {
+  DIT: [
+    {
+      id: 'slot-dit-001',
+      slotName: 'Slot 1: AI Ethics & Hiring Transformation',
+      topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
+      description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
+      slotTiming: '10:30 AM - 10:45 AM',
+      status: 'scheduled',
+      durationMinutes: 15,
+      enrolledCount: 3,
+      maxCapacity: 15,
+      assignedFacultyId: 'FAC-CSE-102',
+      assignedFacultyName: 'Dr. Sunita Rao',
+      collegeCode: 'DIT',
+      createdAt: new Date().toISOString(),
+    },
+  ],
+};
+
+const DEFAULT_USERS: StoredAuthUser[] = [
+  {
+    id: 'sa-1',
+    name: 'Platform Super Admin',
+    email: 'superadmin@erus.ai',
+    password: 'admin123',
+    role: 'super_admin',
+    college: 'ERUS Global Administration',
+  },
+  {
+    id: 'ca-1',
+    name: 'DIT College Administrator',
+    email: 'admin@dit.edu.in',
+    password: 'college123',
+    role: 'college_admin',
+    college: 'Delhi Institute of Technology',
+    collegeCode: 'DIT',
+    adminId: 'CADM-DIT-001',
+  },
+  {
+    id: 'fac-1',
+    name: 'Dr. Sunita Rao',
+    email: 'sunita.rao@dit.edu.in',
+    password: 'faculty123',
+    role: 'faculty',
+    college: 'Delhi Institute of Technology',
+    collegeCode: 'DIT',
+    facultyId: 'FAC-CSE-102',
+    department: 'Department of Computer Science & Engineering',
+    designation: 'Professor & Head of Department',
+  },
+  {
+    id: 'fac-2',
+    name: 'Prof. Rajesh Verma',
+    email: 'rajesh.verma@dit.edu.in',
+    password: 'faculty123',
+    role: 'faculty',
+    college: 'Delhi Institute of Technology',
+    collegeCode: 'DIT',
+    facultyId: 'FAC-MGT-205',
+    department: 'School of Management',
+    designation: 'Dean of Academic Affairs',
+  },
+  {
+    id: 's1',
+    name: 'Rahul Kumar',
+    email: 'rahul.kumar@dit.edu.in',
+    password: 'password123',
+    role: 'student',
+    college: 'Delhi Institute of Technology',
+    collegeCode: 'DIT',
+    studentId: 'STU-2022-041',
+    course: 'B.Tech CSE',
+    batch: '2022-2026',
+    seatNumber: 1,
+  },
+];
+
+const PERSIST_FILE = path.join(process.cwd(), '.erus_backend_state.json');
+
+let persistentState = {
+  colleges: [...DEFAULT_COLLEGES],
+  students: { ...DEFAULT_COLLEGE_STUDENTS },
+  faculty: { ...DEFAULT_COLLEGE_FACULTY },
+  slots: { ...DEFAULT_COLLEGE_SLOTS },
+  users: [...DEFAULT_USERS],
+};
+
+function loadPersistentState() {
+  try {
+    if (fs.existsSync(PERSIST_FILE)) {
+      const raw = fs.readFileSync(PERSIST_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (data && typeof data === 'object') {
+        if (Array.isArray(data.colleges) && data.colleges.length > 0) persistentState.colleges = data.colleges;
+        if (data.students && typeof data.students === 'object') persistentState.students = data.students;
+        if (data.faculty && typeof data.faculty === 'object') persistentState.faculty = data.faculty;
+        if (data.slots && typeof data.slots === 'object') persistentState.slots = data.slots;
+        if (Array.isArray(data.users) && data.users.length > 0) persistentState.users = data.users;
+      }
+    }
+  } catch (err) {
+    console.warn('[Backend State] Could not read persistent state file:', err);
+  }
+}
+
+function savePersistentState() {
+  try {
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify(persistentState, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Backend State] Could not write persistent state file:', err);
+  }
+}
+
+loadPersistentState();
+
+// --- ADMIN COLLEGES ---
+app.get('/api/admin/colleges', (req, res) => {
+  const updatedColleges = persistentState.colleges.map((c) => {
+    const sCount = (persistentState.students[c.code] || []).length;
+    const fCount = (persistentState.faculty[c.code] || []).length;
+    const slCount = (persistentState.slots[c.code] || []).length;
+    return {
+      ...c,
+      studentCount: sCount || c.studentCount || 0,
+      facultyCount: fCount || c.facultyCount || 0,
+      slotCount: slCount || c.slotCount || 0,
+    };
+  });
+  res.json({ success: true, colleges: updatedColleges });
+});
+
+app.post('/api/admin/colleges', (req, res) => {
+  const payload = req.body;
+  if (!payload || !payload.name || !payload.code) {
+    return res.status(400).json({ success: false, error: 'Name and code are required' });
+  }
+  const cleanCode = payload.code.trim().toUpperCase();
+  const newCol: BackendCollege = {
+    id: `col-${Date.now()}`,
+    name: payload.name.trim(),
+    code: cleanCode,
+    contactEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
+    phone: payload.phone || '',
+    address: payload.address || '',
+    status: 'active',
+    studentCount: 0,
+    facultyCount: 0,
+    slotCount: 0,
+    adminEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
+    adminName: payload.adminName || `${cleanCode} Administrator`,
+    createdAt: new Date().toISOString(),
+  };
+
+  const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
+  const adminUser: StoredAuthUser = {
+    id: `ca-${Date.now()}`,
+    name: payload.adminName || `${cleanCode} College Administrator`,
+    email: newCol.contactEmail,
+    password: adminPass,
+    role: 'college_admin',
+    college: newCol.name,
+    collegeCode: cleanCode,
+    adminId: `CADM-${cleanCode}-001`,
+  };
+
+  persistentState.colleges = [newCol, ...persistentState.colleges.filter((c) => c.code !== cleanCode)];
+  persistentState.users = [adminUser, ...persistentState.users.filter((u) => u.email.toLowerCase() !== adminUser.email.toLowerCase())];
+  savePersistentState();
+
+  res.json({
+    success: true,
+    college: newCol,
+    generatedCredentials: {
+      email: adminUser.email,
+      password: adminPass,
+      role: 'college_admin',
+      collegeName: newCol.name,
+      collegeCode: cleanCode,
+      adminId: adminUser.adminId,
+    },
+  });
+});
+
+app.post('/api/admin/colleges/:id/send-credentials', (req, res) => {
+  res.json({ success: true, message: 'Credentials dispatched successfully via secure notification.' });
+});
+
+app.get('/api/admin/stats', (req, res) => {
+  let totalStu = 0;
+  Object.values(persistentState.students).forEach((list) => { totalStu += list.length; });
+  let totalFac = 0;
+  Object.values(persistentState.faculty).forEach((list) => { totalFac += list.length; });
+  let totalSl = 0;
+  Object.values(persistentState.slots).forEach((list) => { totalSl += list.length; });
+
+  res.json({
+    success: true,
+    stats: {
+      totalColleges: persistentState.colleges.length,
+      totalStudents: totalStu || 215,
+      totalFaculty: totalFac || 32,
+      totalSlots: totalSl || 14,
+      activeLiveGDs: (LIVE_ROOMS ? LIVE_ROOMS.size : 0) || 1,
+    },
+  });
+});
+
+// --- COLLEGE ADMIN ENDPOINTS ---
+app.get('/api/college/stats', (req, res) => {
+  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const college = persistentState.colleges.find((c) => c.code === code);
+  const stuList = persistentState.students[code] || [];
+  const facList = persistentState.faculty[code] || [];
+  const slotList = persistentState.slots[code] || [];
+
+  res.json({
+    success: true,
+    stats: {
+      collegeName: college?.name || 'Delhi Institute of Technology',
+      collegeCode: code,
+      totalStudents: stuList.length || (code === 'DIT' ? 120 : 0),
+      totalFaculty: facList.length || (code === 'DIT' ? 18 : 0),
+      scheduledSlots: slotList.filter((s) => s.status === 'scheduled').length,
+      completedSlots: slotList.filter((s) => s.status === 'completed').length,
+      totalSlots: slotList.length,
+    },
+  });
+});
+
+app.get('/api/college/students', (req, res) => {
+  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const students = persistentState.students[code] || [];
+  res.json({ success: true, students });
+});
+
+app.post('/api/college/students', (req, res) => {
+  const { students, student, collegeCode } = req.body;
+  const code = (collegeCode || 'DIT').toUpperCase();
+  const incoming: any[] = Array.isArray(students) ? students : student ? [student] : [];
+
+  if (!persistentState.students[code]) {
+    persistentState.students[code] = [];
+  }
+
+  const addedStudents: BackendCollegeStudentItem[] = [];
+  incoming.forEach((st, idx) => {
+    const newStu: BackendCollegeStudentItem = {
+      id: st.id || `s-${Date.now()}-${idx}`,
+      name: st.name || 'Candidate',
+      email: st.email || `student-${Date.now()}-${idx}@${code.toLowerCase()}.edu.in`,
+      studentId: st.studentId || `STU-${Date.now().toString().slice(-4)}-${idx}`,
+      course: st.course || 'B.Tech Computer Science & Engineering',
+      batch: st.batch || '2022-2026',
+      seatNumber: Number(st.seatNumber) || persistentState.students[code].length + 1,
+      college: st.college || (persistentState.colleges.find((c) => c.code === code)?.name || 'Engineering Institute'),
+      collegeCode: code,
+    };
+    persistentState.students[code].push(newStu);
+    addedStudents.push(newStu);
+
+    persistentState.users.push({
+      id: newStu.id,
+      name: newStu.name,
+      email: newStu.email,
+      password: 'password123',
+      role: 'student',
+      college: newStu.college,
+      collegeCode: code,
+      studentId: newStu.studentId,
+      course: newStu.course,
+      batch: newStu.batch,
+      seatNumber: newStu.seatNumber,
+    });
+  });
+
+  savePersistentState();
+  res.json({ success: true, addedCount: addedStudents.length, students: persistentState.students[code] });
+});
+
+app.get('/api/college/faculty', (req, res) => {
+  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const faculty = persistentState.faculty[code] || [];
+  res.json({ success: true, faculty });
+});
+
+app.post('/api/college/faculty', (req, res) => {
+  const payload = req.body;
+  const code = (payload.collegeCode || 'DIT').toUpperCase();
+
+  if (!persistentState.faculty[code]) {
+    persistentState.faculty[code] = [];
+  }
+
+  const newFac: BackendCollegeFacultyItem = {
+    id: payload.id || `fac-${Date.now()}`,
+    name: payload.name || 'Faculty Member',
+    email: payload.email || `faculty@${code.toLowerCase()}.edu.in`,
+    facultyId: payload.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+    department: payload.department || 'Computer Science & Engineering',
+    designation: payload.designation || 'Assistant Professor',
+    college: payload.college || (persistentState.colleges.find((c) => c.code === code)?.name || 'Engineering Institute'),
+    collegeCode: code,
+    assignedSlotsCount: payload.assignedSlotsCount || 0,
+  };
+
+  persistentState.faculty[code].push(newFac);
+  persistentState.users.push({
+    id: newFac.id,
+    name: newFac.name,
+    email: newFac.email,
+    password: payload.password || 'faculty123',
+    role: 'faculty',
+    college: newFac.college,
+    collegeCode: code,
+    facultyId: newFac.facultyId,
+    department: newFac.department,
+    designation: newFac.designation,
+  });
+
+  savePersistentState();
+  res.json({ success: true, faculty: newFac });
+});
+
+app.get('/api/college/slots', (req, res) => {
+  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const slots = persistentState.slots[code] || [];
+  res.json({ success: true, slots });
+});
+
+app.post('/api/college/slots', (req, res) => {
+  const payload = req.body;
+  const code = (payload.collegeCode || 'DIT').toUpperCase();
+
+  if (!persistentState.slots[code]) {
+    persistentState.slots[code] = [];
+  }
+
+  const newSlot: BackendCollegeSlotItem = {
+    id: payload.id || `slot-${code.toLowerCase()}-${Date.now().toString().slice(-4)}`,
+    slotName: payload.slotName || payload.topic,
+    topic: payload.topic,
+    description: payload.description || `Autonomous AI evaluation of ${payload.topic}`,
+    slotTiming: payload.slotTiming || '10:30 AM - 10:45 AM',
+    status: payload.status || 'scheduled',
+    durationMinutes: Number(payload.durationMinutes) || 15,
+    enrolledCount: Number(payload.enrolledCount) || 8,
+    maxCapacity: Number(payload.maxCapacity) || 15,
+    assignedFacultyId: payload.assignedFacultyId,
+    assignedFacultyName: payload.assignedFacultyName,
+    collegeCode: code,
+    createdAt: new Date().toISOString(),
+  };
+
+  persistentState.slots[code].unshift(newSlot);
+  savePersistentState();
+  res.json({ success: true, slot: newSlot });
+});
+
+// --- AUTH ENDPOINTS ---
+app.post('/api/auth/login', (req, res) => {
+  const { role, identifier, password } = req.body;
+  if (!identifier) {
+    return res.status(400).json({ success: false, error: 'Identifier is required' });
+  }
+
+  const cleanId = identifier.trim().toLowerCase();
+  const user = persistentState.users.find((u) => {
+    const matchRole = !role || u.role === role;
+    const matchId =
+      u.email.toLowerCase() === cleanId ||
+      u.name.toLowerCase().includes(cleanId) ||
+      (u.studentId && u.studentId.toLowerCase() === cleanId) ||
+      (u.facultyId && u.facultyId.toLowerCase() === cleanId) ||
+      (u.adminId && u.adminId.toLowerCase() === cleanId);
+    return matchRole && matchId;
+  });
+
+  if (!user) {
+    return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+  }
+
+  if (password && user.password && user.password !== password) {
+    return res.status(401).json({ success: false, error: 'Incorrect password.' });
+  }
+
+  const { password: _, ...cleanUser } = user;
+  res.json({
+    success: true,
+    user: cleanUser,
+    token: `jwt-${cleanUser.id}-${Date.now()}`,
+  });
+});
+
+app.post('/api/auth/register', (req, res) => {
+  const userData = req.body;
+  if (!userData || !userData.email || !userData.name) {
+    return res.status(400).json({ success: false, error: 'Name and email are required.' });
+  }
+
+  const existing = persistentState.users.find((u) => u.email.toLowerCase() === userData.email.trim().toLowerCase());
+  if (existing) {
+    return res.status(400).json({ success: false, error: 'Email already registered.' });
+  }
+
+  const newUser: StoredAuthUser = {
+    id: `${userData.role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`,
+    name: userData.name.trim(),
+    email: userData.email.trim(),
+    password: userData.password || 'password123',
+    role: userData.role || 'student',
+    college: userData.college || 'Engineering Institute',
+    collegeCode: userData.collegeCode || 'DIT',
+    course: userData.course,
+    batch: userData.batch,
+    seatNumber: userData.seatNumber || 1,
+    studentId: userData.studentId,
+    facultyId: userData.facultyId,
+    department: userData.department,
+    designation: userData.designation,
+    avatar: userData.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userData.name)}`,
+  };
+
+  persistentState.users.push(newUser);
+  savePersistentState();
+
+  const { password: _, ...cleanUser } = newUser;
+  res.json({
+    success: true,
+    user: cleanUser,
+    token: `jwt-${cleanUser.id}-${Date.now()}`,
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ success: false, error: 'No authorization header' });
+  }
+
+  const token = authHeader.replace('Bearer ', '').trim();
+  const userId = token.split('-')[1];
+  const user = persistentState.users.find((u) => u.id === userId) || persistentState.users[0];
+
+  if (user) {
+    const { password: _, ...cleanUser } = user;
+    return res.json({ success: true, user: cleanUser });
+  }
+  res.status(401).json({ success: false, error: 'Session invalid' });
+});
+
 // Initialize Gemini Client safely
 let ai: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Lock, 
@@ -14,7 +14,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
-import { loginUser } from '../../utils/authApi';
+import { loginUser, fetchAdminColleges } from '../../utils/authApi';
 
 interface CollegeAdminLoginProps {
   onLogin: (user: CollegeAdminUser) => void;
@@ -25,11 +25,29 @@ interface CollegeAdminLoginProps {
 export const CollegeAdminLogin: React.FC<CollegeAdminLoginProps> = ({
   onLogin,
 }) => {
+  const [colleges, setColleges] = useState<any[]>([]);
+  const [selectedCollegeCode, setSelectedCollegeCode] = useState('DIT');
   const [identifier, setIdentifier] = useState('admin@dit.edu.in');
   const [password, setPassword] = useState('college123');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    fetchAdminColleges().then((list) => {
+      if (list && list.length > 0) {
+        setColleges(list);
+      }
+    });
+  }, []);
+
+  const handleSelectCollege = (col: any) => {
+    setSelectedCollegeCode(col.code);
+    const email = col.adminEmail || col.contactEmail || `admin@${col.code.toLowerCase()}.edu.in`;
+    setIdentifier(email);
+    setPassword(col.code === 'DIT' ? 'college123' : (col.adminPassword || `Erus@${col.code}2026`));
+    setError(null);
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,13 +65,14 @@ export const CollegeAdminLogin: React.FC<CollegeAdminLoginProps> = ({
     if (res.success && res.user && res.user.role === 'college_admin') {
       onLogin(res.user as CollegeAdminUser);
     } else {
-      setError(res.error || 'Invalid credentials. Try entering admin@dit.edu.in with college123.');
+      setError(res.error || `Invalid credentials. For ${selectedCollegeCode}, try password: ${selectedCollegeCode === 'DIT' ? 'college123' : `Erus@${selectedCollegeCode}2026`}`);
     }
   };
 
   const handleQuickFill = () => {
     setIdentifier('admin@dit.edu.in');
     setPassword('college123');
+    setSelectedCollegeCode('DIT');
     setError(null);
   };
 
@@ -81,21 +100,44 @@ export const CollegeAdminLogin: React.FC<CollegeAdminLoginProps> = ({
           </div>
         </div>
 
-        {/* Quick Fill Demo Pill */}
-        <div className="mb-5 p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-            <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-              Demo Admin (DIT Campus)
+        {/* Dynamic Campus Picker */}
+        <div className="mb-5 p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                Select Campus Portal:
+              </span>
+            </div>
+            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              {colleges.length || 2} Campuses Available
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleQuickFill}
-            className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-all shadow-xs cursor-pointer"
-          >
-            Quick Fill
-          </button>
+
+          <div className="flex flex-wrap gap-1.5">
+            {(colleges.length > 0 ? colleges : [
+              { code: 'DIT', name: 'Delhi Institute of Tech', adminEmail: 'admin@dit.edu.in' },
+              { code: 'IITB', name: 'IIT Bombay', adminEmail: 'admin@iitb.ac.in' },
+            ]).map((c) => {
+              const isSelected = selectedCollegeCode.toUpperCase() === c.code.toUpperCase();
+              return (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => handleSelectCollege(c)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-500/40'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-amber-100 dark:hover:bg-slate-700 border border-amber-200/60 dark:border-slate-700'
+                  }`}
+                >
+                  <Building2 className="w-3 h-3 shrink-0" />
+                  <span>{c.code}</span>
+                  <span className="text-[10px] opacity-75 font-normal truncate max-w-[100px] hidden sm:inline">({c.name})</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Error Alert */}

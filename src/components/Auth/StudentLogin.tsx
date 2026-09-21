@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { StudentUser } from '../../types/auth';
 import { MOCK_STUDENTS, authenticateUser, registerNewUser } from '../../data/mockAuthData';
-import { loginUser, registerUser, setStoredAuth } from '../../utils/authApi';
+import { loginUser, registerUser, setStoredAuth, fetchAdminColleges } from '../../utils/authApi';
 
 interface StudentLoginProps {
   onLogin: (user: StudentUser) => void;
@@ -31,6 +31,13 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
   onSwitchToFaculty,
 }) => {
   const [authMode, setAuthMode] = useState<'quick' | 'signin' | 'register'>('quick');
+  const [availableColleges, setAvailableColleges] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetchAdminColleges().then((list) => {
+      if (list && list.length > 0) setAvailableColleges(list);
+    });
+  }, []);
 
   // Quick Join Form States (for seamless live testing tomorrow)
   const [quickName, setQuickName] = useState('');
@@ -294,6 +301,7 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
                 value={quickCollege}
                 onChange={(e) => setQuickCollege(e.target.value)}
                 placeholder="e.g. Delhi Institute of Technology"
+                list="student-college-suggestions"
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
               />
             </div>
@@ -453,9 +461,20 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
                   value={regCollege}
                   onChange={(e) => setRegCollege(e.target.value)}
                   placeholder="e.g. IIT Delhi"
+                  list="student-college-suggestions"
                   className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   required
                 />
+                <datalist id="student-college-suggestions">
+                  {(availableColleges.length > 0 ? availableColleges : [
+                    { code: 'DIT', name: 'Delhi Institute of Technology' },
+                    { code: 'IITB', name: 'Indian Institute of Technology Bombay' }
+                  ]).map((col) => (
+                    <option key={col.code} value={col.name}>
+                      {col.code} - {col.name}
+                    </option>
+                  ))}
+                </datalist>
               </div>
             </div>
 

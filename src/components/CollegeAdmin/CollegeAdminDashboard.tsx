@@ -39,6 +39,7 @@ interface CollegeAdminDashboardProps {
   onEnterGDRoom?: (slot?: GDSession) => void;
   availableSlots?: GDSession[];
   onOpenCreateSession?: () => void;
+  onCreateSlot?: (session: GDSession) => void;
 }
 
 export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
@@ -46,6 +47,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   onEnterGDRoom,
   availableSlots,
   onOpenCreateSession,
+  onCreateSlot,
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots'>('students');
 
@@ -92,22 +94,28 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const [slots, setSlots] = useState<any[]>([]);
   const [isScheduleSlotOpen, setIsScheduleSlotOpen] = useState(false);
 
-  // Computed display slots: merges parent availableSlots so newly created sessions show immediately
-  const displaySlots = (availableSlots && availableSlots.length > 0)
-    ? availableSlots.map((s) => ({
-        id: s.id,
-        slotName: s.slotName || s.topic,
-        topic: s.topic,
-        description: s.description || s.topic,
-        slotTiming: s.slotTiming || '10:30 AM - 10:45 AM',
-        status: s.status || 'scheduled',
-        durationMinutes: s.durationMinutes || 15,
-        enrolledCount: s.enrolledCount ?? s.students?.length ?? 15,
-        maxCapacity: s.maxCapacity || 15,
-        assignedFacultyName: (s as any).assignedFacultyName || 'Dr. Sunita Rao',
-        rawSession: s,
-      }))
-    : slots;
+  // Computed display slots: merges parent availableSlots and locally scheduled slots without dropping any
+  const allRawSlots: any[] = [...(availableSlots || []), ...slots];
+  const seenSlotIds = new Set<string>();
+  const displaySlots = allRawSlots
+    .filter((s) => {
+      if (!s || !s.id || seenSlotIds.has(s.id)) return false;
+      seenSlotIds.add(s.id);
+      return true;
+    })
+    .map((s) => ({
+      id: s.id,
+      slotName: s.slotName || s.topic,
+      topic: s.topic,
+      description: s.description || s.topic,
+      slotTiming: s.slotTiming || '10:30 AM - 10:45 AM',
+      status: s.status || 'scheduled',
+      durationMinutes: s.durationMinutes || 15,
+      enrolledCount: s.enrolledCount ?? s.students?.length ?? 8,
+      maxCapacity: s.maxCapacity || 15,
+      assignedFacultyName: (s as any).assignedFacultyName || 'Dr. Sunita Rao',
+      rawSession: s,
+    }));
 
   const [newSlot, setNewSlot] = useState({
     slotName: 'Slot 1: Campus Placement Screening',
@@ -142,10 +150,10 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       ]);
 
       if (stData) setStats(stData);
-      if (stuData && stuData.length > 0) setStudents(stuData);
-      if (facData && facData.length > 0) {
+      if (stuData) setStudents(stuData);
+      if (facData) {
         setFaculty(facData);
-        if (!newSlot.assignedFacultyId) {
+        if (!newSlot.assignedFacultyId && facData.length > 0) {
           setNewSlot((prev) => ({
             ...prev,
             assignedFacultyId: facData[0].facultyId,
@@ -153,7 +161,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
           }));
         }
       }
-      if (slotData && slotData.length > 0) setSlots(slotData);
+      if (slotData) setSlots(slotData);
     } catch (e) {
       console.warn('Dashboard load error:', e);
     } finally {
@@ -166,13 +174,29 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     e.preventDefault();
     if (!newStudent.name || !newStudent.email) return;
 
+    const studentToAdd = {
+      id: `s-${Date.now().toString().slice(-5)}`,
+      name: newStudent.name.trim(),
+      email: newStudent.email.trim(),
+      studentId: newStudent.studentId.trim() || `STU-${Date.now().toString().slice(-4)}`,
+      course: newStudent.course,
+      batch: newStudent.batch,
+      seatNumber: Number(newStudent.seatNumber) || students.length + 1,
+      college: currentUser.college || 'Delhi Institute of Technology',
+      collegeCode,
+    };
+
+    // Immediately update local state so newly added student appears instantly
+    setStudents((prev) => [studentToAdd, ...prev]);
+    setStats((prev) => ({ ...prev, totalStudents: (prev.totalStudents || 0) + 1 }));
+
     const res = await addCollegeStudents({
-      student: newStudent,
+      student: studentToAdd,
       collegeCode,
     });
 
     if (res && res.success) {
-      setBannerMsg(`Student ${newStudent.name} successfully registered.`);
+      setBannerMsg(`Student ${studentToAdd.name} successfully registered.`);
       setIsAddStudentOpen(false);
       setNewStudent({
         name: '',
@@ -220,14 +244,26 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const handleUploadCsvSubmit = async () => {
     if (csvPreview.length === 0) return;
     setLoading(true);
+
+    const enrichedStudents = csvPreview.map((s, idx) => ({
+      ...s,
+      id: s.id || `s-${Date.now()}-${idx}`,
+      college: currentUser.college || 'Delhi Institute of Technology',
+      collegeCode,
+    }));
+
+    // Immediately update state so all CSV imported students appear in the roster
+    setStudents((prev) => [...enrichedStudents, ...prev]);
+    setStats((prev) => ({ ...prev, totalStudents: (prev.totalStudents || 0) + enrichedStudents.length }));
+
     const res = await addCollegeStudents({
-      students: csvPreview,
+      students: enrichedStudents,
       collegeCode,
     });
     setLoading(false);
 
     if (res && res.success) {
-      setBannerMsg(`Successfully imported ${res.addedCount || csvPreview.length} students from CSV.`);
+      setBannerMsg(`Successfully imported ${res.addedCount || enrichedStudents.length} students from CSV.`);
       setIsCsvModalOpen(false);
       setCsvFile(null);
       setCsvPreview([]);
@@ -259,10 +295,17 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
     e.preventDefault();
     if (!newFaculty.name || !newFaculty.email) return;
 
-    const res = await addCollegeFaculty({
+    const facultyToAdd = {
       ...newFaculty,
+      id: `fac-${Date.now()}`,
+      college: currentUser.college || 'Delhi Institute of Technology',
       collegeCode,
-    });
+    };
+
+    setFaculty((prev) => [facultyToAdd, ...prev]);
+    setStats((prev) => ({ ...prev, totalFaculty: (prev.totalFaculty || 0) + 1 }));
+
+    const res = await addCollegeFaculty(facultyToAdd);
 
     if (res && res.success) {
       setBannerMsg(`Faculty member ${newFaculty.name} successfully registered.`);
@@ -283,11 +326,75 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
     e.preventDefault();
     if (!newSlot.topic) return;
 
-    const res = await createCollegeSlot({
+    const newSessionId = `slot-${collegeCode.toLowerCase()}-${Date.now().toString().slice(-4)}`;
+    
+    // Auto-populate initial participants using the college's real students if available
+    const enrolledStudents = (students.length > 0 ? students.slice(0, 8) : []).map((stu, idx) => ({
+      id: stu.id || `s-${idx + 1}`,
+      name: stu.name,
+      college: stu.college || currentUser.college || 'Engineering Institute',
+      course: stu.course || 'B.Tech',
+      batch: stu.batch || '2022-2026',
+      seatNumber: idx + 1,
+      isUser: false,
+      micActive: false,
+      avatar: (stu as any).avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(stu.name)}`,
+      speakingDurationSeconds: 0,
+      speakingTurns: 0,
+      interruptionCount: 0,
+      questionsAnswered: 0,
+      questionsInitiated: 0,
+      isSpeaking: false,
+      hasRaisedHand: false,
+      sentiment: 'neutral' as const,
+    }));
+
+    const sessionObj: GDSession = {
+      id: newSessionId,
+      topic: newSlot.topic,
+      description: newSlot.description || `Autonomous AI evaluated GD on ${newSlot.topic}`,
+      durationMinutes: newSlot.durationMinutes || 15,
+      difficulty: (newSlot.difficulty as any) || 'Intermediate',
+      assessmentRubric: 'Standard Academic 7-Parameter Rubric',
+      status: 'scheduled',
+      slotName: newSlot.slotName,
+      slotTiming: newSlot.slotTiming,
+      maxCapacity: newSlot.maxCapacity || 15,
+      enrolledCount: enrolledStudents.length || 8,
+      assignedFacultyId: newSlot.assignedFacultyId,
+      assignedFacultyName: newSlot.assignedFacultyName,
+      students: enrolledStudents,
+      currentPhase: 'intro',
+      facilitatorSpeech: `Welcome candidates to ${newSlot.slotName}. The topic for today's discussion is "${newSlot.topic}".`,
+      facilitatorAction: 'Waiting to start discussion',
+      isFacilitatorSpeaking: false,
+      silenceTimerSeconds: 0,
+      currentSpeakerId: null,
+      breakoutRooms: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    if (onCreateSlot) {
+      onCreateSlot(sessionObj);
+    }
+
+    const slotPayload = {
       ...newSlot,
+      id: newSessionId,
       collegeCode,
       studentIds: students.slice(0, 8).map((s) => s.id),
-    });
+      enrolledCount: enrolledStudents.length || 8,
+      rawSession: sessionObj,
+    };
+
+    setSlots((prev) => [slotPayload, ...prev]);
+    setStats((prev) => ({
+      ...prev,
+      totalSlots: (prev.totalSlots || 0) + 1,
+      scheduledSlots: (prev.scheduledSlots || 0) + 1,
+    }));
+
+    const res = await createCollegeSlot(slotPayload);
 
     if (res && res.success) {
       setBannerMsg(`GD Slot "${newSlot.slotName}" scheduled successfully.`);

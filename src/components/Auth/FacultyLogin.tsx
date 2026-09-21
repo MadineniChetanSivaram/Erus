@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { FacultyUser } from '../../types/auth';
 import { MOCK_FACULTY, authenticateUser, registerNewUser } from '../../data/mockAuthData';
-import { loginUser, registerUser } from '../../utils/authApi';
+import { loginUser, registerUser, fetchAdminColleges } from '../../utils/authApi';
 
 interface FacultyLoginProps {
   onLogin: (user: FacultyUser) => void;
@@ -28,6 +28,13 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
   onSwitchToStudent,
 }) => {
   const [isRegistering, setIsRegistering] = useState(false);
+  const [availableColleges, setAvailableColleges] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetchAdminColleges().then((list) => {
+      if (list && list.length > 0) setAvailableColleges(list);
+    });
+  }, []);
 
   // Login Form States
   const [identifier, setIdentifier] = useState('sunita.rao@dit.edu.in');
@@ -345,9 +352,20 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
                   value={regCollege}
                   onChange={(e) => setRegCollege(e.target.value)}
                   placeholder="e.g. IIT Bombay"
+                  list="faculty-college-suggestions"
                   className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500"
                   required
                 />
+                <datalist id="faculty-college-suggestions">
+                  {(availableColleges.length > 0 ? availableColleges : [
+                    { code: 'DIT', name: 'Delhi Institute of Technology' },
+                    { code: 'IITB', name: 'Indian Institute of Technology Bombay' }
+                  ]).map((col) => (
+                    <option key={col.code} value={col.name}>
+                      {col.code} - {col.name}
+                    </option>
+                  ))}
+                </datalist>
               </div>
             </div>
 
