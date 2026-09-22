@@ -694,7 +694,7 @@ function GDAppContent() {
     const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 15;
 
     // Check if slot is already full
-    if (targetCurrentEnrolled >= targetMaxCap) {
+    if (currentUser?.role === 'student' && targetCurrentEnrolled >= targetMaxCap) {
       alert(`Slot "${targetSlot.slotName || targetSlot.id}" is full (${targetCurrentEnrolled}/${targetMaxCap} students). Please select an open slot.`);
       return;
     }
