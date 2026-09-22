@@ -393,7 +393,14 @@ function GDAppContent() {
 
   // Faculty In-Charge / Host Commences the Discussion Session
   const handleStartSession = (slotIdToStart?: string) => {
+    if (currentUser?.role !== 'faculty') {
+      return;
+    }
     const targetSlotId = slotIdToStart || session.id;
+    if (session.assignedFacultyId && (currentUser as any).facultyId !== session.assignedFacultyId) {
+      alert('Only the faculty assigned to this GD slot can start the session.');
+      return;
+    }
 
     // Reset timer to 0 for a fresh live discussion
     setElapsedSeconds(0);
