@@ -2172,9 +2172,13 @@ ${recentHistory}
 
 Language, Accent & Tone Guidelines:
 - Language: Authentic Indian Academic English as spoken in Indian university GDs.
-- Tone: Polite, articulate, well-structured, and collaborative.
-- Use natural collegiate phrasing such as: "Building upon what was highlighted...", "If we look at the ground reality in our context...", "In response to that question...", "From a practical standpoint...", "We must also consider the systemic implications...".
-- Length: 2 to 3 concise, intelligent sentences. Avoid American slang or idioms. Speak strictly in natural Indian collegiate English.`;
+- Tone: Natural, conversational, articulate and occasionally disagreeing; do not sound like a prepared essay.
+- This participant must have an INDIVIDUAL viewpoint. Do not repeat, paraphrase, or merely agree with any recent statement.
+- Before answering, identify the newest point in the recent discussion and either challenge it, add a genuinely new dimension, give a concrete example, or connect two different viewpoints.
+- Avoid generic phrases such as "we must consider", "human oversight", "practical standpoint", or "balanced approach" unless they are directly relevant and add a new idea.
+- Different turns should explore different angles: evidence/data, economics, implementation, ethics, social impact, counter-example, feasibility, or synthesis.
+- If another participant already made the same argument, explicitly move to a different angle.
+- Length: 2 to 4 concise sentences. Sound like a real student responding to peers, not a chatbot or speech writer.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.7-flash',
@@ -2458,6 +2462,14 @@ Filler Words Detected: ${fillerWordsCount} (Breakdown: ${fillerWordsBreakdown.ma
 Student Transcripts:
 "${spokenText}"
 
+EVIDENCE RULES:
+- Score only what is observable in the student's actual transcript and participation metrics.
+- Do not invent arguments, examples, interruptions, questions, leadership actions, or collaboration behavior.
+- Collaboration must consider whether the student acknowledged/built on/challenged peers and whether they left space for others.
+- Leadership must consider initiating the GD, guiding the discussion, bringing quieter members in, resolving disagreement, or synthesizing viewpoints. Do not award maximum leadership merely because the student spoke first unless the transcript actually shows leadership behavior.
+- If evidence is insufficient for a parameter, use a conservative score and explicitly say that evidence was limited.
+- Do not use fixed/default scores just to make the report look positive.
+
 You MUST evaluate the student against the exact 7 parameters:
 1. Speaking in English (Weightage: 20%) -> Score between 0 and 20 (Sentence formation, Grammar usage, Vocabulary)
 2. Fluency (Weightage: 20%) -> Score between 0 and 20. CRITICAL: Use the calculated WPM (${wpm} WPM) and filler words count (${fillerWordsCount}). If filler words > 4, deduct from fluency score. If WPM is within 120-150, reward continuous natural rhythm.
@@ -2525,13 +2537,13 @@ Provide JSON with:
       });
 
       const parsed = JSON.parse(evaluationRes.text?.trim() || '{}');
-      const english = Math.min(20, Math.max(0, Math.round(parsed.englishScore || 17)));
-      const fluency = Math.min(20, Math.max(0, Math.round(parsed.fluencyScore || 16)));
-      const clarity = Math.min(15, Math.max(0, Math.round(parsed.clarityScore || 12)));
-      const confidence = Math.min(15, Math.max(0, Math.round(parsed.confidenceScore || 13)));
-      const content = Math.min(15, Math.max(0, Math.round(parsed.contentScore || 12)));
-      const collaboration = Math.min(10, Math.max(0, Math.round(parsed.collaborationScore || 8)));
-      const leadership = Math.min(5, Math.max(0, Math.round(parsed.leadershipScore || 4)));
+      const english = Math.min(20, Math.max(0, Math.round(parsed.englishScore ?? 0)));
+      const fluency = Math.min(20, Math.max(0, Math.round(parsed.fluencyScore ?? 0)));
+      const clarity = Math.min(15, Math.max(0, Math.round(parsed.clarityScore ?? 0)));
+      const confidence = Math.min(15, Math.max(0, Math.round(parsed.confidenceScore ?? 0)));
+      const content = Math.min(15, Math.max(0, Math.round(parsed.contentScore ?? 0)));
+      const collaboration = Math.min(10, Math.max(0, Math.round(parsed.collaborationScore ?? 0)));
+      const leadership = Math.min(5, Math.max(0, Math.round(parsed.leadershipScore ?? 0)));
 
       const overall = english + fluency + clarity + confidence + content + collaboration + leadership;
       let grade = 'Very Good';
@@ -2916,6 +2928,7 @@ interface LiveGDRoomState {
   topic: string;
   transcripts: BackendTranscript[];
   silenceInterval?: NodeJS.Timeout;
+  turnTimer?: NodeJS.Timeout;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -2974,6 +2987,112 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
     LIVE_ROOMS.set(slotId, room);
   }
   return room;
+}
+
+async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string) {
+  if (room.turnTimer) {
+    clearTimeout(room.turnTimer);
+    room.turnTimer = undefined;
+  }
+
+  // With only one real participant there is no real peer to call; the client-side
+  // demo simulator remains responsible for that case.
+  const realStudents = Array.from(room.peers.values()).filter(
+    (p) => p.role === 'student'
+  );
+  if (room.status !== 'active' || realStudents.length < 2) return;
+
+  room.turnTimer = setTimeout(async () => {
+    room.turnTimer = undefined;
+
+    // A participant may still be speaking while this timer fires.
+    if (room.currentSpeakerId) return;
+
+    const candidates = realStudents.filter(
+      (p) => p.userId !== completedUserId
+    );
+    if (!candidates.length) return;
+
+    const now = Date.now();
+
+    // First priority: anyone who has not spoken in this session.
+    // Second priority: longest time since speaking.
+    // Third priority: lowest turn count.
+    candidates.sort((a, b) => {
+      const aNever = a.speakingTurns === 0 ? 0 : 1;
+      const bNever = b.speakingTurns === 0 ? 0 : 1;
+      if (aNever !== bNever) return aNever - bNever;
+
+      const aLast = a.lastSpokeAt || 0;
+      const bLast = b.lastSpokeAt || 0;
+      if (aLast !== bLast) return aLast - bLast;
+
+      return a.speakingTurns - b.speakingTurns;
+    });
+
+    const target = candidates[0];
+    const recentHistory = room.transcripts
+      .filter((t) => !t.isFacilitator)
+      .slice(-8)
+      .map((t) => `${t.speakerName}: ${t.text}`)
+      .join('\n');
+
+    let invitation = `Thank you. Let us hear from ${target.name} from Seat ${target.seatNumber}. ${target.name.split(' ')[0]}, what is your perspective on the discussion so far?`;
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: `You are the live moderator of a collegiate Group Discussion on "${room.topic}".
+
+The previous speaker has completed their turn. You must invite exactly ONE participant next.
+
+Participant to invite:
+- Name: ${target.name}
+- Seat: ${target.seatNumber}
+- Turns so far: ${target.speakingTurns}
+- Last spoke: ${target.lastSpokeAt ? Math.max(0, Math.round((now - target.lastSpokeAt) / 1000)) + ' seconds ago' : 'has not spoken yet'}
+
+Recent discussion:
+${recentHistory || '(No student has spoken yet)'}
+
+Write ONE short moderator sentence (maximum 28 words) that:
+1. Names the participant.
+2. Clearly gives them the floor.
+3. If they have not spoken recently, asks a small topic-specific question.
+4. Does not repeat or paraphrase a point already made.
+5. Sounds like a natural Indian college GD moderator, not a scripted chatbot.`,
+        });
+        invitation = response.text?.trim() || invitation;
+      } catch (err) {
+        console.warn('[AI Next Speaker Error]:', err);
+      }
+    }
+
+    const transcript: BackendTranscript = {
+      id: `t-next-turn-${Date.now()}`,
+      sessionId: room.slotId,
+      speakerId: 'facilitator',
+      speakerName: 'AI Facilitator',
+      seatNumber: null,
+      isFacilitator: true,
+      timestamp: '00:00',
+      timestampSeconds: Date.now(),
+      text: invitation,
+      type: 'intervention',
+      sentiment: 'neutral',
+    };
+
+    room.transcripts.push(transcript);
+
+    io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
+      text: invitation,
+      action: 'next_turn',
+      targetUserId: target.userId,
+      targetSeatNumber: target.seatNumber,
+      transcript,
+    });
+  }, 1200);
 }
 
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
@@ -3135,6 +3254,8 @@ io.on('connection', (socket) => {
         status: 'active',
         topic: room.topic,
       });
+      // After the AI introduction, call a real participant to open the GD.
+      scheduleNextTurn(room);
     }
   });
 
@@ -3166,6 +3287,9 @@ io.on('connection', (socket) => {
       } else if (room.currentSpeakerSocketId === socket.id) {
         room.currentSpeakerId = null;
         room.currentSpeakerSocketId = null;
+        // The speaker released the floor; let the server moderator select the
+        // next participant using real participation history.
+        scheduleNextTurn(room, peer?.userId);
       }
     }
 
@@ -3237,6 +3361,10 @@ io.on('connection', (socket) => {
           userId: peer.userId,
           seatNumber: peer.seatNumber,
         });
+
+        if (room.status === 'active') {
+          scheduleNextTurn(room, peer.userId);
+        }
 
         if (room.peers.size === 0 && room.silenceInterval) {
           clearInterval(room.silenceInterval);
