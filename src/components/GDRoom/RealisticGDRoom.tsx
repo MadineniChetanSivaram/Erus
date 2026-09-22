@@ -1365,11 +1365,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 }`}>
                   <Sparkles className={`w-8 h-8 ${session.isFacilitatorSpeaking ? 'text-white animate-spin' : 'text-indigo-600 dark:text-indigo-400'}`} />
                 </div>
-
-                <span className="absolute -bottom-2 bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-600/70 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1">
-                  <span>AI MODERATOR</span>
-                  <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">• 🇮🇳 Indian Accent (en-IN)</span>
-                </span>
               </div>
 
               {/* AI Facilitator Speech Bubble */}
