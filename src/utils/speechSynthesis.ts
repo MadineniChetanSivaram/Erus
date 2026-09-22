@@ -226,15 +226,18 @@ class RoomVoiceEngine {
 
       utterance.onend = () => {
         this.currentUtterance = null;
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
         if (onEnd) onEnd();
       };
 
       utterance.onerror = () => {
         this.currentUtterance = null;
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
         if (onEnd) onEnd();
       };
 
       this.currentUtterance = utterance;
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('erus-ai-voice-start'));
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn('Facilitator voice synthesis error:', e);
@@ -295,11 +298,13 @@ class RoomVoiceEngine {
 
       utterance.onend = () => {
         this.currentUtterance = null;
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
         if (onEnd) onEnd();
       };
 
       utterance.onerror = () => {
         this.currentUtterance = null;
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
         if (onEnd) onEnd();
       };
 
