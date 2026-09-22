@@ -114,10 +114,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
   const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
-  // When two or more real students are connected, the server owns turn orchestration.
-  // Local auto-simulation is retained only for the single-user demo mode.
-  const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
-
   // Faculty Live Observation Notes State (Enhancement 4)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
   const [noteTargetStudentId, setNoteTargetStudentId] = useState<string>(session.students[0]?.id || '');
@@ -294,6 +290,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
     },
   });
+
+  // When two or more real students are connected, the server owns turn orchestration.
+  // Local auto-simulation is retained only for the single-user demo mode.
+  const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
 
   // Active display students: merge static mock participants with live connected WebRTC peers
   const activeDisplayStudents = useMemo(() => {
