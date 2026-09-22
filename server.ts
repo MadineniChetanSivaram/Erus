@@ -1029,63 +1029,105 @@ app.post('/api/college/slots', async (req, res) => {
 
 app.post('/api/college/slots/:id/complete', async (req, res) => {
   const slotId = req.params.id;
+  const facultyId = String(req.body?.facultyId || '').trim();
+  let target: any = null;
   for (const list of Object.values(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
-    if (found) {
-      found.status = 'completed';
-    }
+    if (found) { target = found; break; }
   }
-  savePersistentState();
+  if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
+  if (!facultyId || target.assignedFacultyId !== facultyId) {
+    return res.status(403).json({ success: false, error: 'Only the assigned faculty can end this session' });
+  }
 
+  target.status = 'completed';
+  savePersistentState();
   if (isDbConnected && prisma) {
     try {
-      await prisma.gDSession.updateMany({
-        where: { id: slotId },
-        data: { status: 'completed' },
-      });
-    } catch (dbErr: any) {
-      console.warn('[Database] Failed to mark slot completed in DB:', dbErr.message);
-    }
+      await prisma.gDSession.update({ where: { id: slotId }, data: { status: 'completed' } });
+      await prisma.gDBooking.updateMany({ where: { sessionId: slotId, status: { not: 'CANCELLED' } }, data: { status: 'COMPLETED' } });
+    } catch (e) { console.warn('[Database] Failed to finalize session:', (e as any).message); }
   }
-
+  const room = LIVE_ROOMS.get(slotId);
+  if (room) {
+    room.status = 'completed';
+    io.to(`room-${slotId}`).emit('session-ended', { slotId, status: 'completed' });
+  }
   res.json({ success: true, slotId, status: 'completed' });
 });
 
 app.post('/api/college/slots/:id/start', async (req, res) => {
   const slotId = req.params.id;
-  for (const list of Object.values(persistentState.slots)) {
+  const facultyId = String(req.body?.facultyId || '').trim();
+  let target: any = null;
+  let code = '';
+  for (const [collegeCode, list] of Object.entries(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
-    if (found) {
-      found.status = 'active';
-    }
+    if (found) { target = found; code = collegeCode; break; }
   }
+  if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
+  if (!facultyId) return res.status(403).json({ success: false, error: 'Only the assigned faculty can start this session' });
+  if (target.assignedFacultyId !== facultyId) return res.status(403).json({ success: false, error: 'You are not the faculty assigned to this GD slot' });
+  if (target.status === 'completed') return res.status(409).json({ success: false, error: 'Session is already completed' });
+
+  target.status = 'active';
   savePersistentState();
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.update({ where: { id: slotId }, data: { status: 'active' } });
+    } catch (e) { console.warn('[Database] Failed to mark slot active:', (e as any).message); }
+  }
+  const room = LIVE_ROOMS.get(slotId);
+  if (room) {
+    room.status = 'active';
+    room.silenceTimerSeconds = 0;
+    io.to(`room-${slotId}`).emit('session-started', { slotId, status: 'active', topic: room.topic });
+    scheduleNextTurn(room);
+  }
+  res.json({ success: true, slotId, status: 'active' });
+});
+
+
+// --- FACULTY ASSIGNED SESSION ENDPOINTS ---
+app.get('/api/faculty/sessions', async (req, res) => {
+  const facultyId = String(req.query.facultyId || '').trim();
+  const code = String(req.query.collegeCode || 'DIT').toUpperCase();
+  if (!facultyId) return res.status(400).json({ success: false, error: 'facultyId is required' });
+
+  const roster = persistentState.faculty[code] || [];
+  const faculty = roster.find((f) => f.facultyId === facultyId || f.id === facultyId);
+  if (!faculty) return res.status(403).json({ success: false, error: 'Faculty is not registered for this college' });
+
+  let slots = (persistentState.slots[code] || []).filter(
+    (slot) => slot.assignedFacultyId === faculty.facultyId || slot.assignedFacultyId === faculty.id
+  );
 
   if (isDbConnected && prisma) {
     try {
-      await prisma.gDSession.updateMany({
-        where: { id: slotId },
-        data: { status: 'active' },
+      const dbSlots = await prisma.gDSession.findMany({
+        where: {
+          college: { code },
+          assignedFacultyId: faculty.facultyId,
+        },
+        orderBy: { createdAt: 'desc' },
       });
-    } catch (dbErr: any) {
-      console.warn('[Database] Failed to mark slot active in DB:', dbErr.message);
+      if (dbSlots.length > 0) {
+        slots = dbSlots.map((s) => ({
+          id: s.id, slotName: s.slotName || s.topic, topic: s.topic,
+          description: s.description || '', slotTiming: s.slotTiming || '',
+          status: s.status, durationMinutes: s.durationMinutes,
+          enrolledCount: s.enrolledCount, maxCapacity: s.maxCapacity,
+          assignedFacultyId: faculty.facultyId, assignedFacultyName: faculty.name,
+          assignedFacultyEmail: faculty.email, assignedFacultyDept: faculty.department,
+          collegeCode: code, createdAt: s.createdAt.toISOString(),
+        }));
+      }
+    } catch (e) {
+      console.warn('[Faculty Sessions] DB read failed:', e);
     }
   }
 
-  if (typeof LIVE_ROOMS !== 'undefined') {
-    const room = LIVE_ROOMS.get(slotId);
-    if (room) {
-      room.status = 'active';
-      room.silenceTimerSeconds = 0;
-      io.to(`room-${slotId}`).emit('session-started', {
-        slotId,
-        status: 'active',
-        topic: room.topic,
-      });
-    }
-  }
-
-  res.json({ success: true, slotId, status: 'active' });
+  res.json({ success: true, sessions: slots });
 });
 
 // --- STUDENT SLOT BOOKING ENDPOINTS (One Slot Per Topic Policy) ---
@@ -1102,34 +1144,70 @@ app.post('/api/student/book-slot', async (req, res) => {
     return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
   }
 
-  const topicKey = topic || 'General Topic';
-  if (!persistentState.studentTopicBookings) {
-    persistentState.studentTopicBookings = {};
-  }
-  if (!persistentState.studentTopicBookings[studentId]) {
-    persistentState.studentTopicBookings[studentId] = {};
+  const student = persistentState.users.find((u) => u.id === studentId || u.studentId === studentId);
+  if (!student || student.role !== 'student') {
+    return res.status(403).json({ success: false, error: 'Student account not found' });
   }
 
-  const existingBookingForTopic = persistentState.studentTopicBookings[studentId][topicKey];
+  let slot: any = null;
+  let slotCode = (student.collegeCode || 'DIT').toUpperCase();
+  for (const [code, list] of Object.entries(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) { slot = found; slotCode = code; break; }
+  }
+  if (!slot) return res.status(404).json({ success: false, error: 'GD slot not found' });
+  if (slot.collegeCode && slot.collegeCode !== slotCode) {
+    return res.status(403).json({ success: false, error: 'Invalid college for this slot' });
+  }
+  if (slot.status === 'completed' || slot.status === 'active') {
+    return res.status(409).json({ success: false, error: 'This GD session is no longer bookable' });
+  }
+
+  const topicKey = topic || slot.topic || 'General Topic';
+  if (!persistentState.studentTopicBookings) persistentState.studentTopicBookings = {};
+  if (!persistentState.studentTopicBookings[student.id]) persistentState.studentTopicBookings[student.id] = {};
+
+  const existingBookingForTopic = persistentState.studentTopicBookings[student.id][topicKey];
   if (existingBookingForTopic && existingBookingForTopic !== slotId) {
     return res.status(403).json({
       success: false,
       error: `Topic Policy: You have already booked a slot for "${topicKey}". Only one slot per topic is allowed.`,
-      bookedSlotId: existingBookingForTopic,
-      topic: topicKey,
+      bookedSlotId: existingBookingForTopic, topic: topicKey,
     });
   }
 
-  persistentState.studentTopicBookings[studentId][topicKey] = slotId;
-  persistentState.studentBookings[studentId] = slotId; // legacy sync
+  const currentCount = Number(slot.enrolledCount || 0);
+  const maxCapacity = Number(slot.maxCapacity || 15);
+  const alreadyBooked = existingBookingForTopic === slotId;
+  if (!alreadyBooked && currentCount >= maxCapacity) {
+    return res.status(409).json({ success: false, error: 'This GD slot is full' });
+  }
+
+  if (!alreadyBooked) {
+    slot.enrolledCount = currentCount + 1;
+    persistentState.studentTopicBookings[student.id][topicKey] = slotId;
+    persistentState.studentBookings[student.id] = slotId;
+  }
   savePersistentState();
-  res.json({
-    success: true,
-    studentId,
-    bookedSlotId: slotId,
-    topic: topicKey,
-    topicBookings: persistentState.studentTopicBookings[studentId],
-  });
+
+  if (isDbConnected && prisma) {
+    try {
+      const dbUser = await prisma.user.findUnique({ where: { id: student.id } });
+      if (dbUser) {
+        await prisma.gDBooking.upsert({
+          where: { sessionId_studentId: { sessionId: slotId, studentId: dbUser.id } },
+          update: { status: 'BOOKED' },
+          create: { sessionId: slotId, studentId: dbUser.id, status: 'BOOKED' },
+        });
+        await prisma.gDSession.update({ where: { id: slotId }, data: { enrolledCount: slot.enrolledCount } });
+      }
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to persist booking:', dbErr.message);
+    }
+  }
+
+  res.json({ success: true, studentId: student.id, bookedSlotId: slotId, topic: topicKey,
+    topicBookings: persistentState.studentTopicBookings[student.id], enrolledCount: slot.enrolledCount });
 });
 
 app.post('/api/student/cancel-slot', async (req, res) => {
