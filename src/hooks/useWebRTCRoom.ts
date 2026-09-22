@@ -23,7 +23,13 @@ interface UseWebRTCRoomOptions {
   slotId: string;
   currentUser: AuthUser | null;
   onNewTranscript?: (transcript: GDTranscript) => void;
-  onFacilitatorIntervention?: (intervention: { text: string; action: string; transcript: GDTranscript }) => void;
+  onFacilitatorIntervention?: (intervention: {
+    text: string;
+    action: string;
+    transcript: GDTranscript;
+    targetUserId?: string;
+    targetSeatNumber?: number;
+  }) => void;
   onSessionStarted?: (data: any) => void;
 }
 
