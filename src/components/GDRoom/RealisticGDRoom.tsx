@@ -114,6 +114,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
   const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
+  // When two or more real students are connected, the server owns turn orchestration.
+  // Local auto-simulation is retained only for the single-user demo mode.
+  const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
 
   // Faculty Live Observation Notes State (Enhancement 4)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
@@ -265,6 +268,23 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         facilitatorSpeech: intervention.text,
         isFacilitatorSpeaking: true,
       }));
+
+      // If the server moderator called this exact participant, show the
+      // invitation/question in their UI so they know the floor is theirs.
+      if (
+        intervention.targetUserId &&
+        currentUser?.role === 'student' &&
+        intervention.targetUserId === currentUser.id
+      ) {
+        const targetStudent = session.students.find((s) => s.id === currentUser.id) || session.students[0];
+        if (targetStudent) {
+          setInvitedStudentPrompt({
+            student: targetStudent,
+            reason: intervention.text,
+            promptText: intervention.text,
+          });
+        }
+      }
 
       // Audibly speak AI intervention using roomVoice
       if (!voiceMuted) {
@@ -828,6 +848,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // or to the next person in sequence with lowest turn count
   const executeNextTurn = async (completedStudentId?: string | null, questionAsked?: string) => {
     if (!isSessionActive) return;
+    if (hasRealStudentPeers) return;
     if (isTransitioningTurnRef.current) return;
     isTransitioningTurnRef.current = true;
 
@@ -907,7 +928,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
   const handleInitiateOpeningSpeaker = () => {
-    if (!isSessionActive || hasInitiatedOpeningRef.current || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
+    if (!isSessionActive || hasRealStudentPeers || hasInitiatedOpeningRef.current || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
     if (studentTranscripts.length > 0) {
@@ -930,7 +951,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           reason: `AI Facilitator has invited you to initiate the discussion based on your previous presentation!`,
           promptText: initiationPrompt,
         });
-      } else if (autoSimulatePeers) {
+      } else if (autoSimulatePeers && !hasRealStudentPeers) {
         setTimeout(() => {
           const openingStmt = generateStudentOpeningStatement(openingCandidate, session.topic);
           startPeerSpeech(openingCandidate, openingStmt);
@@ -941,7 +962,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
   const handleFacilitatorTargetedProbe = () => {
-    if (!isSessionActive || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
+    if (!isSessionActive || hasRealStudentPeers || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
     if (Date.now() - lastFacilitatorInterventionTimeRef.current < 12000) return;
 
     lastFacilitatorInterventionTimeRef.current = Date.now();
