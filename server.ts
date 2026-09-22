@@ -2919,6 +2919,52 @@ Provide JSON with:
   }
 });
 
+// Faculty report access is limited to the faculty assigned to the session.
+app.get('/api/faculty/sessions/:id/reports', async (req, res) => {
+  const sessionId = req.params.id;
+  const facultyId = String(req.query.facultyId || '').trim();
+  if (!facultyId) return res.status(400).json({ success: false, error: 'facultyId is required' });
+
+  let slot: any = null;
+  for (const list of Object.values(persistentState.slots)) {
+    const found = list.find((s) => s.id === sessionId);
+    if (found) { slot = found; break; }
+  }
+  if (!slot || slot.assignedFacultyId !== facultyId) {
+    return res.status(403).json({ success: false, error: 'Faculty is not assigned to this session' });
+  }
+
+  if (isDbConnected && prisma) {
+    try {
+      const reports = await prisma.assessmentReport.findMany({
+        where: { sessionId },
+        orderBy: { createdAt: 'asc' },
+      });
+      const bookings = await prisma.gDBooking.findMany({
+        where: { sessionId, status: { not: 'CANCELLED' } },
+        include: { student: { include: { studentProfile: true } } },
+      });
+      return res.json({
+        success: true,
+        sessionId,
+        reports,
+        participants: bookings.map((b) => ({
+          id: b.student.id,
+          name: b.student.name,
+          email: b.student.email,
+          studentId: b.student.studentProfile?.studentId || '',
+          seatNumber: b.student.studentProfile?.seatNumber || null,
+          bookingStatus: b.status,
+        })),
+      });
+    } catch (e: any) {
+      console.warn('[Faculty Reports] DB read failed:', e.message);
+    }
+  }
+
+  res.json({ success: true, sessionId, reports: [], participants: [] });
+});
+
 // Endpoint 2B: Faculty Endorsement & Score Override
 app.post('/api/facilitator/endorse', (req, res) => {
   try {
