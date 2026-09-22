@@ -2940,6 +2940,7 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   const quietPeer = Array.from(room.peers.values()).find(p => p.role === 'student' && (p.speakingTurns || 0) === 0) 
     || Array.from(room.peers.values())[0];
   const candidateName = quietPeer?.name || 'participants';
+  let deadlockQuestion = '';
 
   if (ai) {
     try {

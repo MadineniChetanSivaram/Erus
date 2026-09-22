@@ -677,7 +677,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       // Peer responds to faculty directive
       if (autoSimulatePeers) {
         setTimeout(() => {
-          scheduleNextTurnAfterUser();
+          executeNextTurn();
         }, 1200);
       }
       return;
@@ -1045,11 +1045,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {/* Group Discussion Set */}
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 shadow-2xs">
                 <Radio className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-pulse shrink-0" />
-                <span>GD Set: {session.slotName || `Set ${session.id.toUpperCase()}`}</span>
+                <span>GD Set: {session?.slotName || (session?.id ? `Set ${String(session.id).toUpperCase()}` : 'GD Set')}</span>
               </span>
 
               {/* Slot Details */}
-              {session.slotTiming && (
+              {session?.slotTiming && (
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 shadow-2xs">
                   <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   <span>Slot Details: {session.slotTiming}</span>
@@ -1059,14 +1059,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {/* Allotted Faculty Evaluator */}
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 shadow-2xs">
                 <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>Faculty: <strong>{session.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
+                <span>Faculty: <strong>{session?.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
               </span>
             </div>
             
             {/* Topic */}
             <h1 className="text-xl sm:text-2xl font-heading font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               <span className="text-indigo-600 dark:text-indigo-400">Topic:</span>
-              <span>{session.topic}</span>
+              <span>{session?.topic || 'Group Discussion'}</span>
             </h1>
 
             {/* Session Completed Banner OR Waiting Lobby Banner OR 20-Second Silence Watchdog */}
@@ -2015,7 +2015,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   {/* 5. Trigger Next Student / Peer Turn */}
                   <button
                     id="next-peer-turn-btn"
-                    onClick={() => scheduleNextTurnAfterUser()}
+                    onClick={() => executeNextTurn()}
                     className="p-3 rounded-full font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-lg flex items-center justify-center cursor-pointer"
                     title={isFaculty ? 'Advance Discussion to Next Student Turn' : 'Advance to Next Peer Turn'}
                   >
@@ -2492,23 +2492,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         </div>
 
       </div>
-
-      {/* Discussion Slot Browser / Selection Modal */}
-      <SlotSelectionModal
-        isOpen={isSlotModalOpen}
-        onClose={() => setIsSlotModalOpen(false)}
-        availableSlots={availableSlots}
-        currentSlotId={session.id}
-        currentUser={currentUser}
-        bookedSlotId={bookedSlotId}
-        onSelectSlot={(slotId) => {
-          if (onSelectSlot) {
-            onSelectSlot(slotId);
-          }
-          setIsSlotModalOpen(false);
-        }}
-        onResetSlots={onResetSlots}
-      />
 
       {/* Audio & Microphone Live Diagnostic Test Modal (Accessible Anytime) */}
       {showAudioTestModal && (

@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Header, NavTabType } from './components/Header';
 import { RealisticGDRoom } from './components/GDRoom/RealisticGDRoom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StudentReportView } from './components/AssessmentReport/StudentReportView';
 import { FacultyDashboardView } from './components/FacultyDashboard/FacultyDashboardView';
 import { CollegeAdminDashboard } from './components/CollegeAdmin/CollegeAdminDashboard';
@@ -1043,8 +1044,10 @@ function GDAppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <GDAppContent />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <GDAppContent />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

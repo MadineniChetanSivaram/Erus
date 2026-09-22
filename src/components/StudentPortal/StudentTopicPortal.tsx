@@ -68,15 +68,16 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
       hasBookedSlot: boolean;
     }>();
 
-    availableSlots.forEach((slot) => {
-      const existing = topicMap.get(slot.topic);
+    (availableSlots || []).forEach((slot) => {
+      const topicTitle = slot.topic || 'General Topic';
+      const existing = topicMap.get(topicTitle);
       const maxCap = slot.maxCapacity || 15;
       const enrolled = slot.enrolledCount ?? slot.students?.length ?? 0;
       const isBooked = slot.id === bookedSlotId;
 
       if (!existing) {
-        topicMap.set(slot.topic, {
-          topic: slot.topic,
+        topicMap.set(topicTitle, {
+          topic: topicTitle,
           description: slot.description || 'Institutional Group Discussion evaluation session.',
           difficulty: slot.difficulty || 'Intermediate',
           durationMinutes: slot.durationMinutes || 25,
@@ -112,9 +113,9 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
     const q = searchQuery.toLowerCase();
     return topicsData.filter(
       (t) =>
-        t.topic.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
-        t.facultyList.some((f) => f.name.toLowerCase().includes(q) || (f.dept && f.dept.toLowerCase().includes(q)))
+        (t.topic || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q) ||
+        t.facultyList.some((f) => (f.name || '').toLowerCase().includes(q) || (f.dept && f.dept.toLowerCase().includes(q)))
     );
   }, [topicsData, searchQuery]);
 
@@ -126,7 +127,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
   // Helper icon by topic keywords
   const getTopicIcon = (title: string) => {
-    const t = title.toLowerCase();
+    const t = (title || '').toLowerCase();
     if (t.includes('ai') || t.includes('intelligence') || t.includes('teacher') || t.includes('software')) {
       return <Cpu className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />;
     }
