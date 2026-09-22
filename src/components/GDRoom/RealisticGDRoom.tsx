@@ -58,7 +58,6 @@ import {
   generateStudentOpeningStatement,
   generateStudentFollowUpStatement
 } from '../../utils/facilitatorQuestionEngine';
-import { SlotSelectionModal } from './SlotSelectionModal';
 import { LobbyAudioTester } from './LobbyAudioTester';
 
 interface RealisticGDRoomProps {
@@ -105,7 +104,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [autoSimulatePeers, setAutoSimulatePeers] = useState(true);
   const [invitedStudentPrompt, setInvitedStudentPrompt] = useState<{ student: Student; reason: string; promptText?: string } | null>(null);
-  const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
   const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
 
   const hasInitiatedOpeningRef = useRef<boolean>(false);
@@ -1042,46 +1040,34 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
           <div>
-            <div className="flex items-center gap-2 flex-wrap mb-1.5">
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 flex items-center gap-1.5">
-                <Radio className="w-3 h-3 text-emerald-500 dark:text-emerald-400 animate-pulse" />
-                {session.slotName ? session.slotName.toUpperCase() : `LIVE GD SESSION #${session.id.toUpperCase()}`}
+            {/* Clean Metadata: Group Discussion Set, Slot Details, and Allotted Faculty */}
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              {/* Group Discussion Set */}
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 shadow-2xs">
+                <Radio className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-pulse shrink-0" />
+                <span>GD Set: {session.slotName || `Set ${session.id.toUpperCase()}`}</span>
               </span>
+
+              {/* Slot Details */}
               {session.slotTiming && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-amber-500" />
-                  <span>{session.slotTiming}</span>
+                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 shadow-2xs">
+                  <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span>Slot Details: {session.slotTiming}</span>
                 </span>
               )}
-              {/* WebRTC Live Audio Mesh Status (PDF Page 13) */}
-              <span 
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 border ${
-                  isSocketConnected 
-                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
-                }`}
-                title="Live WebRTC Audio Mesh with STUN & OpenRelay TURN Fallback Relay (UDP/TCP 443)"
-              >
-                {isSocketConnected ? <Wifi className="w-3 h-3 text-emerald-500 animate-pulse" /> : <WifiOff className="w-3 h-3 text-slate-400" />}
-                <span>{isSocketConnected ? `${rtcPeers.length + 1} Live Peers (N-Way Audio Mesh)` : 'Connecting Audio Mesh...'}</span>
-                <span className="text-[9px] font-mono font-bold px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">
-                  STUN+TURN
-                </span>
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                Difficulty: {session.difficulty}
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700/50">
-                {session.enrolledCount ?? session.students.length} / {session.maxCapacity || 15} Students Enrolled
+
+              {/* Allotted Faculty Evaluator */}
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 shadow-2xs">
+                <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Faculty: <strong>{session.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
               </span>
             </div>
             
-            <h1 className="text-xl sm:text-2xl font-heading font-bold text-slate-900 dark:text-white tracking-tight">
-              Topic: {session.topic}
+            {/* Topic */}
+            <h1 className="text-xl sm:text-2xl font-heading font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <span className="text-indigo-600 dark:text-indigo-400">Topic:</span>
+              <span>{session.topic}</span>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-3xl">
-              {session.description}
-            </p>
 
             {/* Session Completed Banner OR Waiting Lobby Banner OR 20-Second Silence Watchdog */}
             {session.status === 'completed' ? (
@@ -1121,13 +1107,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         <span>View Overall Analytics</span>
                       </>
                     )}
-                  </button>
-
-                  <button
-                    onClick={() => setIsSlotModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all cursor-pointer"
-                  >
-                    <span>Browse All Slots</span>
                   </button>
                 </div>
               </div>
@@ -1318,167 +1297,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             )}
           </div>
         </div>
-
-        {/* Student Slot Selector: Browse & Select Slots on the same topic */}
-        {availableSlots && availableSlots.length > 0 && (
-          <div className="mt-4 pt-3.5 border-t border-slate-200/80 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Available Slots on This Topic:</span>
-              </span>
-              {session.assignedFacultyName && (
-                <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/50 flex items-center gap-1.5 shadow-2xs">
-                  <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>In-Charge: <strong>{session.assignedFacultyName}</strong></span>
-                </span>
-              )}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {availableSlots
-                  .filter((slot) => slot.topic === session.topic)
-                  .map((slot) => {
-                    const maxCap = slot.maxCapacity || 15;
-                    const enrolled = slot.enrolledCount ?? slot.students?.length ?? 15;
-                    const isCompleted = slot.status === 'completed';
-                    const isFull = enrolled >= maxCap;
-                    const isCurrent = slot.id === session.id;
-                    const seatsLeft = Math.max(0, maxCap - enrolled);
-
-                    const isStudent = currentUser?.role === 'student';
-                    const effectiveBookedSlotId = bookedSlotId;
-                    const isUserBookedSlot = isStudent && Boolean(effectiveBookedSlotId) && slot.id === effectiveBookedSlotId;
-                    const isLockedForStudent = isStudent && Boolean(effectiveBookedSlotId) && slot.id !== effectiveBookedSlotId;
-                    const bookedSlotObj = isLockedForStudent ? availableSlots.find((s) => s.id === effectiveBookedSlotId) : null;
-
-                    if (isLockedForStudent) {
-                      return (
-                        <button
-                          key={slot.id}
-                          type="button"
-                          disabled
-                          title={`Slot Locked: You have already booked ${bookedSlotObj?.slotName || 'another slot'}. Under institutional GD evaluation policy, students cannot select or switch to another slot.`}
-                          className="px-2.5 py-1 rounded-lg text-xs transition-all flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed"
-                        >
-                          <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-                          <span className="font-medium line-through decoration-slate-400/50">{slot.slotName || slot.id}</span>
-                          {slot.slotTiming && (
-                            <span className="text-[10px] font-mono text-slate-400/70">
-                              ({slot.slotTiming})
-                            </span>
-                          )}
-                          <span className="text-[9px] uppercase font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1 rounded">
-                            Locked
-                          </span>
-                        </button>
-                      );
-                    }
-
-                    return (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        onClick={() => {
-                          if (isCompleted) {
-                            onSelectSlot && onSelectSlot(slot.id);
-                            return;
-                          }
-                          if (isFull && !isCurrent) {
-                            alert(`Slot "${slot.slotName || slot.id}" is full (${enrolled}/${maxCap} students). Please select an open slot.`);
-                            return;
-                          }
-                          onSelectSlot && onSelectSlot(slot.id);
-                        }}
-                        disabled={isFull && !isCurrent && !isCompleted}
-                        title={
-                          isCompleted
-                            ? (currentUser?.role === 'student'
-                                ? `GD Completed • Click to view your assessment report`
-                                : `GD Completed • Click to view overall session analytics`)
-                            : isUserBookedSlot
-                            ? `Your Confirmed Booked Slot • Joined`
-                            : isCurrent
-                            ? `Currently joined in this slot`
-                            : isFull
-                            ? `Slot full (${enrolled}/${maxCap})`
-                            : `Select & Join ${slot.slotName || slot.id}`
-                        }
-                        className={`px-2.5 py-1 rounded-lg text-xs transition-all flex items-center gap-1.5 ${
-                          isCompleted
-                            ? isCurrent
-                              ? 'bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-xs cursor-pointer'
-                              : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50 cursor-pointer'
-                            : isUserBookedSlot
-                            ? 'bg-emerald-600 text-white font-bold shadow-xs cursor-default ring-2 ring-emerald-400/30'
-                            : isCurrent
-                            ? 'bg-indigo-600 text-white font-bold shadow-xs cursor-default'
-                            : isFull
-                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 opacity-80 cursor-not-allowed'
-                            : 'bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 cursor-pointer'
-                        }`}
-                      >
-                        <span className="font-medium">{slot.slotName || slot.id}</span>
-                        {slot.slotTiming && (
-                          <span className={`text-[10px] font-mono ${isCurrent || isUserBookedSlot ? 'text-white/80' : 'text-slate-400'}`}>
-                            ({slot.slotTiming})
-                          </span>
-                        )}
-                        <span className={`text-[10px] font-mono px-1 rounded font-bold ${
-                          isUserBookedSlot || isCurrent 
-                            ? 'bg-white/20 text-white' 
-                            : isCompleted
-                            ? 'bg-purple-200/80 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
-                            : isFull 
-                            ? 'bg-rose-200/80 dark:bg-rose-900 text-rose-800 dark:text-rose-200' 
-                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}>
-                          {enrolled}/{maxCap}
-                        </span>
-                        {isCompleted ? (
-                          <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                            isCurrent ? 'bg-white/25 text-white' : 'bg-purple-600 text-white'
-                          }`}>Completed</span>
-                        ) : isUserBookedSlot ? (
-                          <span className="text-[10px] uppercase font-bold bg-white/25 px-1 rounded">Your Slot</span>
-                        ) : isCurrent ? (
-                          <span className="text-[10px] uppercase font-bold bg-white/25 px-1 rounded">Joined</span>
-                        ) : isFull ? (
-                          <span className="text-[9px] uppercase font-bold bg-rose-600 text-white px-1 rounded">Full</span>
-                        ) : (
-                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold">{seatsLeft} open</span>
-                        )}
-                      </button>
-                    );
-                })}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 shrink-0">
-              {onResetSlots && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm('Reset all demo slots back to default enrollment counts (Slot 2: 8/15 open, Slot 3: 11/15 open)?')) {
-                      onResetSlots();
-                    }
-                  }}
-                  className="text-xs text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 cursor-pointer transition-colors"
-                  title="Reset slots to default demo counts"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Reset Demo Slots</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsSlotModalOpen(true)}
-                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>Browse All Slots ({availableSlots.length})</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Interruption Warning Alert banner */}
         {interruptionWarning && (
