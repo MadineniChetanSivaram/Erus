@@ -171,6 +171,27 @@ function GDAppContent() {
     }
   }, [session.id, session.facultyLiveNotes]);
 
+  // Student live-session status polling: backend remains the source of truth.
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'student') return;
+    const collegeCode = (currentUser as any).collegeCode || 'DIT';
+    const timer = setInterval(async () => {
+      try {
+        const slots = await fetchCollegeSlots(collegeCode);
+        if (!slots.length) return;
+        setAvailableSlots((prev) => prev.map((oldSlot) => {
+          const fresh = slots.find((s: any) => s.id === oldSlot.id);
+          return fresh ? { ...oldSlot, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' } : oldSlot;
+        }));
+        setSession((prev) => {
+          const fresh = slots.find((s: any) => s.id === prev.id);
+          return fresh ? { ...prev, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' } : prev;
+        });
+      } catch {}
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [currentUser]);
+
   // Reset slots back to clean demo defaults
   const handleResetSlots = () => {
     try {
@@ -192,9 +213,12 @@ function GDAppContent() {
       localStorage.setItem('erus_auth_user', JSON.stringify(user));
     } catch {}
 
-    // Fetch real slots from backend for this user's college
+    // Fetch real slots from backend. Faculty portals are restricted to their assigned sessions.
     const collegeCode = (user as any).collegeCode || 'DIT';
-    fetchCollegeSlots(collegeCode).then((backendSlots) => {
+    const slotSource = user.role === 'faculty'
+      ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
+      : fetchCollegeSlots(collegeCode);
+    slotSource.then((backendSlots) => {
       if (backendSlots && backendSlots.length > 0) {
         // Map backend slot objects to GDSession format expected by the frontend
         const mappedSlots: GDSession[] = backendSlots.map((s: any): GDSession => ({
@@ -435,10 +459,18 @@ function GDAppContent() {
     ]);
 
     // Notify backend
-    fetch(`/api/college/slots/${encodeURIComponent(targetSlotId)}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    }).catch((err) => console.warn('Backend start session sync:', err));
+    if (currentUser?.role === 'faculty') {
+      fetch(`/api/college/slots/${encodeURIComponent(targetSlotId)}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Unable to start GD session');
+        }
+      }).catch((err) => console.warn('Backend start session sync:', err));
+    }
   };
 
   // Deadlock intervention helper using unique non-repeating dynamic prompt generator
@@ -550,13 +582,23 @@ function GDAppContent() {
       })
     );
 
-    // Sync completion status to backend
-    try {
-      fetch(`/api/college/slots/${encodeURIComponent(finishedSlotId)}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }).catch((err) => console.warn('[Slot Complete Sync Notice]:', err));
-    } catch {}
+    // Only the faculty assigned to this slot can end the GD.
+    if (currentUser?.role === 'faculty') {
+      try {
+        const endRes = await fetch(`/api/college/slots/${encodeURIComponent(finishedSlotId)}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
+        });
+        if (!endRes.ok) {
+          const endData = await endRes.json().catch(() => ({}));
+          throw new Error(endData.error || 'Unable to end GD session');
+        }
+      } catch (err) {
+        console.warn('[Slot Complete Sync Notice]:', err);
+        return;
+      }
+    }
 
     setCurrentTab('report');
   };
@@ -992,9 +1034,8 @@ function GDAppContent() {
               handleSelectSlot(slotId);
               setCurrentTab('room');
               const target = availableSlots.find((s) => s.id === slotId);
-              if (target && target.status === 'waiting') {
-                handleStartSession(slotId);
-              }
+              // Students never start a GD. They only enter after the assigned
+              // faculty starts it; Socket.IO/polling will update the status.
             }}
           />
         )}
