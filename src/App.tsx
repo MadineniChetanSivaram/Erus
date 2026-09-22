@@ -27,7 +27,7 @@ import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots } from './utils/authApi';
 import { 
   getStudentBookedSlotsByTopic,
   setStudentBookedSlotForTopic,
@@ -78,7 +78,7 @@ function GDAppContent() {
         }
       }
     } catch {}
-    return INITIAL_SLOTS;
+    return [];
   };
 
   const [currentTab, setCurrentTab] = useState<NavTabType>(() => {
@@ -191,6 +191,46 @@ function GDAppContent() {
     try {
       localStorage.setItem('erus_auth_user', JSON.stringify(user));
     } catch {}
+
+    // Fetch real slots from backend for this user's college
+    const collegeCode = (user as any).collegeCode || 'DIT';
+    fetchCollegeSlots(collegeCode).then((backendSlots) => {
+      if (backendSlots && backendSlots.length > 0) {
+        // Map backend slot objects to GDSession format expected by the frontend
+        const mappedSlots: GDSession[] = backendSlots.map((s: any): GDSession => ({
+          ...INITIAL_SESSION,
+          id: s.id,
+          topic: s.topic || s.slotName || 'Group Discussion',
+          description: s.description || '',
+          slotName: s.slotName || s.topic || 'Slot',
+          slotTiming: s.slotTiming || '',
+          durationMinutes: s.durationMinutes || 15,
+          difficulty: s.difficulty || 'Intermediate',
+          assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
+          status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
+          students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 8),
+          currentPhase: 'intro',
+          facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
+          facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
+          isFacilitatorSpeaking: false,
+          silenceTimerSeconds: 0,
+          currentSpeakerId: null,
+          breakoutRooms: [],
+          enrolledCount: s.enrolledCount ?? (s.students?.length ?? 0),
+          maxCapacity: s.maxCapacity ?? 15,
+          assignedFacultyId: s.assignedFacultyId || '',
+          assignedFacultyName: s.assignedFacultyName || '',
+          assignedFacultyEmail: s.assignedFacultyEmail || '',
+          assignedFacultyDept: s.assignedFacultyDept || '',
+          facultyLiveNotes: s.facultyLiveNotes || [],
+          createdAt: s.createdAt || new Date().toISOString(),
+        }));
+        setAvailableSlots(mappedSlots);
+        if (mappedSlots.length > 0) {
+          setSession(mappedSlots[0]);
+        }
+      }
+    }).catch(() => {/* Backend unreachable — slots stay empty until admin creates them */});
 
     if (user.role === 'student') {
       setViewingStudentId(null);

@@ -74,13 +74,7 @@ export async function loginUser(
 
   return { 
     success: false, 
-    error: role === 'student'
-      ? 'Invalid Student credentials. Try entering rahul.kumar@dit.edu.in with password123.'
-      : role === 'faculty'
-      ? 'Invalid Faculty credentials. Try entering sunita.rao@dit.edu.in with faculty123.'
-      : role === 'college_admin'
-      ? 'Invalid College Admin credentials. Try entering admin@dit.edu.in with college123.'
-      : 'Invalid Super Admin credentials. Try entering superadmin@erus.ai with admin123.'
+    error: 'Invalid credentials. Please check your login details and try again.'
   };
 }
 
@@ -277,13 +271,13 @@ export async function fetchCollegeStats(collegeCode: string = 'DIT') {
   const collegeObj = colleges.find((c) => c.code?.toUpperCase() === code);
 
   return {
-    collegeName: collegeObj?.name || (code === 'DIT' ? 'Delhi Institute of Technology' : `${code} Campus`),
+    collegeName: collegeObj?.name || `${code} Campus`,
     collegeCode: code,
-    totalStudents: students.length || (code === 'DIT' ? 120 : 0),
-    totalFaculty: faculty.length || (code === 'DIT' ? 18 : 0),
+    totalStudents: students.length,
+    totalFaculty: faculty.length,
     scheduledSlots: slots.filter((s) => s.status === 'scheduled').length,
     completedSlots: slots.filter((s) => s.status === 'completed').length,
-    totalSlots: slots.length || (code === 'DIT' ? 16 : 0),
+    totalSlots: slots.length,
   };
 }
 
@@ -302,41 +296,7 @@ export async function fetchCollegeStudents(collegeCode: string = 'DIT'): Promise
     console.warn('Error fetching college students:', e);
   }
 
-  const defaultStudents = code === 'DIT' ? [
-    {
-      id: 's1',
-      name: 'Rahul Kumar',
-      email: 'rahul.kumar@dit.edu.in',
-      studentId: 'STU-2022-041',
-      course: 'B.Tech CSE',
-      batch: '2022-2026',
-      seatNumber: 1,
-      college: 'Delhi Institute of Technology',
-      collegeCode: 'DIT',
-    },
-    {
-      id: 's2',
-      name: 'Neha Gupta',
-      email: 'neha.gupta@dit.edu.in',
-      studentId: 'STU-2022-072',
-      course: 'B.Tech IT',
-      batch: '2022-2026',
-      seatNumber: 2,
-      college: 'Delhi Institute of Technology',
-      collegeCode: 'DIT',
-    },
-    {
-      id: 's3',
-      name: 'Aditya Singh',
-      email: 'aditya.singh@dit.edu.in',
-      studentId: 'STU-2022-094',
-      course: 'B.Tech ECE',
-      batch: '2022-2026',
-      seatNumber: 3,
-      college: 'Delhi Institute of Technology',
-      collegeCode: 'DIT',
-    },
-  ] : [];
+  const defaultStudents: any[] = [];
 
   const localStudents = getLocalStudents(code);
   const map = new Map<string, any>();
@@ -423,30 +383,7 @@ export async function fetchCollegeFaculty(collegeCode: string = 'DIT'): Promise<
     console.warn('Error fetching college faculty:', e);
   }
 
-  const defaultFaculty = code === 'DIT' ? [
-    {
-      id: 'fac-1',
-      name: 'Dr. Sunita Rao',
-      email: 'sunita.rao@dit.edu.in',
-      facultyId: 'FAC-CSE-102',
-      department: 'Computer Science & Engineering',
-      designation: 'Professor & Head of Department',
-      college: 'Delhi Institute of Technology',
-      collegeCode: 'DIT',
-      assignedSlotsCount: 3,
-    },
-    {
-      id: 'fac-2',
-      name: 'Prof. Rajesh Verma',
-      email: 'rajesh.verma@dit.edu.in',
-      facultyId: 'FAC-MGT-205',
-      department: 'School of Management',
-      designation: 'Dean of Academic Affairs',
-      college: 'Delhi Institute of Technology',
-      collegeCode: 'DIT',
-      assignedSlotsCount: 2,
-    },
-  ] : [];
+  const defaultFaculty: any[] = [];
 
   const localFaculty = getLocalFaculty(code);
   const map = new Map<string, any>();
@@ -679,10 +616,10 @@ export async function fetchAdminStats() {
 
   const colleges = getLocalCustomColleges();
   return {
-    totalColleges: Math.max(colleges.length, 3),
-    totalStudents: 215,
-    totalFaculty: 32,
-    totalSlots: 14,
-    activeLiveGDs: 1,
+    totalColleges: colleges.length,
+    totalStudents: 0,
+    totalFaculty: 0,
+    totalSlots: 0,
+    activeLiveGDs: 0,
   };
 }

@@ -7,7 +7,6 @@ import {
   AlertCircle, 
   Eye, 
   EyeOff, 
-  UserCheck,
   UserPlus,
   Building,
   Briefcase,
@@ -15,7 +14,6 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { FacultyUser } from '../../types/auth';
-import { MOCK_FACULTY, authenticateUser, registerNewUser } from '../../data/mockAuthData';
 import { loginUser, registerUser, fetchAdminColleges } from '../../utils/authApi';
 
 interface FacultyLoginProps {
@@ -37,9 +35,9 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
   }, []);
 
   // Login Form States
-  const [identifier, setIdentifier] = useState('sunita.rao@dit.edu.in');
-  const [department, setDepartment] = useState('Department of Computer Science');
-  const [password, setPassword] = useState('faculty123');
+  const [identifier, setIdentifier] = useState('');
+  const [department, setDepartment] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Registration Form States
@@ -73,7 +71,7 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
     if (res.success && res.user && res.user.role === 'faculty') {
       onLogin(res.user as FacultyUser);
     } else {
-      setError(res.error || 'Invalid Faculty credentials. Try entering sunita.rao@dit.edu.in with faculty123, or register as a new faculty.');
+      setError(res.error || 'Invalid Faculty credentials. Please check your Faculty ID or Email and password.');
     }
   };
 
@@ -119,15 +117,6 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
     } else {
       setError(res.error || 'Registration failed. Please check your information and try again.');
     }
-  };
-
-  const handleQuickLogin = (faculty: typeof MOCK_FACULTY[0]) => {
-    setIdentifier(faculty.email);
-    setDepartment(faculty.department);
-    setPassword(faculty.password);
-    setError(null);
-    const { password: _, ...user } = faculty;
-    onLogin(user);
   };
 
   return (
@@ -287,41 +276,6 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
               )}
             </button>
           </form>
-
-          {/* 1-Click Quick Demo Presets */}
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-teal-500" />
-                <span>1-Click Test Faculty Profiles:</span>
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono">Password: faculty123</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {MOCK_FACULTY.map((faculty) => (
-                <button
-                  key={faculty.id}
-                  type="button"
-                  onClick={() => handleQuickLogin(faculty)}
-                  className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 hover:border-teal-400 dark:hover:border-teal-600 hover:bg-teal-50/30 dark:hover:bg-teal-950/30 text-left transition-all group cursor-pointer"
-                >
-                  <img
-                    src={faculty.avatar}
-                    alt={faculty.name}
-                    className="w-9 h-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-teal-600 dark:group-hover:text-teal-400">
-                      {faculty.name}
-                    </p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                      {faculty.designation}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
         </>
       ) : (
         /* 2. FACULTY REGISTRATION FORM */

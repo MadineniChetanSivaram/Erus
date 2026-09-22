@@ -7,7 +7,6 @@ import {
   AlertCircle, 
   Eye, 
   EyeOff, 
-  UserCheck,
   UserPlus,
   Building,
   BookOpen,
@@ -18,7 +17,6 @@ import {
   Zap
 } from 'lucide-react';
 import { StudentUser } from '../../types/auth';
-import { MOCK_STUDENTS, authenticateUser, registerNewUser } from '../../data/mockAuthData';
 import { loginUser, registerUser, setStoredAuth, fetchAdminColleges } from '../../utils/authApi';
 
 interface StudentLoginProps {
@@ -44,8 +42,8 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
   const [quickCollege, setQuickCollege] = useState('');
 
   // Login Form States
-  const [identifier, setIdentifier] = useState('rahul.kumar@dit.edu.in');
-  const [password, setPassword] = useState('password123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Registration Form States
@@ -114,7 +112,7 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
     if (res.success && res.user && res.user.role === 'student') {
       onLogin(res.user as StudentUser);
     } else {
-      setError(res.error || 'Invalid Student credentials. Try Quick Join with your name, or enter rahul.kumar@dit.edu.in with password123.');
+      setError(res.error || 'Invalid credentials. Please check your Student ID or Email and password.');
     }
   };
 
@@ -163,13 +161,6 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
     }
   };
 
-  const handleQuickLogin = (student: typeof MOCK_STUDENTS[0]) => {
-    setIdentifier(student.email);
-    setPassword(student.password);
-    setError(null);
-    const { password: _, ...user } = student;
-    onLogin(user);
-  };
 
   return (
     <div className="w-full max-w-xl mx-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl shadow-indigo-500/5 transition-all">
@@ -390,45 +381,6 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
             </button>
           </form>
 
-          {/* 1-Click Quick Demo Presets */}
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
-                <span>1-Click Test Profiles:</span>
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono">Password: password123</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {MOCK_STUDENTS.map((student) => (
-                <button
-                  key={student.id}
-                  type="button"
-                  onClick={() => handleQuickLogin(student)}
-                  className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/30 text-left transition-all group cursor-pointer"
-                >
-                  <img
-                    src={student.avatar}
-                    alt={student.name}
-                    className="w-8 h-8 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                        {student.name}
-                      </p>
-                      <span className="text-[9px] font-mono px-1 rounded bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        Seat {student.seatNumber}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                      {student.course}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
         </>
       )}
 
