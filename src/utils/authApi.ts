@@ -457,13 +457,11 @@ export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<an
     console.warn('Error fetching college slots:', e);
   }
 
-  const localSlots = getLocalSlots(code);
-  const map = new Map<string, any>();
-
-  localSlots.forEach((s) => map.set(s.id, s));
-  backendSlots.forEach((s) => map.set(s.id, { ...map.get(s.id), ...s }));
-
-  const merged = Array.from(map.values());
+  // Backend is authoritative. Local slots are only a resilience cache and must
+  // never overwrite backend assignment/status/enrollment fields.
+  const merged = backendSlots.length > 0
+    ? backendSlots
+    : getLocalSlots(code);
   saveLocalSlots(code, merged);
   return merged;
 }
@@ -476,7 +474,7 @@ export async function createCollegeSlot(payload: any) {
     ...payload,
     collegeCode: code,
     status: payload.status || 'scheduled',
-    enrolledCount: payload.enrolledCount || 8,
+    enrolledCount: payload.enrolledCount ?? 0,
     createdAt: new Date().toISOString(),
   };
 
@@ -622,4 +620,31 @@ export async function fetchAdminStats() {
     totalSlots: 0,
     activeLiveGDs: 0,
   };
+}
+
+
+export async function fetchFacultyAssignedSlots(facultyId: string, collegeCode: string = 'DIT'): Promise<any[]> {
+  const code = collegeCode.toUpperCase();
+  try {
+    const res = await fetch(
+      `/api/faculty/sessions?facultyId=${encodeURIComponent(facultyId)}&collegeCode=${encodeURIComponent(code)}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.sessions)) return data.sessions;
+    }
+  } catch (e) {
+    console.warn('Error fetching faculty sessions:', e);
+  }
+  return [];
+}
+
+export async function fetchStudentBookings(studentId: string) {
+  try {
+    const res = await fetch(`/api/student/${encodeURIComponent(studentId)}/booked-slot`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Error fetching student bookings:', e);
+  }
+  return { success: false, topicBookings: {} };
 }
