@@ -27,7 +27,7 @@ import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots } from './utils/authApi';
 import { 
   getStudentBookedSlotsByTopic,
   setStudentBookedSlotForTopic,
