@@ -951,6 +951,10 @@ function GDAppContent() {
             onEnterRoom={(slotId) => {
               handleSelectSlot(slotId);
               setCurrentTab('room');
+              const target = availableSlots.find((s) => s.id === slotId);
+              if (target && target.status === 'waiting') {
+                handleStartSession(slotId);
+              }
             }}
           />
         )}

@@ -112,6 +112,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   const isFaculty = currentUser?.role === 'faculty';
   const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
+  const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
 
   // Faculty Live Observation Notes State (Enhancement 4)
@@ -1163,111 +1164,114 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             ) : null}
           </div>
 
-          {/* Quick Facilitator Action Bar */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {session.status === 'waiting' && (
-              <button
-                id="start-gd-btn"
-                onClick={() => {
-                  if (onStartSession) {
-                    onStartSession(session.id);
-                  }
-                  rtcStartSession();
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
-              >
-                <Play className="w-4 h-4 fill-white" />
-                <span>Start Group Discussion</span>
-              </button>
-            )}
-
-            {isSessionActive && (
-              <button
-                id="restart-gd-btn"
-                onClick={() => {
-                  if (onStartSession) {
-                    onStartSession(session.id);
-                  }
-                  rtcStartSession();
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95 cursor-pointer border border-emerald-500/50"
-                title="Restart discussion from beginning and deliver opening speech"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Restart Discussion</span>
-              </button>
-            )}
-
-            <button
-              id="ai-probe-btn"
-              onClick={() => requestAiIntervention('probing')}
-              disabled={!isSessionActive || isAiProcessing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>AI Probing Question</span>
-            </button>
-
-            <button
-              id="ai-rules-btn"
-              onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
-              disabled={!isSessionActive || isAiProcessing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Explain Rules</span>
-            </button>
-
-            {/* Enhancement 4: Faculty Live Observation Notes Button */}
-            <button
-              id="faculty-notes-btn"
-              onClick={() => handleOpenNoteModal()}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/70 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 transition-all shadow-xs active:scale-95 cursor-pointer"
-              title={canStartSession ? "Open Live Observation Notes & Bookmarks (Faculty Evaluator)" : "Open Live Observation Notes & Bookmarks (Evaluator Log)"}
-            >
-              <Bookmark className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 fill-violet-600/30" />
-              <span>Observation Notes</span>
-              {(session.facultyLiveNotes?.length || 0) > 0 ? (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-600 text-white font-mono">
-                  {session.facultyLiveNotes?.length}
-                </span>
-              ) : (
-                <span className="text-[9px] px-1.5 py-0.2 rounded bg-violet-200/60 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200 font-semibold">
-                  {canStartSession ? 'Faculty' : 'Evaluator'}
-                </span>
+          {/* Quick Facilitator Action Bar (Visible only to Faculty Evaluators & Admins) */}
+          {canStartSession && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {session.status === 'waiting' && (
+                <button
+                  id="start-gd-btn"
+                  onClick={() => {
+                    if (onStartSession) {
+                      onStartSession(session.id);
+                    }
+                    rtcStartSession();
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
+                >
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Start Group Discussion</span>
+                </button>
               )}
-            </button>
 
-            {session.status === 'completed' ? (
+              {isSessionActive && (
+                <button
+                  id="restart-gd-btn"
+                  onClick={() => {
+                    if (onStartSession) {
+                      onStartSession(session.id);
+                    }
+                    rtcStartSession();
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95 cursor-pointer border border-emerald-500/50"
+                  title="Restart discussion from beginning and deliver opening speech"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Restart Discussion</span>
+                </button>
+              )}
+
               <button
-                id="view-completed-report-btn"
-                onClick={() => onSelectSlot && onSelectSlot(session.id)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-700/20 transition-all active:scale-95 cursor-pointer"
+                id="ai-probe-btn"
+                onClick={() => requestAiIntervention('probing')}
+                disabled={!isSessionActive || isAiProcessing}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
               >
-                {currentUser?.role === 'student' ? (
-                  <>
-                    <FileText className="w-4 h-4" />
-                    <span>View Evaluated Report</span>
-                  </>
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>AI Probing Question</span>
+              </button>
+
+              <button
+                id="ai-rules-btn"
+                onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
+                disabled={!isSessionActive || isAiProcessing}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Explain Rules</span>
+              </button>
+
+              {/* Enhancement 4: Faculty Live Observation Notes Button */}
+              <button
+                id="faculty-notes-btn"
+                onClick={() => handleOpenNoteModal()}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/70 dark:hover:bg-violet-900/70 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 transition-all shadow-xs active:scale-95 cursor-pointer"
+                title={canStartSession ? "Open Live Observation Notes & Bookmarks (Faculty Evaluator)" : "Open Live Observation Notes & Bookmarks (Evaluator Log)"}
+              >
+                <Bookmark className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 fill-violet-600/30" />
+                <span>Observation Notes</span>
+                {(session.facultyLiveNotes?.length || 0) > 0 ? (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-600 text-white font-mono">
+                    {session.facultyLiveNotes?.length}
+                  </span>
                 ) : (
-                  <>
-                    <BarChart3 className="w-4 h-4" />
-                    <span>View Overall Analytics</span>
-                  </>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-violet-200/60 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200 font-semibold">
+                    Faculty
+                  </span>
                 )}
               </button>
-            ) : (
-              <button
-                id="finish-session-btn"
-                onClick={onFinishSession}
-                disabled={!isSessionActive}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
-              >
-                <Award className="w-4 h-4" />
-                <span>Conclude & Generate Report</span>
-              </button>
-            )}
-          </div>
+
+              {session.status === 'completed' ? (
+                <button
+                  id="view-completed-report-btn"
+                  onClick={() => onSelectSlot && onSelectSlot(session.id)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-700/20 transition-all active:scale-95 cursor-pointer"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>View Overall Analytics</span>
+                </button>
+              ) : (
+                <button
+                  id="finish-session-btn"
+                  onClick={onFinishSession}
+                  disabled={!isSessionActive}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>Conclude & Generate Report</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Student Status Badge (Students are evaluated participants; they don't administer or evaluate the room) */}
+          {isStudent && isSessionActive && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Discussion Live</span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Interruption Warning Alert banner */}
