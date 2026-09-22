@@ -12,13 +12,14 @@ import {
   Moon,
   LogOut,
   Building2,
-  Crown
+  Crown,
+  BookOpen
 } from 'lucide-react';
 import { GDSession } from '../types/gd';
 import { AuthUser } from '../types/auth';
 import { useTheme } from '../context/ThemeContext';
 
-export type NavTabType = 'room' | 'report' | 'faculty' | 'manager' | 'college_admin' | 'super_admin';
+export type NavTabType = 'topics' | 'room' | 'report' | 'faculty' | 'manager' | 'college_admin' | 'super_admin';
 
 interface HeaderProps {
   currentTab: NavTabType;
@@ -30,6 +31,7 @@ interface HeaderProps {
   onOpenCreateSession: () => void;
   currentUser: AuthUser | null;
   onLogout: () => void;
+  bookedSlotId?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCreateSession,
   currentUser,
   onLogout,
+  bookedSlotId,
 }) => {
   const { theme, toggleTheme } = useTheme();
 
@@ -140,11 +143,34 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Student Primary Tab: Topics & Slot Booking */}
+          {isStudent && (
+            <button
+              id="tab-topics-btn"
+              onClick={() => setCurrentTab('topics')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'topics'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <BookOpen className={`w-3.5 h-3.5 shrink-0 ${currentTab === 'topics' ? 'text-white' : 'text-blue-500 dark:text-blue-400'}`} />
+              <span>Topics & Slots</span>
+            </button>
+          )}
+
           {/* GD Conference Room Tab */}
           {!isSuperAdmin && (
             <button
               id="tab-room-btn"
-              onClick={() => setCurrentTab('room')}
+              onClick={() => {
+                if (isStudent && !bookedSlotId) {
+                  alert('Please select a topic and book an available slot first.');
+                  setCurrentTab('topics');
+                  return;
+                }
+                setCurrentTab('room');
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                 currentTab === 'room'
                   ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'

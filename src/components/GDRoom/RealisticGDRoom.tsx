@@ -1154,20 +1154,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       </p>
                     </div>
                   </div>
-
-                  <button
-                    id="start-gd-banner-btn"
-                    onClick={() => {
-                      if (onStartSession) {
-                        onStartSession(session.id);
-                      }
-                      rtcStartSession();
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                    <span>Start Group Discussion</span>
-                  </button>
                 </div>
 
                 {/* Enhancement 1: Pre-Session Audio & Mic Test Widget */}

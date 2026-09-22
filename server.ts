@@ -1086,6 +1086,18 @@ app.post('/api/student/book-slot', async (req, res) => {
   res.json({ success: true, studentId, bookedSlotId: slotId });
 });
 
+app.post('/api/student/cancel-slot', async (req, res) => {
+  const studentId = req.body.studentId || req.body.studentIdentifier;
+  if (!studentId) {
+    return res.status(400).json({ success: false, error: 'studentId or studentIdentifier is required' });
+  }
+
+  const previouslyBooked = persistentState.studentBookings[studentId] || null;
+  delete persistentState.studentBookings[studentId];
+  savePersistentState();
+  res.json({ success: true, studentId, releasedSlotId: previouslyBooked });
+});
+
 // --- AUTH ENDPOINTS ---
 app.post('/api/auth/login', async (req, res) => {
   const { role, identifier, password } = req.body;
