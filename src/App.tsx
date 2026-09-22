@@ -858,7 +858,7 @@ function GDAppContent() {
   };
 
   // Student books a slot (One Slot Per Topic Policy)
-  const handleBookSlot = (slotId: string) => {
+  const handleBookSlot = async (slotId: string) => {
     if (!currentUser || currentUser.role !== 'student') return;
     const studentKey = currentUser.id || currentUser.email || 'student';
 
@@ -881,13 +881,9 @@ function GDAppContent() {
       return;
     }
 
-    // Save booking to localStorage & state for this topic
-    setStudentBookedSlotForTopic(studentKey, topicKey, slotId);
-    setStudentBookedSlotsByTopic((prev) => ({ ...prev, [topicKey]: slotId }));
-
-    // Sync booking to backend API
+    // Backend validates and persists the booking first. Frontend state follows it.
     try {
-      fetch('/api/student/book-slot', {
+      const bookingRes = await fetch('/api/student/book-slot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -898,8 +894,19 @@ function GDAppContent() {
           studentName: currentUser.name,
           studentCollege: currentUser.college,
         }),
-      }).catch((err) => console.warn('[Student Slot Booking Sync]:', err));
-    } catch {}
+      });
+      const bookingData = await bookingRes.json().catch(() => ({}));
+      if (!bookingRes.ok || !bookingData.success) {
+        alert(bookingData.error || 'Unable to book this GD slot.');
+        return;
+      }
+    } catch {
+      alert('Unable to reach the ERUS server. The slot was not booked.');
+      return;
+    }
+
+    setStudentBookedSlotForTopic(studentKey, topicKey, slotId);
+    setStudentBookedSlotsByTopic((prev) => ({ ...prev, [topicKey]: slotId }));
 
     // Update students list in the booked slot
     const targetStudents = targetSlot.students || [];
