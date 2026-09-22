@@ -396,6 +396,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     const handleAiVoiceStart = () => {
       if (!isListeningMicRef.current) return;
       aiVoicePausedMicRef.current = true;
+      if (speechPauseTimerRef.current) {
+        clearTimeout(speechPauseTimerRef.current);
+        speechPauseTimerRef.current = null;
+      }
       if (aiVoiceResumeTimerRef.current) {
         clearTimeout(aiVoiceResumeTimerRef.current);
         aiVoiceResumeTimerRef.current = null;
@@ -467,6 +471,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognition.lang = 'en-IN'; // Indian English support
 
         recognition.onresult = (event: any) => {
+          if (aiVoicePausedMicRef.current) return;
+
           let interimTranscript = '';
           let finalTranscript = '';
 
@@ -528,7 +534,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
         recognition.onend = () => {
           // If mic is supposed to remain on (user didn't mute), restart recognition like Google Meet
-          if (isListeningMicRef.current) {
+          if (isListeningMicRef.current && !aiVoicePausedMicRef.current) {
             try {
               recognition.start();
               return;
