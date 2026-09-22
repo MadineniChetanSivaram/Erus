@@ -385,6 +385,51 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const studentTurnsSinceIntervention = useRef<number>(0);
+  const aiVoicePausedMicRef = useRef(false);
+  const aiVoiceResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // AI voices are played through the user's speakers. Web Speech Recognition can
+  // still hear that speaker output even when WebRTC echo cancellation is enabled.
+  // Temporarily stop recognition and the outgoing mic track while AI is speaking,
+  // then resume the user's mic automatically after a short acoustic settle time.
+  useEffect(() => {
+    const handleAiVoiceStart = () => {
+      if (!isListeningMicRef.current) return;
+      aiVoicePausedMicRef.current = true;
+      if (aiVoiceResumeTimerRef.current) {
+        clearTimeout(aiVoiceResumeTimerRef.current);
+        aiVoiceResumeTimerRef.current = null;
+      }
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      rtcSetMicEnabled(false);
+    };
+
+    const handleAiVoiceEnd = () => {
+      if (!aiVoicePausedMicRef.current) return;
+      aiVoiceResumeTimerRef.current = setTimeout(() => {
+        aiVoiceResumeTimerRef.current = null;
+        if (!isListeningMicRef.current) {
+          aiVoicePausedMicRef.current = false;
+          return;
+        }
+        aiVoicePausedMicRef.current = false;
+        try {
+          recognitionRef.current?.start();
+        } catch {}
+        rtcSetMicEnabled(true);
+      }, 500);
+    };
+
+    window.addEventListener('erus-ai-voice-start', handleAiVoiceStart);
+    window.addEventListener('erus-ai-voice-end', handleAiVoiceEnd);
+    return () => {
+      window.removeEventListener('erus-ai-voice-start', handleAiVoiceStart);
+      window.removeEventListener('erus-ai-voice-end', handleAiVoiceEnd);
+      if (aiVoiceResumeTimerRef.current) clearTimeout(aiVoiceResumeTimerRef.current);
+    };
+  }, [rtcSetMicEnabled]);
 
   // Auto scroll transcript
   useEffect(() => {
