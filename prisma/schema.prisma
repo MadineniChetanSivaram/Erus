@@ -123,3 +123,20 @@ model AssessmentReport {
 
   session        GDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
+
+
+model GDBooking {
+  id          String    @id @default(cuid())
+  sessionId   String
+  studentId   String
+  status      String    @default("BOOKED") // BOOKED | LIVE | COMPLETED | CANCELLED
+  bookedAt    DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  session     GDSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student     User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@index([sessionId])
+}
