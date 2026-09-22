@@ -39,6 +39,7 @@ model User {
   studentProfile      StudentProfile?
   facultyProfile      FacultyProfile?
   collegeAdminProfile CollegeAdminProfile?
+  gdBookings          GDBooking[]
 }
 
 model CollegeAdminProfile {
@@ -91,6 +92,7 @@ model GDSession {
   updatedAt           DateTime          @updatedAt
   transcripts         TranscriptEntry[]
   reports             AssessmentReport[]
+  bookings            GDBooking[]
 }
 
 model TranscriptEntry {
