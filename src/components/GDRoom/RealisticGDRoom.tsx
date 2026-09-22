@@ -1110,35 +1110,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </button>
                 </div>
               </div>
-            ) : !isSessionActive ? (
-              <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 dark:border-amber-700/40 space-y-3">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                      <Lock className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                          Session Status: Waiting Lobby
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                          {rtcPeers.length + (isFaculty ? 0 : 1)} Participant(s) In Room
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-amber-800 dark:text-amber-300/80 mt-0.5">
-                        {canStartSession
-                          ? 'All participants are waiting in the lobby with muted microphones. Click "Start Group Discussion" when ready.'
-                          : `Waiting for Faculty In-Charge ${session.assignedFacultyName ? `(${session.assignedFacultyName}) ` : ''}to start the session. Microphones and AI speech are muted.`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Enhancement 1: Pre-Session Audio & Mic Test Widget */}
-                <LobbyAudioTester />
-              </div>
-            ) : (
+            ) : isSessionActive ? (
               /* 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F) */
               <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
@@ -1188,7 +1160,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </span>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Quick Facilitator Action Bar */}
