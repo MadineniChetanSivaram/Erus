@@ -21,8 +21,7 @@ import {
   Scale,
   Radio,
   SlidersHorizontal,
-  HelpCircle,
-  Timer
+  HelpCircle
 } from 'lucide-react';
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -48,9 +47,6 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [reviveModalSlot, setReviveModalSlot] = useState<GDSession | null>(null);
-  
-  // Test simulation override for 1-hour rule (demo toggle)
-  const [simulateWithinOneHour, setSimulateWithinOneHour] = useState<boolean>(false);
 
   // Find the student's currently booked slot object
   const bookedSlot = useMemo(() => {
@@ -164,43 +160,6 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
               Explore scheduled group discussion topics, review allotted faculty evaluators, and confirm your seat in an available time slot. Under institutional guidelines, each candidate can reserve <strong>one discussion slot</strong>.
             </p>
           </div>
-
-          {/* Quick Simulation Mode Toggle (For Testing 1-Hour Lock Rule) */}
-          <div className="flex flex-col sm:items-end gap-2 bg-white/5 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 shrink-0">
-            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-200">
-              <Timer className="w-4 h-4 text-amber-400" />
-              <span>1-Hour Rule Test Simulation:</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSimulateWithinOneHour(false)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  !simulateWithinOneHour 
-                    ? 'bg-emerald-500 text-white shadow-xs' 
-                    : 'bg-white/10 text-white/70 hover:bg-white/20'
-                }`}
-              >
-                &gt; 1 Hour (Revive Open)
-              </button>
-              <button
-                type="button"
-                onClick={() => setSimulateWithinOneHour(true)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  simulateWithinOneHour 
-                    ? 'bg-rose-500 text-white shadow-xs' 
-                    : 'bg-white/10 text-white/70 hover:bg-white/20'
-                }`}
-              >
-                &lt; 1 Hour (Revive Locked)
-              </button>
-            </div>
-            <span className="text-[10px] text-indigo-300/80">
-              {simulateWithinOneHour 
-                ? 'Simulating < 1h before start: slot changes locked' 
-                : 'Simulating > 1h before start: slot changes enabled'}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -258,7 +217,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
               {/* Revive Slot Button with 1-Hour Guard */}
               {(() => {
                 const canReviveInfo = checkCanReviveSlot(bookedSlot);
-                const isLockedDueToTime = simulateWithinOneHour || !canReviveInfo.canRevive;
+                const isLockedDueToTime = !canReviveInfo.canRevive;
 
                 if (isLockedDueToTime) {
                   return (
@@ -457,7 +416,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                   const occupancyPercent = Math.min(100, Math.round((enrolled / maxCap) * 100));
 
                   const canReviveInfo = checkCanReviveSlot(slot);
-                  const isReviveLockedByTime = simulateWithinOneHour || !canReviveInfo.canRevive;
+                  const isReviveLockedByTime = !canReviveInfo.canRevive;
 
                   return (
                     <div

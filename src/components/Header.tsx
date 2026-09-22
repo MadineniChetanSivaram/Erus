@@ -159,18 +159,11 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* GD Conference Room Tab */}
-          {!isSuperAdmin && (
+          {/* GD Room Tab (Faculty & College Admin Observers Only; Students enter via Booked Slot) */}
+          {!isSuperAdmin && !isStudent && (
             <button
               id="tab-room-btn"
-              onClick={() => {
-                if (isStudent && !bookedSlotId) {
-                  alert('Please select a topic and book an available slot first.');
-                  setCurrentTab('topics');
-                  return;
-                }
-                setCurrentTab('room');
-              }}
+              onClick={() => setCurrentTab('room')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                 currentTab === 'room'
                   ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
@@ -178,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Radio className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 animate-pulse shrink-0" />
-              <span>{isFaculty || isCollegeAdmin ? 'GD Room (Observer)' : 'GD Conference Room'}</span>
+              <span>GD Room (Observer)</span>
             </button>
           )}
 
