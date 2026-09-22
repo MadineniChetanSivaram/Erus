@@ -78,6 +78,8 @@ interface BackendCollegeSlotItem {
   maxCapacity: number;
   assignedFacultyId?: string;
   assignedFacultyName?: string;
+  assignedFacultyEmail?: string;
+  assignedFacultyDept?: string;
   collegeCode: string;
   createdAt: string;
 }
@@ -928,7 +930,24 @@ app.post('/api/college/faculty', async (req, res) => {
 
 app.get('/api/college/slots', (req, res) => {
   const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
-  const slots = persistentState.slots[code] || [];
+  const facultyList = persistentState.faculty[code] || [];
+
+  // Resolve the faculty assignment from the shared college roster every time.
+  // This is the single source of truth used by student, faculty and admin portals.
+  const slots = (persistentState.slots[code] || []).map((slot) => {
+    const faculty = slot.assignedFacultyId
+      ? facultyList.find((f) => f.facultyId === slot.assignedFacultyId || f.id === slot.assignedFacultyId)
+      : undefined;
+
+    return {
+      ...slot,
+      assignedFacultyId: faculty?.facultyId || slot.assignedFacultyId || '',
+      assignedFacultyName: faculty?.name || slot.assignedFacultyName || '',
+      assignedFacultyEmail: faculty?.email || '',
+      assignedFacultyDept: faculty?.department || '',
+    };
+  });
+
   res.json({ success: true, slots });
 });
 
@@ -940,6 +959,12 @@ app.post('/api/college/slots', async (req, res) => {
     persistentState.slots[code] = [];
   }
 
+  const assignedFaculty = payload.assignedFacultyId
+    ? (persistentState.faculty[code] || []).find(
+        (f) => f.facultyId === payload.assignedFacultyId || f.id === payload.assignedFacultyId
+      )
+    : undefined;
+
   const newSlot: BackendCollegeSlotItem = {
     id: payload.id || `slot-${code.toLowerCase()}-${Date.now().toString().slice(-4)}`,
     slotName: payload.slotName || payload.topic,
@@ -950,8 +975,10 @@ app.post('/api/college/slots', async (req, res) => {
     durationMinutes: Number(payload.durationMinutes) || 15,
     enrolledCount: Number(payload.enrolledCount) || 8,
     maxCapacity: Number(payload.maxCapacity) || 15,
-    assignedFacultyId: payload.assignedFacultyId,
-    assignedFacultyName: payload.assignedFacultyName,
+    assignedFacultyId: assignedFaculty?.facultyId || payload.assignedFacultyId,
+    assignedFacultyName: assignedFaculty?.name || payload.assignedFacultyName,
+    assignedFacultyEmail: assignedFaculty?.email || payload.assignedFacultyEmail,
+    assignedFacultyDept: assignedFaculty?.department || payload.assignedFacultyDept,
     collegeCode: code,
     createdAt: new Date().toISOString(),
   };
