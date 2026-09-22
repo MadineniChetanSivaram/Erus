@@ -973,7 +973,7 @@ app.post('/api/college/slots', async (req, res) => {
     slotTiming: payload.slotTiming || '10:30 AM - 10:45 AM',
     status: payload.status || 'scheduled',
     durationMinutes: Number(payload.durationMinutes) || 15,
-    enrolledCount: Number(payload.enrolledCount) || 8,
+    enrolledCount: Number(payload.enrolledCount) || 0,
     maxCapacity: Number(payload.maxCapacity) || 15,
     assignedFacultyId: assignedFaculty?.facultyId || payload.assignedFacultyId,
     assignedFacultyName: assignedFaculty?.name || payload.assignedFacultyName,
@@ -1234,7 +1234,25 @@ app.post('/api/student/cancel-slot', async (req, res) => {
   if (persistentState.studentBookings[studentId] === slotId || !slotId) {
     delete persistentState.studentBookings[studentId];
   }
+  for (const list of Object.values(persistentState.slots)) {
+    const slot = list.find((candidate) => candidate.id === slotId);
+    if (slot) slot.enrolledCount = Math.max(0, Number(slot.enrolledCount || 0) - 1);
+  }
   savePersistentState();
+
+  if (isDbConnected && prisma && slotId) {
+    try {
+      await prisma.gDBooking.updateMany({
+        where: { sessionId: slotId, studentId: studentId },
+        data: { status: 'CANCELLED' },
+      });
+      const slot = await prisma.gDSession.findUnique({ where: { id: slotId } });
+      if (slot) await prisma.gDSession.update({ where: { id: slotId }, data: { enrolledCount: Math.max(0, slot.enrolledCount - 1) } });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to cancel booking:', dbErr.message);
+    }
+  }
+
   res.json({
     success: true,
     studentId,
