@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header, NavTabType } from './components/Header';
 import { RealisticGDRoom } from './components/GDRoom/RealisticGDRoom';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -29,10 +29,11 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
 import { clearStoredAuth, verifyCurrentSession, createCollegeSlot } from './utils/authApi';
 import { 
+  getStudentBookedSlotsByTopic,
+  setStudentBookedSlotForTopic,
+  clearStudentBookedSlotForTopic,
   getStudentBookedSlotId, 
-  setStudentBookedSlotId as setStudentBookedSlotIdHelper, 
-  isSlotSelectableForStudent,
-  clearStudentBookedSlot,
+  isSlotSelectableForTopic,
   checkCanReviveSlot 
 } from './utils/studentBooking';
 import { StudentTopicPortal } from './components/StudentPortal/StudentTopicPortal';
@@ -102,19 +103,24 @@ function GDAppContent() {
   const [activeReport, setActiveReport] = useState<StudentAssessmentReport>(SAMPLE_REPORT_RAHUL);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
-  const [studentBookedSlotId, setStudentBookedSlotId] = useState<string | null>(() => {
+  const [studentBookedSlotsByTopic, setStudentBookedSlotsByTopic] = useState<Record<string, string>>(() => {
     try {
       const userRaw = localStorage.getItem('erus_auth_user');
       if (userRaw) {
         const u = JSON.parse(userRaw);
         if (u.role === 'student') {
           const key = u.id || u.email || 'student';
-          return getStudentBookedSlotId(key) || null;
+          return getStudentBookedSlotsByTopic(key);
         }
       }
     } catch {}
-    return null;
+    return {};
   });
+
+  const studentBookedSlotId = useMemo(() => {
+    const values = Object.values(studentBookedSlotsByTopic);
+    return values.length > 0 ? values[0] : null;
+  }, [studentBookedSlotsByTopic]);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
     const slots = loadInitialSlots();
     return slots[0]?.status === 'active' ? 315 : 0;
@@ -189,12 +195,13 @@ function GDAppContent() {
     if (user.role === 'student') {
       setViewingStudentId(null);
       const studentKey = user.id || user.email || 'student';
-      // Retrieve already-booked slot if candidate booked previously, otherwise null
-      const bookedSlotId = getStudentBookedSlotId(studentKey) || null;
-      setStudentBookedSlotId(bookedSlotId);
+      // Retrieve topic bookings if candidate booked previously
+      const bookedTopics = getStudentBookedSlotsByTopic(studentKey);
+      setStudentBookedSlotsByTopic(bookedTopics);
 
-      if (bookedSlotId) {
-        const targetBookedSlot = availableSlots.find((s) => s.id === bookedSlotId) || session;
+      const bookedIds = Object.values(bookedTopics);
+      if (bookedIds.length > 0) {
+        const targetBookedSlot = availableSlots.find((s) => bookedIds.includes(s.id)) || session;
         const activeSlotId = targetBookedSlot.id;
         const studentUserObj: Student = {
           ...INITIAL_SESSION.students[0],
@@ -204,7 +211,7 @@ function GDAppContent() {
           course: user.course,
           batch: user.batch,
           isUser: true,
-          bookedSlotId,
+          bookedSlotId: activeSlotId,
         };
         const initialStudentReport = generateStudentReport(studentUserObj, targetBookedSlot.topic, targetBookedSlot.durationMinutes);
         setActiveReport(initialStudentReport);
@@ -212,11 +219,11 @@ function GDAppContent() {
 
         setAvailableSlots((prevSlots) =>
           prevSlots.map((slot) => {
-            const isCurrentSlot = slot.id === activeSlotId;
+            const isUserInSlot = bookedIds.includes(slot.id);
             return {
               ...slot,
               students: slot.students.map((s, idx) => {
-                const shouldBeUser = isCurrentSlot && (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber);
+                const shouldBeUser = isUserInSlot && (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber);
                 return {
                   ...s,
                   isUser: shouldBeUser,
@@ -518,24 +525,25 @@ function GDAppContent() {
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
 
-    // Single Slot Policy: Enforce that students can only select their booked slot
+    // One Slot Per Topic Policy: Enforce that students cannot select a different slot on a topic they already booked
     if (currentUser && currentUser.role === 'student') {
       const studentKey = currentUser.id || currentUser.email || 'student';
-      const check = isSlotSelectableForStudent(slotId, currentUser.role, studentKey, studentBookedSlotId);
-      if (!check.allowed) {
-        const bookedSlot = availableSlots.find((s) => s.id === (studentBookedSlotId || getStudentBookedSlotId(studentKey)));
-        alert(`Slot Locked: You have already booked ${bookedSlot?.slotName || 'a slot'}. Under institutional GD evaluation policy, students cannot select or switch to another slot.`);
+      const topicKey = targetSlot.topic || 'General Topic';
+      const bookedOnTopic = studentBookedSlotsByTopic[topicKey];
+      if (bookedOnTopic && bookedOnTopic !== slotId) {
+        const bookedSlot = availableSlots.find((s) => s.id === bookedOnTopic);
+        alert(`Slot Locked: You have already booked ${bookedSlot?.slotName || 'a slot'} for this topic ("${topicKey}"). Under institutional policy, candidates can only book one slot per topic. You may choose slots on other topics.`);
         return;
       }
-      if (!studentBookedSlotId) {
+      if (!bookedOnTopic) {
         const targetMaxCap = targetSlot.maxCapacity || 15;
         const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 15;
         if (targetSlot.status !== 'completed' && targetCurrentEnrolled >= targetMaxCap) {
           alert(`Slot "${targetSlot.slotName || targetSlot.id}" is full (${targetCurrentEnrolled}/${targetMaxCap} students). Please select an open slot.`);
           return;
         }
-        setStudentBookedSlotIdHelper(studentKey, slotId);
-        setStudentBookedSlotId(slotId);
+        setStudentBookedSlotForTopic(studentKey, topicKey, slotId);
+        setStudentBookedSlotsByTopic((prev) => ({ ...prev, [topicKey]: slotId }));
       }
     }
 
@@ -760,20 +768,22 @@ function GDAppContent() {
     setCurrentTab('report');
   };
 
-  // Student books a slot
+  // Student books a slot (One Slot Per Topic Policy)
   const handleBookSlot = (slotId: string) => {
     if (!currentUser || currentUser.role !== 'student') return;
     const studentKey = currentUser.id || currentUser.email || 'student';
 
-    // Single Slot Policy: Candidate cannot book more than one slot
-    if (studentBookedSlotId) {
-      const alreadyBooked = availableSlots.find((s) => s.id === studentBookedSlotId);
-      alert(`Under institutional GD policy, candidates can only book one slot at a time. You currently have a confirmed booking for "${alreadyBooked?.slotName || alreadyBooked?.topic || 'a slot'}". You may revive or release your booked slot up to 1 hour before its scheduled start if you wish to change.`);
-      return;
-    }
-
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
+    const topicKey = targetSlot.topic || 'General Topic';
+
+    // One Slot Per Topic Policy: Candidate cannot book more than one slot for the SAME topic
+    const existingSlotIdOnThisTopic = studentBookedSlotsByTopic[topicKey];
+    if (existingSlotIdOnThisTopic) {
+      const alreadyBooked = availableSlots.find((s) => s.id === existingSlotIdOnThisTopic);
+      alert(`Under institutional policy, candidates can only book one slot per topic. You already have a confirmed booking for "${alreadyBooked?.slotName || topicKey}". You may select slots on other topics or revive this slot before 1 hour of its start time.`);
+      return;
+    }
 
     const maxCap = targetSlot.maxCapacity || 15;
     const currentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 0;
@@ -782,9 +792,9 @@ function GDAppContent() {
       return;
     }
 
-    // Save booking to localStorage & state
-    setStudentBookedSlotIdHelper(studentKey, slotId);
-    setStudentBookedSlotId(slotId);
+    // Save booking to localStorage & state for this topic
+    setStudentBookedSlotForTopic(studentKey, topicKey, slotId);
+    setStudentBookedSlotsByTopic((prev) => ({ ...prev, [topicKey]: slotId }));
 
     // Sync booking to backend API
     try {
@@ -795,6 +805,7 @@ function GDAppContent() {
           studentId: studentKey,
           studentIdentifier: studentKey,
           slotId,
+          topic: topicKey,
           studentName: currentUser.name,
           studentCollege: currentUser.college,
         }),
@@ -851,6 +862,7 @@ function GDAppContent() {
 
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
+    const topicKey = targetSlot.topic || 'General Topic';
 
     // Check 1-hour policy
     const check = checkCanReviveSlot(targetSlot);
@@ -859,9 +871,13 @@ function GDAppContent() {
       return;
     }
 
-    // Clear local storage and state
-    clearStudentBookedSlot(studentKey);
-    setStudentBookedSlotId(null);
+    // Clear local storage and state for this topic
+    clearStudentBookedSlotForTopic(studentKey, topicKey, slotId);
+    setStudentBookedSlotsByTopic((prev) => {
+      const next = { ...prev };
+      delete next[topicKey];
+      return next;
+    });
 
     // Sync cancellation to backend
     try {
@@ -872,6 +888,7 @@ function GDAppContent() {
           studentId: studentKey,
           studentIdentifier: studentKey,
           slotId,
+          topic: topicKey,
         }),
       }).catch((err) => console.warn('[Student Slot Cancel Sync]:', err));
     } catch {}
@@ -927,6 +944,7 @@ function GDAppContent() {
           <StudentTopicPortal
             availableSlots={availableSlots}
             bookedSlotId={studentBookedSlotId}
+            bookedSlotsByTopic={studentBookedSlotsByTopic}
             currentUser={currentUser}
             onBookSlot={handleBookSlot}
             onReviveSlot={handleReviveSlot}

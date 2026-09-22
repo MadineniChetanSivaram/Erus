@@ -30,6 +30,7 @@ import { checkCanReviveSlot } from '../../utils/studentBooking';
 interface StudentTopicPortalProps {
   availableSlots: GDSession[];
   bookedSlotId?: string | null;
+  bookedSlotsByTopic?: Record<string, string>;
   currentUser: AuthUser | null;
   onBookSlot: (slotId: string) => void;
   onReviveSlot: (slotId: string) => void;
@@ -39,6 +40,7 @@ interface StudentTopicPortalProps {
 export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   availableSlots,
   bookedSlotId,
+  bookedSlotsByTopic,
   currentUser,
   onBookSlot,
   onReviveSlot,
@@ -48,11 +50,28 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [reviveModalSlot, setReviveModalSlot] = useState<GDSession | null>(null);
 
-  // Find the student's currently booked slot object
-  const bookedSlot = useMemo(() => {
-    if (!bookedSlotId) return null;
-    return availableSlots.find((s) => s.id === bookedSlotId) || null;
-  }, [availableSlots, bookedSlotId]);
+  // Normalize map of { [topic]: slotId } for the student
+  const bookedSlotsMap = useMemo(() => {
+    if (bookedSlotsByTopic && Object.keys(bookedSlotsByTopic).length > 0) {
+      return bookedSlotsByTopic;
+    }
+    if (bookedSlotId) {
+      const s = availableSlots.find((slot) => slot.id === bookedSlotId);
+      const t = s?.topic || 'General Topic';
+      return { [t]: bookedSlotId };
+    }
+    return {};
+  }, [bookedSlotsByTopic, bookedSlotId, availableSlots]);
+
+  // Find all slots booked by this student across topics
+  const allBookedSlots = useMemo(() => {
+    const bookedIds = new Set(Object.values(bookedSlotsMap));
+    if (bookedIds.size === 0) return [];
+    return availableSlots.filter((s) => bookedIds.has(s.id));
+  }, [availableSlots, bookedSlotsMap]);
+
+  // Backward-compatible single booked slot reference
+  const bookedSlot = allBookedSlots[0] || null;
 
   // Group available slots by topic
   const topicsData = useMemo(() => {
@@ -66,6 +85,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
       totalSeats: number;
       enrolledSeats: number;
       hasBookedSlot: boolean;
+      bookedSlotIdForTopic?: string;
     }>();
 
     (availableSlots || []).forEach((slot) => {
@@ -73,7 +93,8 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
       const existing = topicMap.get(topicTitle);
       const maxCap = slot.maxCapacity || 15;
       const enrolled = slot.enrolledCount ?? slot.students?.length ?? 0;
-      const isBooked = slot.id === bookedSlotId;
+      const bookedSlotForThisTopic = bookedSlotsMap[topicTitle];
+      const isBooked = Boolean(bookedSlotForThisTopic && bookedSlotForThisTopic === slot.id);
 
       if (!existing) {
         topicMap.set(topicTitle, {
@@ -88,13 +109,17 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
           }] : [],
           totalSeats: maxCap,
           enrolledSeats: enrolled,
-          hasBookedSlot: isBooked,
+          hasBookedSlot: Boolean(bookedSlotForThisTopic),
+          bookedSlotIdForTopic: bookedSlotForThisTopic,
         });
       } else {
         existing.slots.push(slot);
         existing.totalSeats += maxCap;
         existing.enrolledSeats += enrolled;
-        if (isBooked) existing.hasBookedSlot = true;
+        if (bookedSlotForThisTopic) {
+          existing.hasBookedSlot = true;
+          existing.bookedSlotIdForTopic = bookedSlotForThisTopic;
+        }
         if (slot.assignedFacultyName && !existing.facultyList.some((f) => f.name === slot.assignedFacultyName)) {
           existing.facultyList.push({
             name: slot.assignedFacultyName,
@@ -105,7 +130,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
     });
 
     return Array.from(topicMap.values());
-  }, [availableSlots, bookedSlotId]);
+  }, [availableSlots, bookedSlotsMap]);
 
   // Filter topics by search query
   const filteredTopics = useMemo(() => {
@@ -158,95 +183,110 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
               Welcome, {currentUser?.name || 'Student Participant'}
             </h1>
             <p className="text-xs sm:text-sm text-indigo-200/90 leading-relaxed">
-              Explore scheduled group discussion topics, review allotted faculty evaluators, and confirm your seat in an available time slot. Under institutional guidelines, each candidate can reserve <strong>one discussion slot</strong>.
+              Explore scheduled group discussion topics, review allotted faculty evaluators, and confirm your seat in an available time slot. Under institutional guidelines, each candidate can reserve <strong>one discussion slot per topic</strong>.
             </p>
           </div>
         </div>
       </div>
 
-      {/* 2. CONFIRMED BOOKED SLOT BANNER (If Student Already Has A Slot) */}
-      {bookedSlot && (
-        <div className="p-5 sm:p-6 rounded-3xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 border-emerald-500/80 dark:border-emerald-500/60 shadow-lg shadow-emerald-600/5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 mt-0.5">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs uppercase font-extrabold tracking-wider text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-700">
-                    Your Confirmed Discussion Slot
-                  </span>
-                  <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
-                    {bookedSlot.slotName}
-                  </span>
+      {/* 2. CONFIRMED BOOKED SLOTS BANNER (If Student Has Booked Any Topic Slots) */}
+      {allBookedSlots.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 px-1">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Your Confirmed Discussion Bookings ({allBookedSlots.length})</span>
+            </span>
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+              1 Slot Per Topic Policy Active
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3.5">
+            {allBookedSlots.map((bSlot) => {
+              const canReviveInfo = checkCanReviveSlot(bSlot);
+              const isLockedDueToTime = !canReviveInfo.canRevive;
+
+              return (
+                <div
+                  key={bSlot.id}
+                  className="p-5 rounded-3xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 border-emerald-500/80 dark:border-emerald-500/60 shadow-md shadow-emerald-600/5 space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30 mt-0.5">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs uppercase font-extrabold tracking-wider text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-700">
+                            Confirmed Topic Slot
+                          </span>
+                          <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                            {bSlot.slotName}
+                          </span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                          {bSlot.topic}
+                        </h3>
+                        <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300 flex-wrap pt-0.5">
+                          <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{bSlot.slotTiming || '10:00 AM - 10:30 AM'} ({bSlot.slotDate || 'Today'})</span>
+                          </span>
+                          {bSlot.assignedFacultyName && (
+                            <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
+                              <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>Evaluator: <strong>{bSlot.assignedFacultyName}</strong></span>
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1 font-medium text-slate-500">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>{bSlot.enrolledCount ?? bSlot.students?.length ?? 15}/{bSlot.maxCapacity || 15} Candidates</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons: Enter GD Room & Revive/Release Slot */}
+                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => onEnterRoom(bSlot.id)}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                      >
+                        <Radio className="w-4 h-4 animate-pulse" />
+                        <span>Enter Discussion Room</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+
+                      {/* Revive Slot Button with 1-Hour Guard */}
+                      {isLockedDueToTime ? (
+                        <button
+                          type="button"
+                          disabled
+                          title="Slot starts within 1 hour. Cancellation or slot changes are disabled as per institutional evaluation policy."
+                          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-not-allowed opacity-75"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Revive Locked (&lt;1h to Start)</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setReviveModalSlot(bSlot)}
+                          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
+                          title="Revive your booking to release this seat and choose another discussion slot on this topic (available up to 1 hour before session starts)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 group-hover:-rotate-45 transition-transform" />
+                          <span>Revive / Change Slot</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  {bookedSlot.topic}
-                </h3>
-                <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300 flex-wrap pt-0.5">
-                  <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{bookedSlot.slotTiming || '10:00 AM - 10:30 AM'} ({bookedSlot.slotDate || 'Today'})</span>
-                  </span>
-                  {bookedSlot.assignedFacultyName && (
-                    <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                      <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Evaluator: <strong>{bookedSlot.assignedFacultyName}</strong></span>
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1 font-medium text-slate-500">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>{bookedSlot.enrolledCount ?? bookedSlot.students?.length ?? 15}/{bookedSlot.maxCapacity || 15} Candidates</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons: Enter GD Room & Revive/Release Slot */}
-            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-              <button
-                type="button"
-                onClick={() => onEnterRoom(bookedSlot.id)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-              >
-                <Radio className="w-4 h-4 animate-pulse" />
-                <span>Enter Discussion Room</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              {/* Revive Slot Button with 1-Hour Guard */}
-              {(() => {
-                const canReviveInfo = checkCanReviveSlot(bookedSlot);
-                const isLockedDueToTime = !canReviveInfo.canRevive;
-
-                if (isLockedDueToTime) {
-                  return (
-                    <button
-                      type="button"
-                      disabled
-                      title="Slot starts within 1 hour. Cancellation or slot changes are disabled as per institutional evaluation policy."
-                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-not-allowed opacity-75"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Revive Locked (&lt;1h to Start)</span>
-                    </button>
-                  );
-                }
-
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setReviveModalSlot(bookedSlot)}
-                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
-                    title="Revive your booking to release this seat and choose another discussion slot (available up to 1 hour before session starts)"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 group-hover:-rotate-45 transition-transform" />
-                    <span>Revive / Change Slot</span>
-                  </button>
-                );
-              })()}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -411,8 +451,9 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                   const maxCap = slot.maxCapacity || 15;
                   const enrolled = slot.enrolledCount ?? slot.students?.length ?? 15;
                   const isFull = enrolled >= maxCap;
-                  const isThisBooked = slot.id === bookedSlotId;
-                  const isOtherSlotLocked = Boolean(bookedSlotId) && slot.id !== bookedSlotId;
+                  const bookedSlotForThisTopic = bookedSlotsMap[activeTopicObj.topic];
+                  const isThisBooked = Boolean(bookedSlotForThisTopic) && slot.id === bookedSlotForThisTopic;
+                  const isOtherSlotLocked = Boolean(bookedSlotForThisTopic) && slot.id !== bookedSlotForThisTopic;
                   const seatsLeft = Math.max(0, maxCap - enrolled);
                   const occupancyPercent = Math.min(100, Math.round((enrolled / maxCap) * 100));
 
@@ -458,7 +499,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                           ) : isOtherSlotLocked ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-[10px] border border-slate-300 dark:border-slate-700">
                               <Lock className="w-3 h-3" />
-                              <span>LOCKED FOR YOU</span>
+                              <span>LOCKED ON THIS TOPIC</span>
                             </span>
                           ) : isFull ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-bold text-[10px] border border-rose-200 dark:border-rose-800">
@@ -575,10 +616,10 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                             type="button"
                             disabled
                             className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed border border-slate-200 dark:border-slate-800"
-                            title={`Slot Locked: You have already booked ${bookedSlot?.slotName || 'another slot'}. Students cannot book multiple slots.`}
+                            title={`Slot Locked: You have already reserved a slot for "${activeTopicObj.topic}". Institutional policy permits one slot per topic. You may choose slots in other topics.`}
                           >
                             <Lock className="w-3.5 h-3.5" />
-                            <span>Slot Locked • Another Slot Booked</span>
+                            <span>Slot Locked • Topic Slot Already Reserved</span>
                           </button>
                         ) : isFull ? (
                           <button
@@ -641,7 +682,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Reviving this slot will <strong>cancel your confirmed reservation</strong> and immediately release your seat back to the open pool. All discussion topics and slots will unlock, allowing you to select and book a different slot.
+              Reviving this slot will <strong>cancel your confirmed reservation for this topic</strong> and immediately release your seat back to the open pool. Other slots for this topic will unlock, allowing you to choose a different time slot. Any bookings you hold on other topics remain active.
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -673,10 +714,10 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
         <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
         <div className="space-y-0.5">
           <span className="font-semibold text-slate-700 dark:text-slate-300">
-            Institutional Slot Policy (FR-2 & Evaluation Governance)
+            Institutional Slot Policy (FR-2 & One Slot Per Topic Rule)
           </span>
           <p className="text-[11px] leading-relaxed">
-            Each candidate is strictly allotted to one discussion slot for academic integrity. Candidates may revive/release their slot reservation at any time up until 1 hour prior to the scheduled start time. Within 1 hour of the slot start, bookings are permanently finalized.
+            Candidates can reserve up to one discussion slot per topic for schedule and academic integrity. Candidates may revive/release their slot reservation for any topic at any time up until 1 hour prior to the scheduled start time. Within 1 hour of the slot start, bookings are permanently finalized.
           </p>
         </div>
       </div>

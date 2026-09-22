@@ -286,6 +286,7 @@ let persistentState = {
   slots: { ...DEFAULT_COLLEGE_SLOTS },
   users: [...DEFAULT_USERS],
   studentBookings: { 's1': 'slot-dit-001' } as Record<string, string>,
+  studentTopicBookings: {} as Record<string, Record<string, string>>,
 };
 
 function loadPersistentState() {
@@ -300,6 +301,7 @@ function loadPersistentState() {
         if (data.slots && typeof data.slots === 'object') persistentState.slots = data.slots;
         if (Array.isArray(data.users) && data.users.length > 0) persistentState.users = data.users;
         if (data.studentBookings && typeof data.studentBookings === 'object') persistentState.studentBookings = data.studentBookings;
+        if (data.studentTopicBookings && typeof data.studentTopicBookings === 'object') persistentState.studentTopicBookings = data.studentTopicBookings;
       }
     }
   } catch (err) {
@@ -1059,43 +1061,81 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
   res.json({ success: true, slotId, status: 'active' });
 });
 
-// --- STUDENT SLOT BOOKING ENDPOINTS (Single Slot Policy) ---
+// --- STUDENT SLOT BOOKING ENDPOINTS (One Slot Per Topic Policy) ---
 app.get('/api/student/:studentId/booked-slot', (req, res) => {
   const { studentId } = req.params;
   const bookedSlotId = persistentState.studentBookings[studentId] || null;
-  res.json({ success: true, studentId, bookedSlotId });
+  const topicBookings = persistentState.studentTopicBookings[studentId] || {};
+  res.json({ success: true, studentId, bookedSlotId, topicBookings });
 });
 
 app.post('/api/student/book-slot', async (req, res) => {
-  const { studentId, slotId } = req.body;
+  const { studentId, slotId, topic } = req.body;
   if (!studentId || !slotId) {
     return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
   }
 
-  const existingBooking = persistentState.studentBookings[studentId];
-  if (existingBooking && existingBooking !== slotId) {
+  const topicKey = topic || 'General Topic';
+  if (!persistentState.studentTopicBookings) {
+    persistentState.studentTopicBookings = {};
+  }
+  if (!persistentState.studentTopicBookings[studentId]) {
+    persistentState.studentTopicBookings[studentId] = {};
+  }
+
+  const existingBookingForTopic = persistentState.studentTopicBookings[studentId][topicKey];
+  if (existingBookingForTopic && existingBookingForTopic !== slotId) {
     return res.status(403).json({
       success: false,
-      error: 'Single Slot Policy: You have already booked another slot and cannot switch slots.',
-      bookedSlotId: existingBooking,
+      error: `Topic Policy: You have already booked a slot for "${topicKey}". Only one slot per topic is allowed.`,
+      bookedSlotId: existingBookingForTopic,
+      topic: topicKey,
     });
   }
 
-  persistentState.studentBookings[studentId] = slotId;
+  persistentState.studentTopicBookings[studentId][topicKey] = slotId;
+  persistentState.studentBookings[studentId] = slotId; // legacy sync
   savePersistentState();
-  res.json({ success: true, studentId, bookedSlotId: slotId });
+  res.json({
+    success: true,
+    studentId,
+    bookedSlotId: slotId,
+    topic: topicKey,
+    topicBookings: persistentState.studentTopicBookings[studentId],
+  });
 });
 
 app.post('/api/student/cancel-slot', async (req, res) => {
   const studentId = req.body.studentId || req.body.studentIdentifier;
+  const { slotId, topic } = req.body;
   if (!studentId) {
     return res.status(400).json({ success: false, error: 'studentId or studentIdentifier is required' });
   }
 
+  if (persistentState.studentTopicBookings && persistentState.studentTopicBookings[studentId]) {
+    if (topic && persistentState.studentTopicBookings[studentId][topic]) {
+      delete persistentState.studentTopicBookings[studentId][topic];
+    } else if (slotId) {
+      for (const [t, sId] of Object.entries(persistentState.studentTopicBookings[studentId])) {
+        if (sId === slotId) {
+          delete persistentState.studentTopicBookings[studentId][t];
+          break;
+        }
+      }
+    }
+  }
+
   const previouslyBooked = persistentState.studentBookings[studentId] || null;
-  delete persistentState.studentBookings[studentId];
+  if (persistentState.studentBookings[studentId] === slotId || !slotId) {
+    delete persistentState.studentBookings[studentId];
+  }
   savePersistentState();
-  res.json({ success: true, studentId, releasedSlotId: previouslyBooked });
+  res.json({
+    success: true,
+    studentId,
+    releasedSlotId: slotId || previouslyBooked,
+    topicBookings: persistentState.studentTopicBookings?.[studentId] || {},
+  });
 });
 
 // --- AUTH ENDPOINTS ---
