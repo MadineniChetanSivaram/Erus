@@ -411,8 +411,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       status: 'scheduled',
       slotName: newSlot.slotName,
       slotTiming: newSlot.slotTiming,
-      maxCapacity: Math.max(15, requestedCount),
-      enrolledCount: finalStudents.length,
+      maxCapacity: requestedCount,
+      enrolledCount: 0,
       assignedFacultyId: newSlot.assignedFacultyId,
       assignedFacultyName: newSlot.assignedFacultyName,
       students: finalStudents,
@@ -434,8 +434,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       ...newSlot,
       id: newSessionId,
       collegeCode,
-      studentIds: students.slice(0, requestedCount).map((s) => s.id),
-      enrolledCount: finalStudents.length,
+      studentIds: [],
+      enrolledCount: 0,
       rawSession: sessionObj,
     };
 
@@ -873,7 +873,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Participants:</span>
-                      <span className="font-semibold">{sl.enrolledCount || 8} / {sl.maxCapacity || 15} Students</span>
+                      <span className="font-semibold">{sl.enrolledCount ?? 0} / {sl.maxCapacity || 15} Students</span>
                     </div>
                   </div>
                 </div>
