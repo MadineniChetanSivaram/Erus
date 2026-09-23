@@ -3800,9 +3800,22 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
         0,
       );
       const isEarlyRound = totalAiTurns <= participantsAfterTurn.length;
+
+      // Once every participant has completed one turn in the current round,
+      // the facilitator explicitly opens the next round by calling a
+      // participant. This gives each round a clear moderator-led transition.
+      const roundTurnCounts = participantsAfterTurn.map(
+        (p) => Number(p.speakingTurns || 0)
+      );
+      const roundComplete =
+        roundTurnCounts.length > 0 &&
+        Math.min(...roundTurnCounts) === Math.max(...roundTurnCounts) &&
+        roundTurnCounts[0] > 0;
+
       const facilitatorWasJustUsed = room.facilitatorHandoffStreak > 0;
-      const useFacilitatorHandoff = !!nextParticipant && !facilitatorWasJustUsed && (
-        !isEarlyRound && Math.random() < 0.20
+      const useFacilitatorHandoff = !!nextParticipant && (
+        roundComplete ||
+        (!isEarlyRound && !facilitatorWasJustUsed && Math.random() < 0.20)
       );
 
       if (nextParticipant && useFacilitatorHandoff) {
