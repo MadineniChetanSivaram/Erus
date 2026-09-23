@@ -228,6 +228,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     setMicEnabled: rtcSetMicEnabled,
     broadcastTranscript: rtcBroadcastTranscript,
     startSession: rtcStartSession,
+    aiParticipants: rtcAiParticipants,
+    simulationMode: rtcSimulationMode,
   } = useWebRTCRoom({
     slotId: session.slotId || session.id || 'slot-dit-001',
     currentUser,
@@ -376,6 +378,41 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
     },
   });
+
+  // In autonomous simulation mode the server owns the entire roster and turn
+  // engine. Do not let the legacy local demo roster introduce Rahul or any
+  // other mock human participant.
+  useEffect(() => {
+    if (!rtcSimulationMode || !rtcAiParticipants.length) return;
+    const aiStudents: Student[] = rtcAiParticipants.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar || '',
+      college: p.college || 'ERUS AI Participant',
+      course: 'AI GD Participant',
+      batch: '',
+      seatNumber: p.seatNumber,
+      isUser: false,
+      isDemoAI: true,
+      isRealPeer: false,
+      isEmptySeat: false,
+      isSpeaking: p.id === session.currentSpeakerId,
+      micActive: true,
+      cameraActive: false,
+      speakingTurns: p.speakingTurns || 0,
+      speakingDurationSeconds: p.speakingDurationSeconds || 0,
+      interruptionCount: 0,
+      questionsAnswered: 0,
+      questionsInitiated: 0,
+    } as any));
+    setSession((prev) => ({
+      ...prev,
+      students: aiStudents,
+      currentSpeakerId: prev.currentSpeakerId && aiStudents.some((s) => s.id === prev.currentSpeakerId)
+        ? prev.currentSpeakerId
+        : null,
+    }));
+  }, [rtcSimulationMode, rtcAiParticipants, session.currentSpeakerId, setSession]);
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
@@ -1125,6 +1162,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
   const handleInitiateOpeningSpeaker = () => {
+    if (rtcSimulationMode) return;
     if (!isSessionActive || hasRealStudentPeers || hasInitiatedOpeningRef.current || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1159,6 +1197,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
   const handleFacilitatorTargetedProbe = () => {
+    if (rtcSimulationMode) return;
     if (!isSessionActive || hasRealStudentPeers || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
     if (Date.now() - lastFacilitatorInterventionTimeRef.current < 12000) return;
 
@@ -1189,6 +1228,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
   useEffect(() => {
+    if (rtcSimulationMode) return;
     if (!isSessionActive) return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1215,6 +1255,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     session.currentSpeakerId,
     session.isFacilitatorSpeaking,
     transcripts.length,
+    rtcSimulationMode,
   ]);
 
   // Reset initiation flag when a session is freshly started or restarted
