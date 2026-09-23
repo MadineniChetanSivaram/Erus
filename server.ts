@@ -985,13 +985,52 @@ app.post('/api/college/faculty', async (req, res) => {
   res.json({ success: true, faculty: newFac });
 });
 
-app.get('/api/college/slots', (req, res) => {
+app.get('/api/college/slots', async (req, res) => {
   const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
   const facultyList = persistentState.faculty[code] || [];
+  const slotMap = new Map<string, any>();
 
-  // Resolve the faculty assignment from the shared college roster every time.
-  // This is the single source of truth used by student, faculty and admin portals.
-  const slots = (persistentState.slots[code] || []).map((slot) => {
+  // Start with the in-memory state.
+  for (const slot of (persistentState.slots[code] || [])) {
+    slotMap.set(slot.id, slot);
+  }
+
+  // PostgreSQL is also authoritative for persisted slots. This is important
+  // after a Railway restart/deploy, where in-memory state starts empty.
+  if (isDbConnected && prisma) {
+    try {
+      const dbSlots = await prisma.gDSession.findMany({
+        where: { college: { code } },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      for (const s of dbSlots) {
+        const existing = slotMap.get(s.id) || {};
+        slotMap.set(s.id, {
+          ...existing,
+          id: s.id,
+          topic: s.topic,
+          description: s.description || '',
+          durationMinutes: s.durationMinutes,
+          difficulty: s.difficulty,
+          status: s.status,
+          scheduledTime: s.scheduledTime || undefined,
+          slotTiming: s.slotTiming || '',
+          slotName: s.slotName || s.topic,
+          maxCapacity: s.maxCapacity,
+          enrolledCount: s.enrolledCount,
+          assignedFacultyId: s.assignedFacultyId || '',
+          assignedFacultyName: s.assignedFacultyName || '',
+          collegeCode: code,
+          createdAt: s.createdAt.toISOString(),
+        });
+      }
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to read college slots:', dbErr.message);
+    }
+  }
+
+  const slots = Array.from(slotMap.values()).map((slot) => {
     const faculty = slot.assignedFacultyId
       ? facultyList.find((f) => f.facultyId === slot.assignedFacultyId || f.id === slot.assignedFacultyId)
       : undefined;
@@ -1000,10 +1039,14 @@ app.get('/api/college/slots', (req, res) => {
       ...slot,
       assignedFacultyId: faculty?.facultyId || slot.assignedFacultyId || '',
       assignedFacultyName: faculty?.name || slot.assignedFacultyName || '',
-      assignedFacultyEmail: faculty?.email || '',
-      assignedFacultyDept: faculty?.department || '',
+      assignedFacultyEmail: faculty?.email || slot.assignedFacultyEmail || '',
+      assignedFacultyDept: faculty?.department || slot.assignedFacultyDept || '',
     };
   });
+
+  // Keep the in-memory cache synchronized so all portals see the same roster.
+  persistentState.slots[code] = slots;
+  savePersistentState();
 
   res.json({ success: true, slots });
 });
