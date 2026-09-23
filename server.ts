@@ -3654,6 +3654,13 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     });
 
     let target = candidates[0];
+    // When the previous AI explicitly handed the floor to someone, honor that
+    // handoff instead of recalculating a different participant.
+    if (room.nextSpeakerId) {
+      const handedOff = candidates.find((p) => p.id === room.nextSpeakerId);
+      if (handedOff) target = handedOff;
+      room.nextSpeakerId = undefined;
+    }
     // Randomize only the opening turn. After the discussion starts, fairness
     // is handled by the round/turn counters below.
     if (!room.openingStarted) {
@@ -3744,6 +3751,35 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       target.speakingTurns += 1;
       target.lastSpokeAt = now;
       target.speakingDurationSeconds += Math.max(4, Math.round(statement.split(/\s+/).length / 2.2));
+
+      // Every AI contribution ends by naturally handing the discussion to a
+      // specific next participant. The server selects that participant using
+      // the same fairness rules as the turn engine, then locks the handoff so
+      // the next turn cannot go to somebody else.
+      const participantsAfterTurn: any[] = room.simulationMode
+        ? [...syncAiParticipants(room)]
+        : [...realStudents, ...syncAiParticipants(room)];
+      const nextCandidates = participantsAfterTurn
+        .filter((p) => p.id !== target.id)
+        .sort((a, b) => {
+          const turnDiff = Number(a.speakingTurns || 0) - Number(b.speakingTurns || 0);
+          if (turnDiff !== 0) return turnDiff;
+          return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
+        });
+      const nextParticipant = nextCandidates[0];
+      if (nextParticipant) {
+        room.nextSpeakerId = nextParticipant.id;
+        const firstName = nextParticipant.name.split(' ')[0];
+        const handoffOptions = [
+          'I would like to hear from ' + firstName + ' next. What do you think about that?',
+          firstName + ', I would be interested in your perspective on this. What is your view?',
+          'Let us bring in ' + firstName + ' next. How would you respond to this point?',
+          firstName + ', what is your take on this issue?'
+        ];
+        const handoff = handoffOptions[(target.speakingTurns + target.seatNumber) % handoffOptions.length];
+        statement = statement.replace(/\\s+$/, '') + ' ' + handoff;
+      }
+
       room.currentSpeakerId = target.id;
       room.currentSpeakerSocketId = null;
       room.waitingForParticipantId = undefined;
