@@ -1183,20 +1183,65 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
     return res.status(403).json({ success: false, error: 'Only the assigned faculty can end this session' });
   }
 
+  const room = LIVE_ROOMS.get(slotId);
+  const transcriptHistory = room
+    ? room.transcripts.filter((t) => t.sessionId === slotId)
+    : liveTranscripts.filter((t) => t.sessionId === slotId);
+
+  if (isDbConnected && prisma && transcriptHistory.length > 0) {
+    try {
+      await prisma.transcriptEntry.deleteMany({ where: { sessionId: slotId } });
+      await prisma.transcriptEntry.createMany({
+        data: transcriptHistory.map((t: any) => ({
+          id: t.id, sessionId: slotId, speakerId: t.speakerId, speakerName: t.speakerName,
+          seatNumber: t.seatNumber ?? null, isFacilitator: !!t.isFacilitator, timestamp: t.timestamp || '00:00',
+          timestampSeconds: Number(t.timestampSeconds || 0), text: String(t.text || ''),
+          type: t.type || 'statement', sentiment: t.sentiment || 'neutral',
+        })),
+        skipDuplicates: true,
+      });
+    } catch (e: any) { console.warn('[Database] Failed to persist final transcript:', e.message); }
+  }
+
+  const participantIds = new Set<string>();
+  if (room) for (const peer of room.peers.values()) if (peer.role === 'student' && peer.userId) participantIds.add(peer.userId);
+  transcriptHistory.forEach((t: any) => { if (!t.isFacilitator && t.speakerId) participantIds.add(t.speakerId); });
+
+  const reports: any[] = [];
+  for (const participantId of participantIds) {
+    let studentUser: any = persistentState.users.find((u) => u.id === participantId || u.studentId === participantId);
+    if (!studentUser && isDbConnected && prisma) {
+      try {
+        const u = await prisma.user.findUnique({ where: { id: participantId }, include: { studentProfile: true } });
+        if (u) studentUser = { id: u.id, name: u.name, role: u.role, college: u.college, studentId: u.studentProfile?.studentId, course: u.studentProfile?.course, batch: u.studentProfile?.batch, seatNumber: u.studentProfile?.seatNumber };
+      } catch (e) {}
+    }
+    if (!studentUser || studentUser.role !== 'student') continue;
+    const peer = room ? Array.from(room.peers.values()).find((p) => p.userId === studentUser.id || p.userId === studentUser.studentId) : undefined;
+    const entries = transcriptHistory.filter((t: any) => t.speakerId === studentUser.id || t.speakerId === studentUser.studentId);
+    const wordCount = entries.reduce((sum: number, t: any) => sum + String(t.text || '').trim().split(/\s+/).filter(Boolean).length, 0);
+    const speakingSeconds = peer?.speakingDurationSeconds || (wordCount ? Math.max(1, Math.round(wordCount / 130 * 60)) : 0);
+    const report = await generateAssessmentReport(studentUser, transcriptHistory, target.topic, target.durationMinutes, {
+      sessionId: slotId, speakingDurationSeconds: speakingSeconds, speakingTurns: peer?.speakingTurns ?? entries.length,
+      interruptionCount: peer?.interruptionCount ?? 0, questionsAnswered: 0, questionsInitiated: 0,
+    });
+    await persistAssessmentReport(report);
+    reports.push(report);
+  }
+
   target.status = 'completed';
   savePersistentState();
   if (isDbConnected && prisma) {
     try {
       await prisma.gDSession.update({ where: { id: slotId }, data: { status: 'completed' } });
       await prisma.gDBooking.updateMany({ where: { sessionId: slotId, status: { not: 'CANCELLED' } }, data: { status: 'COMPLETED' } });
-    } catch (e) { console.warn('[Database] Failed to finalize session:', (e as any).message); }
+    } catch (e: any) { console.warn('[Database] Failed to finalize session:', e.message); }
   }
-  const room = LIVE_ROOMS.get(slotId);
   if (room) {
     room.status = 'completed';
-    io.to(`room-${slotId}`).emit('session-ended', { slotId, status: 'completed' });
+    io.to('room-' + slotId).emit('session-ended', { slotId, status: 'completed', reports });
   }
-  res.json({ success: true, slotId, status: 'completed' });
+  res.json({ success: true, slotId, status: 'completed', reports, transcriptCount: transcriptHistory.length });
 });
 
 app.post('/api/college/slots/:id/start', async (req, res) => {
@@ -2801,389 +2846,249 @@ Generate your response in JSON format with:
   }
 });
 
-// Endpoint 2: AI Assessment Engine - 7-Parameter Scoring Formula with WPM & Filler Word Grounding
+// Endpoint 2: AI Assessment Engine - evidence-grounded 7-parameter evaluation
+const ASSESSMENT_MODEL = 'gemini-3.7-flash';
+
+function gradeForScore(score: number) {
+  if (score >= 90) return 'Excellent';
+  if (score >= 75) return 'Very Good';
+  if (score >= 60) return 'Good';
+  if (score >= 40) return 'Average';
+  return 'Needs Improvement';
+}
+
+function clampScore(value: any, max: number) {
+  const n = Number(value);
+  return Math.min(max, Math.max(0, Number.isFinite(n) ? Math.round(n) : 0));
+}
+
+function fallbackAssessment(student: any, entries: any[], topic: string, durationMinutes: number, metrics: any) {
+  const spokenText = entries.map((t: any) => String(t.text || '').trim()).filter(Boolean).join(' ');
+  const words = spokenText ? spokenText.split(/\s+/).filter(Boolean) : [];
+  const wordCount = words.length;
+  const turns = metrics.speakingTurns ?? entries.length;
+  const seconds = Math.max(0, Number(metrics.speakingDurationSeconds || (wordCount ? Math.round(wordCount / 130 * 60) : 0)));
+  const wpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
+  const fillerKeywords = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
+  const fillerMap: Record<string, number> = {};
+  fillerKeywords.forEach((kw) => {
+    const m = spokenText.toLowerCase().match(new RegExp('\\b' + kw + '\\b', 'gi'));
+    if (m?.length) fillerMap[kw] = m.length;
+  });
+  const fillerWordsCount = Object.values(fillerMap).reduce((a, b) => a + b, 0);
+  const fillerWordsBreakdown = Object.entries(fillerMap).map(([word, count]) => ({ word, count }));
+  if (!wordCount) {
+    const skills = {
+      english: { score: 0, max: 20, feedback: 'No student speech was captured.' },
+      fluency: { score: 0, max: 20, feedback: 'No student speech was captured.' },
+      clarity: { score: 0, max: 15, feedback: 'No student speech was captured.' },
+      confidence: { score: 0, max: 15, feedback: 'No speaking evidence was captured.' },
+      contentQuality: { score: 0, max: 15, feedback: 'No argument evidence was captured.' },
+      collaboration: { score: 0, max: 10, feedback: 'No peer interaction evidence was captured.' },
+      leadership: { score: 0, max: 5, feedback: 'No leadership evidence was captured.' },
+    };
+    return {
+      id: 'rep-' + student.id + '-' + Date.now(), sessionId: metrics.sessionId, studentId: student.id,
+      studentName: student.name, college: student.college || 'Engineering Institute', topic, durationMinutes,
+      speakingTimeFormatted: '0 min 0 sec', speakingTimeSeconds: 0, speakingTurns: 0,
+      interruptions: metrics.interruptionCount || 0, questionsAnswered: 0, questionsInitiated: 0,
+      wpm: 0, wpmStatus: 'No Speech', fillerWordsCount: 0, fillerWordsBreakdown: [],
+      skills, overallScore: 0, grade: 'Needs Improvement', strengths: [],
+      areasForImprovement: ['Participate in the discussion so measurable evidence can be captured.'],
+      aiRecommendations: ['Check microphone and transcription permissions before the next GD.'],
+      aiSummary: 'No student speech was captured. No performance claims were inferred.',
+      facultyEndorsement: { endorsed: false }, generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const english = Math.min(20, Math.max(6, Math.round(6 + Math.min(14, new Set(words.map((w: string) => w.toLowerCase())).size / wordCount * 22))));
+  const fluencyBase = wpm >= 110 && wpm <= 165 ? 20 : wpm >= 90 && wpm <= 190 ? 15 : 10;
+  const fluency = Math.max(0, fluencyBase - Math.min(8, Math.max(0, fillerWordsCount - 4)));
+  const clarity = Math.min(15, Math.max(5, Math.round(5 + Math.min(10, wordCount / 35))));
+  const confidence = Math.min(15, Math.max(4, Math.round(4 + Math.min(11, turns * 1.5))));
+  const content = Math.min(15, Math.max(5, Math.round(5 + Math.min(10, Math.log2(wordCount + 1) * 1.5))));
+  const collaboration = entries.some((e: any) => /agree|disagree|adding|build|point|others/i.test(e.text)) ? 8 : 4;
+  const leadership = entries.some((e: any) => /initiat|summar|conclud|suggest|bring.*point|let us hear/i.test(e.text)) ? 4 : turns >= 3 ? 2 : 1;
+  const skills = {
+    english: { score: english, max: 20, feedback: 'Fallback score based only on captured language evidence.' },
+    fluency: { score: fluency, max: 20, feedback: 'Captured pace was ' + wpm + ' WPM with ' + fillerWordsCount + ' filler words.' },
+    clarity: { score: clarity, max: 15, feedback: 'Based on the amount and structure of captured speech.' },
+    confidence: { score: confidence, max: 15, feedback: 'Based on observable speaking turns only.' },
+    contentQuality: { score: content, max: 15, feedback: 'Based on the amount of topic-related captured speech.' },
+    collaboration: { score: collaboration, max: 10, feedback: 'Only explicit peer-reference language was considered.' },
+    leadership: { score: leadership, max: 5, feedback: 'Only observable initiative or synthesis language was considered.' },
+  };
+  const overallScore = Object.values(skills).reduce((sum, item) => sum + item.score, 0);
+  return {
+    id: 'rep-' + student.id + '-' + Date.now(), sessionId: metrics.sessionId, studentId: student.id,
+    studentName: student.name, college: student.college || 'Engineering Institute', topic, durationMinutes,
+    speakingTimeFormatted: Math.floor(seconds / 60) + ' min ' + (seconds % 60) + ' sec',
+    speakingTimeSeconds: seconds, speakingTurns: turns, interruptions: metrics.interruptionCount || 0,
+    questionsAnswered: metrics.questionsAnswered || 0, questionsInitiated: metrics.questionsInitiated || 0,
+    wpm, wpmStatus: wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal',
+    fillerWordsCount, fillerWordsBreakdown, skills, overallScore, grade: gradeForScore(overallScore),
+    strengths: turns > 1 ? ['Participated in multiple speaking turns.'] : ['Provided a captured contribution.'],
+    areasForImprovement: fillerWordsCount > 4 ? ['Reduce conversational filler words.'] : ['Use more explicit evidence and peer references.'],
+    aiRecommendations: ['Review the transcript for practice.', 'Maintain a steady speaking pace.', 'Use concise evidence-based arguments.'],
+    aiSummary: 'Fallback assessment based only on captured transcript evidence.',
+    facultyEndorsement: { endorsed: false }, generatedAt: new Date().toISOString(),
+  };
+}
+
+async function generateAssessmentReport(student: any, transcriptHistory: any[], topic: string, durationMinutes: number, metrics: any = {}) {
+  const entries = (transcriptHistory || []).filter((t: any) => t.speakerId === student.id && !t.isFacilitator && String(t.text || '').trim());
+  const spokenText = entries.map((t: any) => String(t.text).trim()).join(' ');
+  const words = spokenText ? spokenText.split(/\s+/).filter(Boolean) : [];
+  const wordCount = words.length;
+  const seconds = Math.max(0, Number(metrics.speakingDurationSeconds || (wordCount ? Math.round(wordCount / 130 * 60) : 0)));
+  const wpm = seconds > 0 ? Math.max(65, Math.min(210, Math.round(wordCount / (seconds / 60)))) : 0;
+  const fillers = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
+  const fillerMap: Record<string, number> = {};
+  fillers.forEach((kw) => {
+    const m = spokenText.toLowerCase().match(new RegExp('\\b' + kw + '\\b', 'gi'));
+    if (m?.length) fillerMap[kw] = m.length;
+  });
+  const fillerWordsCount = Object.values(fillerMap).reduce((a, b) => a + b, 0);
+  const fillerWordsBreakdown = Object.entries(fillerMap).map(([word, count]) => ({ word, count }));
+
+  if (!ai || wordCount === 0) {
+    return fallbackAssessment(student, entries, topic, durationMinutes, {
+      ...metrics, speakingDurationSeconds: seconds, speakingTurns: metrics.speakingTurns ?? entries.length,
+      sessionId: metrics.sessionId, questionsAnswered: metrics.questionsAnswered || 0, questionsInitiated: metrics.questionsInitiated || 0,
+    });
+  }
+
+  const prompt = 'Evaluate one student using only observable evidence. Never invent behavior. Leadership is not automatic for speaking first. If evidence is insufficient, use a conservative score and say so.\\n' +
+    'Student: ' + student.name + '\\nTopic: ' + topic + '\\nSpeaking seconds: ' + seconds +
+    '\\nTurns: ' + (metrics.speakingTurns ?? entries.length) + '\\nInterruptions: ' + (metrics.interruptionCount || 0) +
+    '\\nWords: ' + wordCount + '\\nWPM: ' + wpm + '\\nFiller words: ' + fillerWordsCount + '\\nTranscript:\\n' + spokenText +
+    '\\nRubric: English 20, Fluency 20, Clarity 15, Confidence 15, Content 15, Collaboration 10, Leadership 5. ' +
+    'Return JSON fields: englishScore, englishFeedback, fluencyScore, fluencyFeedback, clarityScore, clarityFeedback, confidenceScore, confidenceFeedback, contentScore, contentFeedback, collaborationScore, collaborationFeedback, leadershipScore, leadershipFeedback, strengths, areasForImprovement, aiRecommendations, aiSummary.';
+
+  try {
+    const response = await ai.models.generateContent({
+      model: ASSESSMENT_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            englishScore: { type: Type.NUMBER }, englishFeedback: { type: Type.STRING },
+            fluencyScore: { type: Type.NUMBER }, fluencyFeedback: { type: Type.STRING },
+            clarityScore: { type: Type.NUMBER }, clarityFeedback: { type: Type.STRING },
+            confidenceScore: { type: Type.NUMBER }, confidenceFeedback: { type: Type.STRING },
+            contentScore: { type: Type.NUMBER }, contentFeedback: { type: Type.STRING },
+            collaborationScore: { type: Type.NUMBER }, collaborationFeedback: { type: Type.STRING },
+            leadershipScore: { type: Type.NUMBER }, leadershipFeedback: { type: Type.STRING },
+            strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+            areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
+            aiRecommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
+            aiSummary: { type: Type.STRING },
+          },
+          required: ['englishScore','englishFeedback','fluencyScore','fluencyFeedback','clarityScore','clarityFeedback','confidenceScore','confidenceFeedback','contentScore','contentFeedback','collaborationScore','collaborationFeedback','leadershipScore','leadershipFeedback','strengths','areasForImprovement','aiRecommendations','aiSummary'],
+        },
+      },
+    });
+    const parsed = JSON.parse(response.text?.trim() || '{}');
+    const skills = {
+      english: { score: clampScore(parsed.englishScore, 20), max: 20, feedback: parsed.englishFeedback || 'Evidence limited.' },
+      fluency: { score: clampScore(parsed.fluencyScore, 20), max: 20, feedback: parsed.fluencyFeedback || ('Observed ' + wpm + ' WPM and ' + fillerWordsCount + ' filler words.') },
+      clarity: { score: clampScore(parsed.clarityScore, 15), max: 15, feedback: parsed.clarityFeedback || 'Evidence limited.' },
+      confidence: { score: clampScore(parsed.confidenceScore, 15), max: 15, feedback: parsed.confidenceFeedback || 'Evidence limited.' },
+      contentQuality: { score: clampScore(parsed.contentScore, 15), max: 15, feedback: parsed.contentFeedback || 'Evidence limited.' },
+      collaboration: { score: clampScore(parsed.collaborationScore, 10), max: 10, feedback: parsed.collaborationFeedback || 'Evidence limited.' },
+      leadership: { score: clampScore(parsed.leadershipScore, 5), max: 5, feedback: parsed.leadershipFeedback || 'Evidence limited.' },
+    };
+    const overallScore = Object.values(skills).reduce((sum, item) => sum + item.score, 0);
+    return {
+      id: 'rep-' + student.id + '-' + Date.now(), sessionId: metrics.sessionId, studentId: student.id,
+      studentName: student.name, college: student.college || 'Engineering Institute', topic, durationMinutes,
+      speakingTimeFormatted: Math.floor(seconds / 60) + ' min ' + (seconds % 60) + ' sec',
+      speakingTimeSeconds: seconds, speakingTurns: metrics.speakingTurns ?? entries.length,
+      interruptions: metrics.interruptionCount || 0, questionsAnswered: metrics.questionsAnswered || 0,
+      questionsInitiated: metrics.questionsInitiated || 0, wpm,
+      wpmStatus: wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal',
+      fillerWordsCount, fillerWordsBreakdown, skills, overallScore, grade: gradeForScore(overallScore),
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 3) : [],
+      areasForImprovement: Array.isArray(parsed.areasForImprovement) ? parsed.areasForImprovement.slice(0, 3) : [],
+      aiRecommendations: Array.isArray(parsed.aiRecommendations) ? parsed.aiRecommendations.slice(0, 3) : [],
+      aiSummary: parsed.aiSummary || 'Assessment generated from captured transcript.',
+      facultyEndorsement: { endorsed: false }, generatedAt: new Date().toISOString(),
+    };
+  } catch (e) {
+    console.warn('[Assessment AI] Gemini failed; using evidence-based fallback:', e);
+    return fallbackAssessment(student, entries, topic, durationMinutes, {
+      ...metrics, speakingDurationSeconds: seconds, speakingTurns: metrics.speakingTurns ?? entries.length, sessionId: metrics.sessionId,
+    });
+  }
+}
+
+async function persistAssessmentReport(report: any) {
+  if (!isDbConnected || !prisma || !report?.sessionId) return;
+  try {
+    const existing = await prisma.assessmentReport.findFirst({ where: { sessionId: report.sessionId, studentId: report.studentId } });
+    const data = {
+      sessionId: report.sessionId, studentId: report.studentId, overallScore: report.overallScore,
+      rubricJson: JSON.stringify(report.skills), feedback: report.aiSummary || '',
+      strengths: (report.strengths || []).join('; '), improvements: (report.areasForImprovement || []).join('; '),
+    };
+    if (existing) {
+      await prisma.assessmentReport.update({ where: { id: existing.id }, data });
+      report.id = existing.id;
+    } else {
+      await prisma.assessmentReport.create({ data: { id: report.id, ...data } });
+    }
+  } catch (e: any) { console.warn('[Database] Failed to persist assessment report:', e.message); }
+}
+
 app.post('/api/facilitator/evaluate', async (req, res) => {
   try {
     const { student, transcriptHistory = liveTranscripts, topic = currentLiveSession.topic, durationMinutes = 20 } = req.body;
-
-    const studentSpokenEntries = (transcriptHistory || []).filter((t: any) => t.speakerId === student.id);
-    const spokenText = studentSpokenEntries.map((t: any) => t.text).join(' ');
-
-    // 1. Calculate Exact Words & Speaking Rate (Words-Per-Minute - WPM)
-    const words = spokenText.trim().split(/\s+/).filter(Boolean);
-    const wordCount = words.length;
-    const durationSeconds = student.speakingDurationSeconds || 30;
-    const durationMins = Math.max(0.4, durationSeconds / 60);
-    const rawWpm = Math.round(wordCount > 0 ? wordCount / durationMins : 128);
-    const wpm = Math.max(65, Math.min(210, rawWpm));
-    let wpmStatus: 'Optimal' | 'Too Slow' | 'Too Fast' = 'Optimal';
-    if (wpm < 115) wpmStatus = 'Too Slow';
-    else if (wpm > 165) wpmStatus = 'Too Fast';
-
-    // 2. Detect and Count Conversational Filler Tokens
-    const fillerKeywords = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
-    const fillerMap: Record<string, number> = {};
-    const lowerSpoken = spokenText.toLowerCase();
-
-    fillerKeywords.forEach((kw) => {
-      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
-      const matches = lowerSpoken.match(regex);
-      if (matches && matches.length > 0) {
-        fillerMap[kw] = matches.length;
-      }
-    });
-    const fillerWordsCount = Object.values(fillerMap).reduce((a, b) => a + b, 0);
-    const fillerWordsBreakdown = Object.entries(fillerMap).map(([word, count]) => ({ word, count }));
-
-    if (ai && spokenText.length > 20) {
-      const evaluationPrompt = `You are the AI Assessment Engine for ERUS-AIGDF (AI Group Discussion Facilitator).
-Evaluate the following student's performance in a group discussion.
-
-Student Name: ${student.name}
-College: ${student.college || 'Engineering Institute'}
-Topic: "${topic}"
-Speaking Duration: ${durationSeconds} seconds
-Speaking Turns: ${student.speakingTurns}
-Interruption Count: ${student.interruptionCount}
-Spoken Word Count: ${wordCount} words
-Speaking Pace: ${wpm} Words Per Minute (Status: ${wpmStatus}. Optimal range is 120-150 WPM)
-Filler Words Detected: ${fillerWordsCount} (Breakdown: ${fillerWordsBreakdown.map((f) => `"${f.word}": ${f.count}`).join(', ') || 'None'})
-
-Student Transcripts:
-"${spokenText}"
-
-EVIDENCE RULES:
-- Score only what is observable in the student's actual transcript and participation metrics.
-- Do not invent arguments, examples, interruptions, questions, leadership actions, or collaboration behavior.
-- Collaboration must consider whether the student acknowledged/built on/challenged peers and whether they left space for others.
-- Leadership must consider initiating the GD, guiding the discussion, bringing quieter members in, resolving disagreement, or synthesizing viewpoints. Do not award maximum leadership merely because the student spoke first unless the transcript actually shows leadership behavior.
-- If evidence is insufficient for a parameter, use a conservative score and explicitly say that evidence was limited.
-- Do not use fixed/default scores just to make the report look positive.
-
-You MUST evaluate the student against the exact 7 parameters:
-1. Speaking in English (Weightage: 20%) -> Score between 0 and 20 (Sentence formation, Grammar usage, Vocabulary)
-2. Fluency (Weightage: 20%) -> Score between 0 and 20. CRITICAL: Use the calculated WPM (${wpm} WPM) and filler words count (${fillerWordsCount}). If filler words > 4, deduct from fluency score. If WPM is within 120-150, reward continuous natural rhythm.
-3. Communication Clarity (Weightage: 15%) -> Score between 0 and 15 (Clear ideas, Proper explanations, Understandable speech)
-4. Confidence (Weightage: 15%) -> Score between 0 and 15 (Initiating discussion, Responding confidently, Handling questions)
-5. Content Quality (Weightage: 15%) -> Score between 0 and 15 (Relevance, Logical reasoning, Examples, Supporting arguments)
-6. Collaboration (Weightage: 10%) -> Score between 0 and 10 (Respect for others, Listening skills, Encouraging others, Team behavior)
-7. Leadership & Decision Making (Weightage: 5%) -> Score between 0 and 5. MANDATORY BEHAVIORAL RULE: If the student was the first to speak and initiated/started the GD, award maximum leadership score (5/5) and praise their leadership initiative in leadershipFeedback. If the student concluded or synthesized the discussion, award maximum score (5/5) and praise their decision-making and synthesis skills in leadershipFeedback.
-
-Overall Score Formula: English + Fluency + Clarity + Confidence + Content + Collaboration + Leadership (Max 100).
-Grade Scale:
-- 90-100: Excellent
-- 75-89: Very Good
-- 60-74: Good
-- 40-59: Average
-- Below 40: Needs Improvement
-
-Provide JSON with:
-- englishScore (0-20), englishFeedback
-- fluencyScore (0-20), fluencyFeedback (explicitly mention speaking pace or fillers)
-- clarityScore (0-15), clarityFeedback
-- confidenceScore (0-15), confidenceFeedback
-- contentScore (0-15), contentFeedback
-- collaborationScore (0-10), collaborationFeedback
-- leadershipScore (0-5), leadershipFeedback
-- strengths: Array of 3 concise bullet strings
-- areasForImprovement: Array of 3 concise bullet strings
-- aiRecommendations: Array of 3 actionable practice recommendations
-- aiSummary: 2-3 sentences overview`;
-
-      const evaluationRes = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: evaluationPrompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              englishScore: { type: Type.NUMBER },
-              englishFeedback: { type: Type.STRING },
-              fluencyScore: { type: Type.NUMBER },
-              fluencyFeedback: { type: Type.STRING },
-              clarityScore: { type: Type.NUMBER },
-              clarityFeedback: { type: Type.STRING },
-              confidenceScore: { type: Type.NUMBER },
-              confidenceFeedback: { type: Type.STRING },
-              contentScore: { type: Type.NUMBER },
-              contentFeedback: { type: Type.STRING },
-              collaborationScore: { type: Type.NUMBER },
-              collaborationFeedback: { type: Type.STRING },
-              leadershipScore: { type: Type.NUMBER },
-              leadershipFeedback: { type: Type.STRING },
-              strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-              areasForImprovement: { type: Type.ARRAY, items: { type: Type.STRING } },
-              aiRecommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
-              aiSummary: { type: Type.STRING },
-            },
-            required: [
-              'englishScore', 'fluencyScore', 'clarityScore', 'confidenceScore',
-              'contentScore', 'collaborationScore', 'leadershipScore',
-              'strengths', 'areasForImprovement', 'aiRecommendations', 'aiSummary'
-            ],
-          },
-        },
-      });
-
-      const parsed = JSON.parse(evaluationRes.text?.trim() || '{}');
-      const english = Math.min(20, Math.max(0, Math.round(parsed.englishScore ?? 0)));
-      const fluency = Math.min(20, Math.max(0, Math.round(parsed.fluencyScore ?? 0)));
-      const clarity = Math.min(15, Math.max(0, Math.round(parsed.clarityScore ?? 0)));
-      const confidence = Math.min(15, Math.max(0, Math.round(parsed.confidenceScore ?? 0)));
-      const content = Math.min(15, Math.max(0, Math.round(parsed.contentScore ?? 0)));
-      const collaboration = Math.min(10, Math.max(0, Math.round(parsed.collaborationScore ?? 0)));
-      const leadership = Math.min(5, Math.max(0, Math.round(parsed.leadershipScore ?? 0)));
-
-      const overall = english + fluency + clarity + confidence + content + collaboration + leadership;
-      let grade = 'Very Good';
-      if (overall >= 90) grade = 'Excellent';
-      else if (overall >= 75) grade = 'Very Good';
-      else if (overall >= 60) grade = 'Good';
-      else if (overall >= 40) grade = 'Average';
-      else grade = 'Needs Improvement';
-
-      const report = {
-        id: `rep-${student.id}-${Date.now()}`,
-        sessionId: req.body.sessionId || currentLiveSession.id,
-        studentId: student.id,
-        studentName: student.name,
-        college: student.college || 'Engineering Institute',
-        topic,
-        durationMinutes,
-        speakingTimeFormatted: `${Math.floor(durationSeconds / 60)} min ${durationSeconds % 60} sec`,
-        speakingTimeSeconds: durationSeconds,
-        speakingTurns: student.speakingTurns,
-        interruptions: student.interruptionCount,
-        questionsAnswered: student.questionsAnswered || 3,
-        questionsInitiated: student.questionsInitiated || 2,
-        wpm,
-        wpmStatus,
-        fillerWordsCount,
-        fillerWordsBreakdown,
-        facultyEndorsement: {
-          endorsed: false,
-        },
-        skills: {
-          english: {
-            parameter: 'Speaking in English',
-            weightagePercent: 20,
-            score: english,
-            maxScore: 20,
-            subPoints: ['Use of English', 'Sentence formation', 'Grammar usage', 'Vocabulary'],
-            feedback: parsed.englishFeedback || 'Clear articulation with good command over sentence structures.',
-          },
-          fluency: {
-            parameter: 'Fluency',
-            weightagePercent: 20,
-            score: fluency,
-            maxScore: 20,
-            subPoints: ['Continuous speaking', 'Reduced hesitation', 'Reduced fillers', 'Natural flow'],
-            feedback: parsed.fluencyFeedback || `Paced at ${wpm} WPM with ${fillerWordsCount} filler tokens detected.`,
-          },
-          clarity: {
-            parameter: 'Communication Clarity',
-            weightagePercent: 15,
-            score: clarity,
-            maxScore: 15,
-            subPoints: ['Clear ideas', 'Proper explanations', 'Understandable speech'],
-            feedback: parsed.clarityFeedback || 'Clear conceptual flow and structured thought delivery.',
-          },
-          confidence: {
-            parameter: 'Confidence',
-            weightagePercent: 15,
-            score: confidence,
-            maxScore: 15,
-            subPoints: ['Initiating discussion', 'Responding confidently', 'Handling questions'],
-            feedback: parsed.confidenceFeedback || 'Maintained composure and projected vocal presence effectively.',
-          },
-          contentQuality: {
-            parameter: 'Content Quality',
-            weightagePercent: 15,
-            score: content,
-            maxScore: 15,
-            subPoints: ['Relevance', 'Logical reasoning', 'Examples', 'Supporting arguments'],
-            feedback: parsed.contentFeedback || 'Substantiated opinions with sensible real-world context.',
-          },
-          collaboration: {
-            parameter: 'Collaboration',
-            weightagePercent: 10,
-            score: collaboration,
-            maxScore: 10,
-            subPoints: ['Respect for others', 'Listening skills', 'Encouraging others', 'Team behavior'],
-            feedback: parsed.collaborationFeedback || 'Acknowledged peer inputs and encouraged collective discussion.',
-          },
-          leadership: {
-            parameter: 'Leadership',
-            weightagePercent: 5,
-            score: leadership,
-            maxScore: 5,
-            subPoints: ['Guiding discussion', 'Summarizing points', 'Conflict management'],
-            feedback: parsed.leadershipFeedback || 'Demonstrated initiative in synthesizing team viewpoints.',
-          },
-        },
-        overallScore: overall,
-        grade,
-        strengths: parsed.strengths || ['Spoke confidently', 'Used relevant examples', 'Encouraged others to participate'],
-        areasForImprovement: parsed.areasForImprovement || ['Improve vocabulary', 'Provide stronger supporting arguments', 'Reduce pauses'],
-        aiRecommendations: parsed.aiRecommendations || [
-          'Practice speaking for 2 minutes continuously',
-          'Giving examples while expressing opinions',
-          'Learning topic-specific vocabulary',
-        ],
-        aiSummary: parsed.aiSummary || `${student.name} presented well-formed insights with high active participation.`,
-        generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      };
-
-      return res.json({ success: true, report });
-    }
-
-    // Default High-Fidelity Heuristic Evaluation (Fallback if Gemini or offline)
-    const english = Math.min(20, Math.max(14, Math.round(16 + (student.speakingTurns % 4))));
-    const fluency = Math.min(20, Math.max(13, Math.round(15 + ((durationSeconds / 40) % 5))));
-    const clarity = Math.min(15, Math.max(10, Math.round(12 + (student.questionsAnswered % 3))));
-    const confidence = Math.min(15, Math.max(11, Math.round(13 + (student.questionsInitiated % 3))));
-    const content = Math.min(15, Math.max(10, Math.round(12 + ((student.speakingTurns * 2) % 4))));
-    const collaboration = Math.min(10, Math.max(6, Math.round(8 - student.interruptionCount)));
-    const leadership = Math.min(5, Math.max(3, Math.round(4 + (student.questionsInitiated > 0 ? 1 : 0))));
-
-    const overall = english + fluency + clarity + confidence + content + collaboration + leadership;
-    let grade = 'Very Good';
-    if (overall >= 90) grade = 'Excellent';
-    else if (overall >= 75) grade = 'Very Good';
-    else if (overall >= 60) grade = 'Good';
-    else if (overall >= 40) grade = 'Average';
-    else grade = 'Needs Improvement';
-
-    const report = {
-      id: `rep-${student.id}-${Date.now()}`,
+    if (!student?.id) return res.status(400).json({ success: false, error: 'student is required' });
+    const report = await generateAssessmentReport(student, transcriptHistory, topic, durationMinutes, {
       sessionId: req.body.sessionId || currentLiveSession.id,
-      studentId: student.id,
-      studentName: student.name,
-      college: student.college || 'Engineering Institute',
-      topic,
-      durationMinutes,
-      speakingTimeFormatted: `${Math.floor(durationSeconds / 60)} min ${durationSeconds % 60} sec`,
-      speakingTimeSeconds: durationSeconds,
+      speakingDurationSeconds: student.speakingDurationSeconds,
       speakingTurns: student.speakingTurns,
-      interruptions: student.interruptionCount,
-      questionsAnswered: student.questionsAnswered || 4,
-      questionsInitiated: student.questionsInitiated || 2,
-      wpm,
-      wpmStatus,
-      fillerWordsCount,
-      fillerWordsBreakdown,
-      facultyEndorsement: {
-        endorsed: false,
-      },
-      skills: {
-        english: {
-          parameter: 'Speaking in English',
-          weightagePercent: 20,
-          score: english,
-          maxScore: 20,
-          subPoints: ['Use of English', 'Sentence formation', 'Grammar usage', 'Vocabulary'],
-          feedback: 'Articulate sentence formulation with accurate tense usage and vocabulary.',
-        },
-        fluency: {
-          parameter: 'Fluency',
-          weightagePercent: 20,
-          score: fluency,
-          maxScore: 20,
-          subPoints: ['Continuous speaking', 'Reduced hesitation', 'Reduced fillers', 'Natural flow'],
-          feedback: `Measured at ${wpm} WPM (${wpmStatus}) with ${fillerWordsCount} filler words detected.`,
-        },
-        clarity: {
-          parameter: 'Communication Clarity',
-          weightagePercent: 15,
-          score: clarity,
-          maxScore: 15,
-          subPoints: ['Clear ideas', 'Proper explanations', 'Understandable speech'],
-          feedback: 'Ideas delivered with straightforward logic and high intelligibility.',
-        },
-        confidence: {
-          parameter: 'Confidence',
-          weightagePercent: 15,
-          score: confidence,
-          maxScore: 15,
-          subPoints: ['Initiating discussion', 'Responding confidently', 'Handling questions'],
-          feedback: 'Maintained strong poise while responding to facilitator probes.',
-        },
-        contentQuality: {
-          parameter: 'Content Quality',
-          weightagePercent: 15,
-          score: content,
-          maxScore: 15,
-          subPoints: ['Relevance', 'Logical reasoning', 'Examples', 'Supporting arguments'],
-          feedback: 'Integrated relevant domain concepts and structured supportive examples.',
-        },
-        collaboration: {
-          parameter: 'Collaboration',
-          weightagePercent: 10,
-          score: collaboration,
-          maxScore: 10,
-          subPoints: ['Respect for others', 'Listening skills', 'Encouraging others', 'Team behavior'],
-          feedback: 'Exhibited constructive peer etiquette and encouraged diverse views.',
-        },
-        leadership: {
-          parameter: 'Leadership',
-          weightagePercent: 5,
-          score: leadership,
-          maxScore: 5,
-          subPoints: ['Guiding discussion', 'Summarizing points', 'Conflict management'],
-          feedback: 'Offered summaries that helped maintain group alignment.',
-        },
-      },
-      overallScore: overall,
-      grade,
-      strengths: ['Spoke confidently with structured points', `Maintained steady conversational pace (${wpm} WPM)`, 'Encouraged others to participate'],
-      areasForImprovement: ['Minimize filler tokens in spontaneous answers', 'Deepen counter-argument examples', 'Use precise domain terminology'],
-      aiRecommendations: [
-        'Practice speaking for 2 minutes continuously without pausing',
-        'Incorporate data and real-world statistics into opening arguments',
-        'Learn topic-specific vocabulary to reduce generic descriptions',
-      ],
-      aiSummary: `${student.name} demonstrated strong communication skills, speaking at ${wpm} WPM with ${overall}/100 score in the discussion on ${topic}.`,
-      generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-    };
-
-    if (isDbConnected && prisma) {
-      try {
-        let targetSessionId = report.sessionId;
-        const existingSession = await prisma.gDSession.findUnique({ where: { id: targetSessionId } });
-        if (!existingSession) {
-          const createdSession = await prisma.gDSession.create({
-            data: {
-              id: targetSessionId,
-              topic: report.topic || 'Group Discussion',
-              status: 'completed',
-            },
-          });
-          targetSessionId = createdSession.id;
-        }
-        await prisma.assessmentReport.create({
-          data: {
-            id: report.id,
-            sessionId: targetSessionId,
-            studentId: report.studentId,
-            overallScore: report.overallScore,
-            rubricJson: JSON.stringify(report.skills),
-            feedback: report.aiSummary,
-            strengths: (report.strengths || []).join('; '),
-            improvements: (report.areasForImprovement || []).join('; '),
-          },
-        });
-        console.log(`[Database] Assessment report ${report.id} saved to PostgreSQL.`);
-      } catch (dbErr: any) {
-        console.warn('[Database] Failed to save assessment report to PostgreSQL:', dbErr.message);
-      }
-    }
-
+      interruptionCount: student.interruptionCount,
+      questionsAnswered: student.questionsAnswered || 0,
+      questionsInitiated: student.questionsInitiated || 0,
+    });
+    await persistAssessmentReport(report);
     res.json({ success: true, report });
   } catch (error: any) {
     console.error('Evaluation error:', error);
-    res.status(500).json({ error: 'Evaluation failed' });
+    res.status(500).json({ success: false, error: 'Evaluation failed' });
   }
+});
+
+// Authoritative persisted report for a student.
+app.get('/api/student/reports', async (req, res) => {
+  const studentId = String(req.query.studentId || '').trim();
+  const sessionId = String(req.query.sessionId || '').trim();
+  if (!studentId) return res.status(400).json({ success: false, error: 'studentId is required' });
+  if (isDbConnected && prisma) {
+    try {
+      const where: any = { studentId };
+      if (sessionId) where.sessionId = sessionId;
+      const reports = await prisma.assessmentReport.findMany({ where, orderBy: { createdAt: 'desc' } });
+      return res.json({
+        success: true,
+        reports: reports.map((r) => {
+          let skills: any = {};
+          try { skills = JSON.parse(r.rubricJson || '{}'); } catch {}
+          return {
+            id: r.id, sessionId: r.sessionId, studentId: r.studentId, overallScore: r.overallScore,
+            grade: gradeForScore(r.overallScore), skills, aiSummary: r.feedback,
+            strengths: r.strengths ? r.strengths.split('; ').filter(Boolean) : [],
+            areasForImprovement: r.improvements ? r.improvements.split('; ').filter(Boolean) : [],
+            generatedAt: r.createdAt.toISOString(), facultyEndorsement: { endorsed: false },
+          };
+        }),
+      });
+    } catch (e: any) { console.warn('[Student Reports] DB read failed:', e.message); }
+  }
+  res.json({ success: true, reports: [] });
 });
 
 // Faculty report access is limited to the faculty assigned to the session.
@@ -3381,7 +3286,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       silenceTimerSeconds: 0,
       status: 'waiting',
       topic: topic || currentLiveSession.topic,
-      transcripts: [...liveTranscripts],
+      transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
