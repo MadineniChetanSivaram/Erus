@@ -3670,31 +3670,8 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\\n');
 
     if (target.id.startsWith('ai-')) {
-      // Do not announce every normal AI-to-AI handoff. The facilitator only
-      // explicitly calls a participant who has not spoken yet, after the
-      // discussion already has at least two contributions. Each participant
-      // is called this way at most once per live room.
-      const targetName = target.name;
-      const targetFirstName = targetName.split(' ')[0];
-      const hasNotSpoken = Number(target.speakingTurns || 0) === 0;
-      const spokenTurns = room.transcripts.filter((t) => !t.isFacilitator).length;
-      const shouldAnnounce = hasNotSpoken && spokenTurns >= 2 && room.announcedNextSpeakerId !== target.id;
-      if (shouldAnnounce) {
-        const announcement = 'We have heard several perspectives. Let us hear from ' + targetName + ' now. ' + targetFirstName + ', what is your view on "' + room.topic + '"?';
-        const moderatorTranscript: BackendTranscript = {
-          id: 't-next-ai-' + Date.now(), sessionId: room.slotId, speakerId: 'facilitator',
-          speakerName: 'AI Facilitator', seatNumber: null, isFacilitator: true, timestamp: '00:00',
-          timestampSeconds: Date.now(), text: announcement, type: 'intervention', sentiment: 'neutral',
-        };
-        room.transcripts.push(moderatorTranscript);
-        room.announcedNextSpeakerId = target.id;
-        io.to('room-' + room.slotId).emit('facilitator-intervention', {
-          text: announcement, action: 'next_speaker', targetUserId: target.id,
-          targetSeatNumber: target.seatNumber, transcript: moderatorTranscript,
-          nextSpeaker: { id: target.id, name: target.name, seatNumber: target.seatNumber, reason: 'has_not_spoken' },
-        });
-        await new Promise((resolve) => setTimeout(resolve, 1800));
-      }
+      // Normal AI turns use direct participant-to-participant handoffs.
+      // The facilitator is reserved for genuine deadlocks, not every turn.
       if (room.status !== 'active' || room.currentSpeakerId) return;
       const aiIndex = Math.max(0, target.seatNumber - 1);
       const perspectives = [
