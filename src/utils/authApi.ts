@@ -54,33 +54,25 @@ export async function loginUser(
       body: JSON.stringify({ role, identifier, password }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (res.ok && data.success && data.user) {
       setStoredAuth(data.user, data.token);
       return { success: true, user: data.user };
-    } else if (res.status === 401 || res.status === 400) {
-      return { success: false, error: data.error || 'Invalid credentials' };
     }
+
+    return {
+      success: false,
+      error: data.error || 'Invalid credentials. Please check your login details and try again.',
+    };
   } catch (err) {
-    console.warn('[Auth] Backend unreachable, using client auth:', err);
+    console.warn('[Auth] Backend login unreachable:', err);
+    return {
+      success: false,
+      error: 'Authentication server is unavailable. Please try again in a moment.',
+    };
   }
-
-  // Fallback to local mock data if server is offline / not yet deployed
-  const mockUser = authenticateUser(role, identifier, password);
-  if (mockUser) {
-    setStoredAuth(mockUser);
-    return { success: true, user: mockUser };
-  }
-
-  return { 
-    success: false, 
-    error: 'Invalid credentials. Please check your login details and try again.'
-  };
 }
 
-/**
- * Register via Backend API with graceful fallback to mock data
- */
 export async function registerUser(
   userData: (Omit<StudentUser, 'id'> | Omit<FacultyUser, 'id'>) & { password: string }
 ): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
@@ -91,27 +83,23 @@ export async function registerUser(
       body: JSON.stringify(userData),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (res.ok && data.success && data.user) {
       setStoredAuth(data.user, data.token);
       return { success: true, user: data.user };
-    } else if (data.error) {
-      return { success: false, error: data.error };
     }
+
+    return {
+      success: false,
+      error: data.error || 'Registration failed. Please try again.',
+    };
   } catch (err) {
-    console.warn('[Auth] Backend register unreachable, using client storage:', err);
+    console.warn('[Auth] Backend registration unreachable:', err);
+    return {
+      success: false,
+      error: 'Authentication server is unavailable. Your account was not created.',
+    };
   }
-
-  // Fallback to local mock registration
-  const id = `${userData.role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`;
-  const newUser: AuthUser = {
-    ...userData,
-    id,
-  } as AuthUser;
-
-  registerNewUser(newUser, userData.password);
-  setStoredAuth(newUser);
-  return { success: true, user: newUser };
 }
 
 /**
