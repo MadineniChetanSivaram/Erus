@@ -3112,6 +3112,12 @@ app.get('/api/faculty/sessions/:id/reports', async (req, res) => {
         where: { sessionId },
         orderBy: { createdAt: 'asc' },
       });
+      const reportStudentIds = reports.map((r) => r.studentId);
+      const reportUsers = reportStudentIds.length > 0
+        ? await prisma.user.findMany({ where: { id: { in: reportStudentIds } }, select: { id: true, name: true } })
+        : [];
+      const reportNameById = new Map(reportUsers.map((u) => [u.id, u.name]));
+      const reportsWithStudentNames = reports.map((r) => ({ ...r, studentName: reportNameById.get(r.studentId) || r.studentId }));
       const bookings = await prisma.gDBooking.findMany({
         where: { sessionId, status: { not: 'CANCELLED' } },
         include: { student: { include: { studentProfile: true } } },
@@ -3119,7 +3125,7 @@ app.get('/api/faculty/sessions/:id/reports', async (req, res) => {
       return res.json({
         success: true,
         sessionId,
-        reports,
+        reports: reportsWithStudentNames,
         participants: bookings.map((b) => ({
           id: b.student.id,
           name: b.student.name,
