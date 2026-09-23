@@ -3697,7 +3697,12 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
         text: statement, type: 'statement', sentiment: 'neutral',
       };
       room.transcripts.push(transcript);
-      io.to('room-' + room.slotId).emit('ai-participant-speech', { participant: target, transcript, text: statement });
+      io.to('room-' + room.slotId).emit('ai-participant-speech', {
+        participant: target,
+        transcript,
+        text: statement,
+        simulationMode: room.simulationMode,
+      });
       io.to('room-' + room.slotId).emit('new-transcript', { transcript, studentId: target.id, seatNumber: target.seatNumber });
       // Browser SpeechSynthesis speaks at human pace, so do not release the
       // server floor after the old short estimate. Releasing early caused the
