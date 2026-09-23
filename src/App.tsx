@@ -178,7 +178,7 @@ function GDAppContent() {
     const timer = setInterval(async () => {
       try {
         const slots = await fetchCollegeSlots(collegeCode);
-        if (!slots.length) return;
+        // Even an empty response is authoritative: the college currently has no published slots.
         // Backend is authoritative: slots missing from the response were deleted
         // and must disappear from the student portal as well.
         setAvailableSlots(slots.map((fresh: any) => ({
@@ -226,7 +226,7 @@ function GDAppContent() {
       ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
       : fetchCollegeSlots(collegeCode);
     slotSource.then((backendSlots) => {
-      if (backendSlots && backendSlots.length > 0) {
+      if (backendSlots) {
         // Map backend slot objects to GDSession format expected by the frontend
         const mappedSlots: GDSession[] = backendSlots.map((s: any): GDSession => ({
           ...INITIAL_SESSION,
@@ -256,10 +256,10 @@ function GDAppContent() {
           facultyLiveNotes: s.facultyLiveNotes || [],
           createdAt: s.createdAt || new Date().toISOString(),
         }));
+        // The backend response is authoritative, including an empty array.
+        // This prevents stale local/demo topics from hiding the real college roster.
         setAvailableSlots(mappedSlots);
-        if (mappedSlots.length > 0) {
-          setSession(mappedSlots[0]);
-        }
+        setSession(mappedSlots[0] || INITIAL_SESSION);
       }
     }).catch(() => {/* Backend unreachable — slots stay empty until admin creates them */});
 
