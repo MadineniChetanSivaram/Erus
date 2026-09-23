@@ -3736,14 +3736,18 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       const participantsAfterTurn: any[] = room.simulationMode
         ? [...syncAiParticipants(room)]
         : [...realStudents, ...syncAiParticipants(room)];
-      const nextCandidates = participantsAfterTurn
-        .filter((p) => p.id !== target.id)
-        .sort((a, b) => {
-          const turnDiff = Number(a.speakingTurns || 0) - Number(b.speakingTurns || 0);
-          if (turnDiff !== 0) return turnDiff;
-          return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
-        });
-      const nextParticipant = nextCandidates[0];
+      const eligibleNext = participantsAfterTurn.filter((p) => p.id !== target.id);
+      // Randomize the next speaker within the least-spoken group. This keeps
+      // participation balanced without making the conversation look like
+      // Seat 1 -> Seat 2 -> Seat 3. A participant who just spoke is excluded.
+      const minimumNextTurns = eligibleNext.length
+        ? Math.min(...eligibleNext.map((p) => Number(p.speakingTurns || 0)))
+        : 0;
+      const leastSpoken = eligibleNext.filter(
+        (p) => Number(p.speakingTurns || 0) === minimumNextTurns
+      );
+      const shuffled = [...leastSpoken].sort(() => Math.random() - 0.5);
+      const nextParticipant = shuffled[0];
       if (nextParticipant) {
         room.nextSpeakerId = nextParticipant.id;
         const firstName = nextParticipant.name.split(' ')[0];
