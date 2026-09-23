@@ -75,6 +75,8 @@ export function useWebRTCRoom({
   const [connected, setConnected] = useState(false);
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
   const [peers, setPeers] = useState<LivePeer[]>([]);
+  const [aiParticipants, setAiParticipants] = useState<any[]>([]);
+  const [simulationMode, setSimulationMode] = useState(false);
   const [silenceTimerSeconds, setSilenceTimerSeconds] = useState(0);
   const [isMicMuted, setIsMicMuted] = useState(true);
   const [isSpeakingLive, setIsSpeakingLive] = useState(false);
@@ -540,6 +542,8 @@ export function useWebRTCRoom({
     socket.on('session-started', (data) => {
       if (!active) return;
       if (data?.simulationMode) {
+        setSimulationMode(true);
+        setAiParticipants(Array.isArray(data.aiParticipants) ? data.aiParticipants : []);
         if (localStreamRef.current) {
           localStreamRef.current.getAudioTracks().forEach((track) => {
             track.enabled = false;
@@ -664,6 +668,8 @@ export function useWebRTCRoom({
     connected,
     assignedSeat,
     peers,
+    aiParticipants,
+    simulationMode,
     silenceTimerSeconds,
     isMicMuted,
     isSpeakingLive,
