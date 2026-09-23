@@ -191,7 +191,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(session.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
         const data = await res.json();
         const persisted = Array.isArray(data.reports)
-          ? data.reports.find((r: any) => r.studentId === targetStudent.id)
+          ? data.reports.find((r: any) => r.studentId === targetStudent.id || (r.studentName && String(r.studentName).toLowerCase() === String(targetStudent.name).toLowerCase()))
           : null;
         if (persisted) {
           let skills: any = {};
