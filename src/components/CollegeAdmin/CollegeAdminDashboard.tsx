@@ -32,7 +32,8 @@ import {
   fetchCollegeFaculty, 
   addCollegeFaculty, 
   fetchCollegeSlots, 
-  createCollegeSlot 
+  createCollegeSlot,
+  deleteCollegeSlot
 } from '../../utils/authApi';
 
 interface CollegeAdminDashboardProps {
@@ -93,6 +94,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
 
   // Slots State
   const [slots, setSlots] = useState<any[]>([]);
+  const [deletedSlotIds, setDeletedSlotIds] = useState<Set<string>>(new Set());
   const [isScheduleSlotOpen, setIsScheduleSlotOpen] = useState(false);
 
   // Computed display slots: merges parent availableSlots and locally scheduled slots without dropping any
@@ -100,7 +102,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const seenSlotIds = new Set<string>();
   const displaySlots = allRawSlots
     .filter((s) => {
-      if (!s || !s.id || seenSlotIds.has(s.id)) return false;
+      if (!s || !s.id || deletedSlotIds.has(s.id) || seenSlotIds.has(s.id)) return false;
       seenSlotIds.add(s.id);
       return true;
     })
@@ -320,6 +322,39 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
         designation: 'Assistant Professor',
       });
       loadAllData();
+    }
+  };
+
+  const handleDeleteSlot = async (slot: any) => {
+    if (!slot?.id) return;
+    if (slot.status === 'active') {
+      setBannerMsg('An active GD session cannot be deleted. End the session first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Delete "' + (slot.slotName || slot.topic || 'this GD slot') + '"? This will remove the slot from the student portal.'
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    const res = await deleteCollegeSlot(slot.id, collegeCode);
+    setLoading(false);
+
+    if (res?.success) {
+      setDeletedSlotIds((prev) => new Set([...prev, slot.id]));
+      setSlots((prev) => prev.filter((s) => s.id !== slot.id));
+      setStats((prev) => ({
+        ...prev,
+        totalSlots: Math.max(0, (prev.totalSlots || 0) - 1),
+        scheduledSlots: slot.status === 'scheduled'
+          ? Math.max(0, (prev.scheduledSlots || 0) - 1)
+          : prev.scheduledSlots,
+      }));
+      setBannerMsg('GD slot deleted successfully.');
+      await loadAllData();
+    } else {
+      setBannerMsg(res?.error || 'Unable to delete GD slot.');
     }
   };
 
@@ -844,6 +879,15 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 </div>
 
                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => handleDeleteSlot(sl)}
+                    disabled={sl.status === 'active' || loading}
+                    className="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={sl.status === 'active' ? 'End the active GD before deleting it' : 'Delete this GD slot'}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
                   {onEnterGDRoom && (
                     sl.status === 'completed' ? (
                       <button
