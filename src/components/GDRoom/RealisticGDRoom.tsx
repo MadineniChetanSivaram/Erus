@@ -253,6 +253,88 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         ),
       }));
     },
+    onAiParticipantSpeech: (data) => {
+      const participant = data?.participant;
+      const newTx = data?.transcript;
+      if (!participant || !newTx) return;
+
+      // Mirror the server's AI seat into the UI.
+      setSession((prev) => {
+        const exists = prev.students.some((s) => s.id === participant.id);
+        if (exists) {
+          return {
+            ...prev,
+            currentSpeakerId: participant.id,
+            students: prev.students.map((s) =>
+              s.id === participant.id
+                ? {
+                    ...s,
+                    name: participant.name,
+                    seatNumber: participant.seatNumber,
+                    isDemoAI: true,
+                    isRealPeer: false,
+                    isSpeaking: true,
+                    micActive: true,
+                    speakingTurns: (s.speakingTurns || 0) + 1,
+                    speakingDurationSeconds: (s.speakingDurationSeconds || 0) + Math.max(4, Math.round(String(data.text || '').split(/\s+/).length / 2.2)),
+                    lastSpokenAt: Date.now(),
+                  }
+                : { ...s, isSpeaking: false }
+            ),
+          };
+        }
+        return {
+          ...prev,
+          currentSpeakerId: participant.id,
+          students: [
+            ...prev.students.map((s) => ({ ...s, isSpeaking: false })),
+            {
+              id: participant.id,
+              name: participant.name,
+              avatar: participant.avatar || '',
+              college: participant.college || 'ERUS AI Participant',
+              seatNumber: participant.seatNumber,
+              isUser: false,
+              isDemoAI: true,
+              isRealPeer: false,
+              isEmptySeat: false,
+              isSpeaking: true,
+              micActive: true,
+              cameraActive: false,
+              speakingTurns: 1,
+              speakingDurationSeconds: Math.max(4, Math.round(String(data.text || '').split(/\s+/).length / 2.2)),
+              interruptionCount: 0,
+              questionsAnswered: 0,
+              questionsInitiated: 0,
+              lastSpokenAt: Date.now(),
+            } as any,
+          ],
+        };
+      });
+
+      setTranscripts((prev) => prev.some((t) => t.id === newTx.id) ? prev : [...prev, newTx]);
+
+      // All connected browsers vocalize the same AI contribution. The speech
+      // utility temporarily disables Web Speech recognition + outgoing mic
+      // while the AI is speaking, preventing the AI audio from becoming
+      // the human participant's transcript.
+      if (!voiceMuted) {
+        roomVoice.speakAsStudent(participant, data.text, () => {
+          setSession((prev) => ({
+            ...prev,
+            currentSpeakerId: null,
+            students: prev.students.map((s) => s.id === participant.id ? { ...s, isSpeaking: false } : s),
+          }));
+        });
+      } else {
+        setSession((prev) => ({
+          ...prev,
+          currentSpeakerId: null,
+          students: prev.students.map((s) => s.id === participant.id ? { ...s, isSpeaking: false } : s),
+        }));
+      }
+    },
+
     onFacilitatorIntervention: (intervention) => {
       setTranscripts((prev) => {
         if (prev.some((t) => t.id === intervention.transcript.id)) return prev;
