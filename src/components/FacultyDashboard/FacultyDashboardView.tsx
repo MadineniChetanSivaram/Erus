@@ -53,6 +53,19 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [persistedReports, setPersistedReports] = useState<any[]>([]);
 
+
+  const aiSummary = persistedReports.length > 0
+    ? 'Reports are based on the persisted participant evaluations generated from the final session transcript.'
+    : 'No persisted participant evaluations are available for this session yet.';
+
+  // Compute student rankings and scores. Normalize every incoming array so a
+  // faculty account with no assigned slots/participants can never crash the UI.
+  const safeSession = session || ({ ...INITIAL_SESSION, students: [] } as any);
+  const safeStudents = Array.isArray(safeSession?.students) ? safeSession.students : [];
+  const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
+  const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
+  const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
+
   useEffect(() => {
     if (!facultyId || !safeSession?.id) return;
     let cancelled = false;
@@ -68,17 +81,6 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     })();
     return () => { cancelled = true; };
   }, [facultyId, session?.id, session?.status]);
-  const aiSummary = persistedReports.length > 0
-    ? 'Reports are based on the persisted participant evaluations generated from the final session transcript.'
-    : 'No persisted participant evaluations are available for this session yet.';
-
-  // Compute student rankings and scores. Normalize every incoming array so a
-  // faculty account with no assigned slots/participants can never crash the UI.
-  const safeSession = session || ({ ...INITIAL_SESSION, students: [] } as any);
-  const safeStudents = Array.isArray(safeSession?.students) ? safeSession.students : [];
-  const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
-  const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
-  const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
 
   const reportByStudent = useMemo(() => {
     const map = new Map<string, any>();
