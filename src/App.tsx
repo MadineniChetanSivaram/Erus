@@ -179,13 +179,20 @@ function GDAppContent() {
       try {
         const slots = await fetchCollegeSlots(collegeCode);
         if (!slots.length) return;
-        setAvailableSlots((prev) => prev.map((oldSlot) => {
-          const fresh = slots.find((s: any) => s.id === oldSlot.id);
-          return fresh ? { ...oldSlot, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' } : oldSlot;
-        }));
+        // Backend is authoritative: slots missing from the response were deleted
+        // and must disappear from the student portal as well.
+        setAvailableSlots(slots.map((fresh: any) => ({
+          ...fresh,
+          status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting',
+        })));
         setSession((prev) => {
           const fresh = slots.find((s: any) => s.id === prev.id);
-          return fresh ? { ...prev, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' } : prev;
+          if (!fresh) {
+            return slots[0]
+              ? { ...prev, ...slots[0], status: slots[0].status === 'active' ? 'active' : slots[0].status === 'completed' ? 'completed' : 'waiting' }
+              : prev;
+          }
+          return { ...prev, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' };
         });
       } catch {}
     }, 2000);
