@@ -1059,9 +1059,18 @@ app.post('/api/college/slots', async (req, res) => {
     persistentState.slots[code] = [];
   }
 
-  const assignedFaculty = payload.assignedFacultyId
+  // Faculty assignment is topic-level: every slot under the same topic must
+  // use the same Faculty In-Charge. The first published assignment becomes the
+  // authoritative faculty for that topic.
+  const existingTopicSlot = (persistentState.slots[code] || []).find(
+    (s) => String(s.topic || '').trim().toLowerCase() === String(payload.topic || '').trim().toLowerCase()
+      && s.assignedFacultyId
+  );
+  const topicFacultyId = existingTopicSlot?.assignedFacultyId || payload.assignedFacultyId;
+
+  const assignedFaculty = topicFacultyId
     ? (persistentState.faculty[code] || []).find(
-        (f) => f.facultyId === payload.assignedFacultyId || f.id === payload.assignedFacultyId
+        (f) => f.facultyId === topicFacultyId || f.id === topicFacultyId
       )
     : undefined;
 
@@ -1075,10 +1084,10 @@ app.post('/api/college/slots', async (req, res) => {
     durationMinutes: Number(payload.durationMinutes) || 15,
     enrolledCount: Number(payload.enrolledCount) || 0,
     maxCapacity: Number(payload.maxCapacity) || 15,
-    assignedFacultyId: assignedFaculty?.facultyId || payload.assignedFacultyId,
-    assignedFacultyName: assignedFaculty?.name || payload.assignedFacultyName,
-    assignedFacultyEmail: assignedFaculty?.email || payload.assignedFacultyEmail,
-    assignedFacultyDept: assignedFaculty?.department || payload.assignedFacultyDept,
+    assignedFacultyId: assignedFaculty?.facultyId || topicFacultyId || payload.assignedFacultyId,
+    assignedFacultyName: assignedFaculty?.name || (existingTopicSlot?.assignedFacultyName || payload.assignedFacultyName),
+    assignedFacultyEmail: assignedFaculty?.email || (existingTopicSlot?.assignedFacultyEmail || payload.assignedFacultyEmail),
+    assignedFacultyDept: assignedFaculty?.department || (existingTopicSlot?.assignedFacultyDept || payload.assignedFacultyDept),
     collegeCode: code,
     createdAt: new Date().toISOString(),
   };
