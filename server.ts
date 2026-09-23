@@ -3468,7 +3468,7 @@ function getSlotCapacity(slotId: string) {
 
 const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy'];
 const AI_GD_SIMULATION_MODE = true;
-const AI_GD_SIMULATION_PARTICIPANTS = 6; // Demo mode: all six speaking seats are AI.
+const AI_GD_SIMULATION_PARTICIPANTS = 6; // Fallback only; simulation normally follows slot capacity.
 
 function syncAiParticipants(room: LiveGDRoomState) {
   // Keep a realistic six-person GD floor. If fewer real students join, fill
@@ -3479,7 +3479,7 @@ function syncAiParticipants(room: LiveGDRoomState) {
   // In simulation mode the humans connected to the browser are observers only.
   // Keep exactly six distinct AI students on the discussion floor.
   const targetCount = room.simulationMode
-    ? AI_GD_SIMULATION_PARTICIPANTS
+    ? Math.max(1, getSlotCapacity(room.slotId))
     : Math.max(0, capacity - realStudents.length);
   const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
   const existing = Array.from(room.aiParticipants.values()).slice(0, targetCount);
