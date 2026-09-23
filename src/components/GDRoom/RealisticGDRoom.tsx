@@ -925,7 +925,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     studentTurnsSinceIntervention.current += 1;
 
     // Broadcast live to all connected peers in the room via WebRTC Socket.IO (PDF Page 5, FR-1)
-    rtcBroadcastTranscript(text, elapsedSeconds);
+    rtcBroadcastTranscript(text, elapsedSeconds, newEntry.id);
 
     // If triggered without live mic (e.g. Quick Speaking Point clicked), vocalize in authentic Indian English so it is audible to everyone in the room
     if (!isListeningMic && !isFaculty) {
