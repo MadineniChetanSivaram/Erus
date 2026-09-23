@@ -89,7 +89,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   }, [persistedReports]);
 
   const studentStats = safeStudents.map((s) => {
-    const persisted = reportByStudent.get(s.id);
+    const persisted = reportByStudent.get(s.id) || persistedReports.find((r) => r.studentName && String(r.studentName).toLowerCase() === String(s.name).toLowerCase());
     let calculatedScore = typeof persisted?.overallScore === 'number' ? persisted.overallScore : 0;
     let calculatedGrade = persisted?.overallScore >= 90 ? 'Excellent' : persisted?.overallScore >= 75 ? 'Very Good' : persisted?.overallScore >= 60 ? 'Good' : persisted?.overallScore >= 40 ? 'Average' : 'Needs Improvement';
     return {
@@ -111,7 +111,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     seat: `Seat ${s.seatNumber}`,
     seconds: s.speakingDurationSeconds,
     minutes: Number((s.speakingDurationSeconds / 60).toFixed(1)),
-    score: studentStats.find((st) => st.id === s.id)?.calculatedScore || 75,
+    score: studentStats.find((st) => st.id === s.id)?.calculatedScore || 0,
   }));
 
   // Heat map is derived from real transcript timestamps rather than fixed demo data.
@@ -515,7 +515,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               <Award className="w-4 h-4 text-amber-500 dark:text-amber-400" />
               Student-Wise Scores & Leaderboard
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">All 8 participants evaluated via 7-parameter rubric.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{persistedReports.length} persisted participant report{persistedReports.length === 1 ? '' : 's'} loaded from the completed session.</p>
           </div>
 
           <div className="relative">
