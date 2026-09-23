@@ -3456,6 +3456,11 @@ interface LiveGDRoomState {
   floorVersion: number;
   initialSpeakerSelected?: boolean;
   announcedNextSpeakerId?: string;
+  // When an AI finishes a turn, sometimes it hands off directly to another
+  // participant; other times the facilitator owns the next invitation.
+  nextSpeakerId?: string;
+  openingStarted?: boolean;
+  facilitatorHandoffCount: number;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -3532,6 +3537,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       simulationMode: AI_GD_SIMULATION_MODE,
       floorVersion: 0,
       openingStarted: false,
+      facilitatorHandoffCount: 0,
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -3729,17 +3735,14 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       target.lastSpokeAt = now;
       target.speakingDurationSeconds += Math.max(4, Math.round(statement.split(/\s+/).length / 2.2));
 
-      // Every AI contribution ends by naturally handing the discussion to a
-      // specific next participant. The server selects that participant using
-      // the same fairness rules as the turn engine, then locks the handoff so
-      // the next turn cannot go to somebody else.
+      // Decide how the floor changes hands. Most AI turns can flow naturally
+      // to another participant, but the facilitator should also own a meaningful
+      // share of invitations so it does not feel like every participant is
+      // mechanically calling the next person.
       const participantsAfterTurn: any[] = room.simulationMode
         ? [...syncAiParticipants(room)]
         : [...realStudents, ...syncAiParticipants(room)];
       const eligibleNext = participantsAfterTurn.filter((p) => p.id !== target.id);
-      // Randomize the next speaker within the least-spoken group. This keeps
-      // participation balanced without making the conversation look like
-      // Seat 1 -> Seat 2 -> Seat 3. A participant who just spoke is excluded.
       const minimumNextTurns = eligibleNext.length
         ? Math.min(...eligibleNext.map((p) => Number(p.speakingTurns || 0)))
         : 0;
@@ -3748,7 +3751,62 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       );
       const shuffled = [...leastSpoken].sort(() => Math.random() - 0.5);
       const nextParticipant = shuffled[0];
-      if (nextParticipant) {
+
+      // About one out of every three handoffs is owned by the facilitator.
+      // Use a streak guard so direct AI-to-AI handoffs cannot run for too long.
+      // During the first round, allow the discussion to establish itself before
+      // introducing facilitator routing unless the facilitator is explicitly needed.
+      const totalAiTurns = participantsAfterTurn.reduce(
+        (sum, p) => sum + Number(p.speakingTurns || 0),
+        0,
+      );
+      const isEarlyRound = totalAiTurns <= participantsAfterTurn.length;
+      const forceFacilitator = room.facilitatorHandoffCount >= 3;
+      const useFacilitatorHandoff = !!nextParticipant && (
+        forceFacilitator || (!isEarlyRound && Math.random() < 0.35)
+      );
+
+      if (nextParticipant && useFacilitatorHandoff) {
+        room.nextSpeakerId = nextParticipant.id;
+        room.facilitatorHandoffCount += 1;
+
+        const firstName = nextParticipant.name.split(' ')[0];
+        const facilitatorHandoffOptions = [
+          'Thank you for that perspective. Let us hear from ' + firstName + ' next. What is your view?',
+          'That is a useful point. ' + firstName + ', could you share your perspective on this?',
+          'Let us bring in another perspective. ' + firstName + ', how would you respond to that?',
+          firstName + ', I would like to invite you to take this point forward. What do you think?',
+          'We have heard one angle on this. ' + firstName + ', could you offer a different perspective?'
+        ];
+        const invitation = facilitatorHandoffOptions[(room.facilitatorHandoffCount - 1) % facilitatorHandoffOptions.length];
+
+        // The facilitator invitation is a separate transcript event and is not
+        // appended to the participant's speech. This keeps speaker attribution
+        // and assessment evidence correct.
+        const facilitatorTranscript: BackendTranscript = {
+          id: 't-facilitator-handoff-' + Date.now(),
+          sessionId: room.slotId,
+          speakerId: 'facilitator',
+          speakerName: 'AI Facilitator',
+          seatNumber: null,
+          isFacilitator: true,
+          timestamp: '00:00',
+          timestampSeconds: Date.now(),
+          text: invitation,
+          type: 'intervention',
+          sentiment: 'neutral',
+        };
+        room.transcripts.push(facilitatorTranscript);
+        io.to('room-' + room.slotId).emit('facilitator-intervention', {
+          text: invitation,
+          action: 'next_turn',
+          targetUserId: nextParticipant.id,
+          targetSeatNumber: nextParticipant.seatNumber,
+          transcript: facilitatorTranscript,
+        });
+      } else if (nextParticipant) {
+        // Direct participant-to-participant handoff. Keep this randomized
+        // and exclude the speaker who just finished.
         room.nextSpeakerId = nextParticipant.id;
         const firstName = nextParticipant.name.split(' ')[0];
         const handoffOptions = [
