@@ -103,6 +103,9 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   const averageScore = persistedReports.length > 0
     ? Math.round(persistedReports.reduce((sum, report) => sum + Number(report.overallScore || 0), 0) / persistedReports.length)
     : 0;
+  const participantBase = Math.max(Number(safeSession.enrolledCount || 0), safeStudents.length);
+  const participationRate = participantBase > 0 ? Math.round((persistedReports.length / participantBase) * 100) : 0;
+  const classGrade = averageScore >= 90 ? 'Excellent' : averageScore >= 75 ? 'Very Good' : averageScore >= 60 ? 'Good' : averageScore >= 40 ? 'Average' : 'Needs Improvement';
 
   // Data for Speaking Time Chart
   const chartData = safeStudents.map((s) => ({
@@ -303,9 +306,9 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-colors">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Participation Rate</span>
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">96%</span>
+            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">{participationRate}%</span>
           </div>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400/90 font-semibold block mt-1">High Engagement</span>
+          <span className="text-[10px] text-emerald-600 dark:text-emerald-400/90 font-semibold block mt-1">Persisted reports / participants</span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl col-span-2 sm:col-span-1 shadow-xs transition-colors">
@@ -314,7 +317,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-300 font-mono">{averageScore}</span>
             <span className="text-xs text-slate-500">/ 100</span>
           </div>
-          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold block mt-1">Class Grade: Very Good</span>
+          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold block mt-1">Class Grade: {classGrade}</span>
         </div>
       </div>
 
