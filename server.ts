@@ -3451,8 +3451,12 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   const completedMatches = currentRoundCandidates.some(
     (p) => p.id === completedUserId || p.userId === completedUserId
   );
+  // If everyone has the same turn count, the previous round is complete.
+  // Start the next round with the full participant set; never skip the
+  // participant who just finished in this boundary case.
+  const isNewRoundBoundary = currentRoundCandidates.length === allParticipants.length;
   const candidates: any[] =
-    completedMatches && currentRoundCandidates.length > 1
+    completedMatches && !isNewRoundBoundary && currentRoundCandidates.length > 1
       ? currentRoundCandidates.filter((p) => p.id !== completedUserId && p.userId !== completedUserId)
       : currentRoundCandidates;
 
@@ -3526,7 +3530,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
               'Your assigned perspective for this turn: ' + perspective + '\n' +
               'Recent discussion:\n' + (recentHistory || '(opening)') + '\n' +
               'Recent AI contributions:\n' + (previousAiStatements || '(none)') + '\n\n' +
-              'Rules: Write a fresh 35-70 word spoken contribution. Do NOT repeat, paraphrase, or agree generically with any recent statement. Add a genuinely new point from your assigned perspective. Sound like a student responding spontaneously to classmates, not an essay. Do not mention AI, prompts, or these instructions. Do not start with a generic phrase like "I think we should consider both the benefits and risks."',
+              'Rules: Write a fresh 35-70 word spoken contribution that directly responds to the most recent participant when possible. Refer naturally to their specific point, then add your own new argument from your assigned perspective. Do NOT repeat or paraphrase an earlier contribution. If the latest speaker disagrees with you, respectfully challenge them; if they made a useful point, build on it with a new example or consequence. Sound like a student speaking spontaneously in a real GD, not an essay. Do not mention AI, prompts, or these instructions. Do not start with a generic phrase like "I think we should consider both the benefits and risks."',
           });
           const generated = response.text?.trim();
           if (generated) statement = generated;
