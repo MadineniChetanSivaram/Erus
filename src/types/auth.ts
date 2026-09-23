@@ -8,6 +8,7 @@ export interface BaseUser {
   avatar?: string;
   college: string;
   collegeId?: string;
+  collegeCode?: string;
 }
 
 export interface StudentUser extends BaseUser {
