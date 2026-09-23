@@ -3521,7 +3521,11 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       room.transcripts.push(transcript);
       io.to('room-' + room.slotId).emit('ai-participant-speech', { participant: target, transcript, text: statement });
       io.to('room-' + room.slotId).emit('new-transcript', { transcript, studentId: target.id, seatNumber: target.seatNumber });
-      const durationMs = Math.min(9000, Math.max(3500, statement.split(/\s+/).length * 180));
+      // Browser SpeechSynthesis speaks at human pace, so do not release the
+      // server floor after the old short estimate. Releasing early caused the
+      // next participant to start while this AI was still audible.
+      const wordCount = statement.split(/\s+/).filter(Boolean).length;
+      const durationMs = Math.min(22000, Math.max(6500, wordCount * 380 + 1500));
       room.turnTimer = setTimeout(() => {
         // Only this AI turn may release the floor. A stale timer can never
         // release a newer speaker's floor.
