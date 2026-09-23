@@ -828,7 +828,7 @@ function GDAppContent() {
       });
     }
 
-    const activeNewSession = { ...newSessions[0], status: 'active' as const };
+    const activeNewSession = { ...newSessions[0], status: 'scheduled' as const };
     setSession(activeNewSession);
     setTranscripts([
       {
