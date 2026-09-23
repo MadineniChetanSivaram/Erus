@@ -384,35 +384,45 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // other mock human participant.
   useEffect(() => {
     if (!rtcSimulationMode || !rtcAiParticipants.length) return;
-    const aiStudents: Student[] = rtcAiParticipants.map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      avatar: p.avatar || '',
-      college: p.college || 'ERUS AI Participant',
-      course: 'AI GD Participant',
-      batch: '',
-      seatNumber: p.seatNumber,
-      isUser: false,
-      isDemoAI: true,
-      isRealPeer: false,
-      isEmptySeat: false,
-      isSpeaking: p.id === session.currentSpeakerId,
-      micActive: true,
-      cameraActive: false,
-      speakingTurns: p.speakingTurns || 0,
-      speakingDurationSeconds: p.speakingDurationSeconds || 0,
-      interruptionCount: 0,
-      questionsAnswered: 0,
-      questionsInitiated: 0,
-    } as any));
-    setSession((prev) => ({
-      ...prev,
-      students: aiStudents,
-      currentSpeakerId: prev.currentSpeakerId && aiStudents.some((s) => s.id === prev.currentSpeakerId)
-        ? prev.currentSpeakerId
-        : null,
-    }));
-  }, [rtcSimulationMode, rtcAiParticipants, session.currentSpeakerId, setSession]);
+    // The server sends the roster once, while live speaking stats arrive via
+    // AI speech events. Merge the roster instead of rebuilding students from
+    // the original zero-turn roster on every speaker change.
+    setSession((prev) => {
+      const previousById = new Map(prev.students.map((s) => [s.id, s]));
+      const aiStudents: Student[] = rtcAiParticipants.map((p: any) => {
+        const previous = previousById.get(p.id);
+        return {
+          ...(previous || {}),
+          id: p.id,
+          name: p.name,
+          avatar: p.avatar || previous?.avatar || '',
+          college: p.college || previous?.college || 'ERUS AI Participant',
+          course: 'AI GD Participant',
+          batch: '',
+          seatNumber: p.seatNumber,
+          isUser: false,
+          isDemoAI: true,
+          isRealPeer: false,
+          isEmptySeat: false,
+          isSpeaking: previous?.isSpeaking || false,
+          micActive: true,
+          cameraActive: false,
+          speakingTurns: Math.max(previous?.speakingTurns || 0, p.speakingTurns || 0),
+          speakingDurationSeconds: Math.max(previous?.speakingDurationSeconds || 0, p.speakingDurationSeconds || 0),
+          interruptionCount: previous?.interruptionCount || 0,
+          questionsAnswered: previous?.questionsAnswered || 0,
+          questionsInitiated: previous?.questionsInitiated || 0,
+        } as any;
+      });
+      return {
+        ...prev,
+        students: aiStudents,
+        currentSpeakerId: prev.currentSpeakerId && aiStudents.some((s) => s.id === prev.currentSpeakerId)
+          ? prev.currentSpeakerId
+          : null,
+      };
+    });
+  }, [rtcSimulationMode, rtcAiParticipants, setSession]);
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
