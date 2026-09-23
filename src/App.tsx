@@ -1112,6 +1112,7 @@ function GDAppContent() {
             onStartSession={handleStartSession}
             availableSlots={availableSlots}
             onSelectSlot={handleSelectSlot}
+            facultyId={currentUser?.role === 'faculty' ? ((currentUser as any).facultyId || currentUser.id) : undefined}
           />
         )}
 
