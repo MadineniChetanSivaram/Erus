@@ -447,6 +447,19 @@ export function useWebRTCRoom({
       }
     });
 
+    // Autonomous AI simulation mode: connected humans are observers and
+    // their microphones must remain disabled for the duration of the simulation.
+    socket.on('simulation-mode', () => {
+      if (!active) return;
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+      setIsMicMuted(true);
+      setIsSpeakingLive(false);
+    });
+
     // Server-enforced single-speaker floor. If another participant owns
     // the floor, immediately stop this client's outgoing microphone track.
     socket.on('floor-busy', ({ message }) => {
