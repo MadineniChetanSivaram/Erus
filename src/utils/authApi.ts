@@ -466,6 +466,26 @@ export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<an
   return merged;
 }
 
+export async function deleteCollegeSlot(slotId: string, collegeCode: string = 'DIT') {
+  const code = collegeCode.toUpperCase();
+  try {
+    const res = await fetch('/api/college/slots/' + encodeURIComponent(slotId), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      const local = getLocalSlots(code).filter((s) => s.id !== slotId);
+      saveLocalSlots(code, local);
+      return data;
+    }
+    return { success: false, error: data.error || 'Unable to delete slot' };
+  } catch (e) {
+    console.warn('Error deleting college slot:', e);
+    return { success: false, error: 'Unable to reach server' };
+  }
+}
+
 export async function createCollegeSlot(payload: any) {
   const code = (payload.collegeCode || 'DIT').toUpperCase();
   const existing = getLocalSlots(code);
