@@ -28,6 +28,7 @@ interface SessionCreationModalProps {
   onClose: () => void;
   onCreateSession?: (newSession: GDSession) => void;
   onCreateSessions?: (newSessions: GDSession[]) => void;
+  collegeCode?: string;
 }
 
 const PRESET_TIMINGS = [
@@ -42,6 +43,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
   onClose,
   onCreateSession,
   onCreateSessions,
+  collegeCode = 'DIT',
 }) => {
   const [topic, setTopic] = useState('Impact of Emerging Technologies on Sustainable Development');
   const [description, setDescription] = useState('Analyzing economic feasibility, ethical implications, and real-world implementation across sectors.');
@@ -56,7 +58,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
 
   // Load college faculty from API on mount
   useEffect(() => {
-    fetchCollegeFaculty()
+    fetchCollegeFaculty(collegeCode)
       .then((fac) => {
         if (fac && fac.length > 0) {
           setFacultyList((prev) => {
@@ -79,7 +81,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         }
       })
       .catch(() => {});
-  }, []);
+  }, [collegeCode]);
 
   // Multiple slots state for this topic
   const [slots, setSlots] = useState<SlotScheduleItem[]>([
