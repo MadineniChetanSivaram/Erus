@@ -126,6 +126,25 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     } catch (e) {}
   }, []);
 
+  // After completion, load the persisted report instead of treating generated mock data as authoritative.
+  useEffect(() => {
+    if (!isStudent || session.status !== 'completed' || !currentUser?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(currentUser.id) + '&sessionId=' + encodeURIComponent(session.id));
+        const data = await res.json();
+        const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
+        if (!cancelled && persisted) {
+          setCurrentReport((prev) => ({ ...prev, ...persisted } as StudentAssessmentReport));
+        }
+      } catch (e) {
+        console.warn('[Student Report] Could not load persisted report:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isStudent, currentUser?.id, session.id, session.status]);
+
   // Ensure student always stays strictly locked to their own report
   useEffect(() => {
     if (isStudent) {
@@ -167,22 +186,38 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/facilitator/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student: targetStudent,
-          sessionId: session.id,
-          topic: session.topic,
-          durationMinutes: session.durationMinutes,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.report) {
-        setCurrentReport(data.report);
+      if (isFaculty) {
+        const facultyId = (currentUser as any)?.facultyId || currentUser?.id || '';
+        const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(session.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
+        const data = await res.json();
+        const persisted = Array.isArray(data.reports)
+          ? data.reports.find((r: any) => r.studentId === targetStudent.id)
+          : null;
+        if (persisted) {
+          let skills: any = {};
+          try { skills = typeof persisted.rubricJson === 'string' ? JSON.parse(persisted.rubricJson) : (persisted.rubricJson || {}); } catch {}
+          setCurrentReport({
+            ...currentReport,
+            id: persisted.id,
+            sessionId: persisted.sessionId,
+            studentId: persisted.studentId,
+            studentName: targetStudent.name,
+            college: targetStudent.college,
+            topic: session.topic,
+            overallScore: persisted.overallScore,
+            grade: persisted.overallScore >= 90 ? 'Excellent' : persisted.overallScore >= 75 ? 'Very Good' : persisted.overallScore >= 60 ? 'Good' : persisted.overallScore >= 40 ? 'Average' : 'Needs Improvement',
+            skills,
+            aiSummary: persisted.feedback,
+            strengths: persisted.strengths ? persisted.strengths.split('; ').filter(Boolean) : [],
+            areasForImprovement: persisted.improvements ? persisted.improvements.split('; ').filter(Boolean) : [],
+            facultyEndorsement: { endorsed: false },
+          } as StudentAssessmentReport);
+        }
       } else {
-        setCurrentReport(generateStudentReport(targetStudent, session.topic, session.durationMinutes));
+        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(userStudent.id) + '&sessionId=' + encodeURIComponent(session.id));
+        const data = await res.json();
+        const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
+        if (persisted) setCurrentReport({ ...currentReport, ...persisted } as StudentAssessmentReport);
       }
     } catch (err) {
       console.error(err);
