@@ -322,11 +322,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
       const usedSeats = new Set(normalizedStudents.map((s) => s.seatNumber));
       const additions: Student[] = [];
+      const demoTemplates = generateSlotParticipants(targetAiCount);
       let nextSeat = 1;
 
       for (let i = 0; i < missingAiCount; i++) {
         while (usedSeats.has(nextSeat)) nextSeat++;
-        const demo = generateSlotParticipants(1)[0];
+        const demo = demoTemplates[i % demoTemplates.length];
         additions.push({
           ...demo,
           id: 'demo-ai-' + Date.now() + '-' + i,
