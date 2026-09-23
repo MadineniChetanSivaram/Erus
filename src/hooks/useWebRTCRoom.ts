@@ -538,12 +538,13 @@ export function useWebRTCRoom({
   }, [slotId, localVolume]);
 
   // Broadcast spoken transcript to all room members
-  const broadcastTranscript = useCallback((text: string, elapsedSeconds: number) => {
+  const broadcastTranscript = useCallback((text: string, elapsedSeconds: number, transcriptId?: string) => {
     if (socketRef.current && text.trim()) {
       socketRef.current.emit('peer-transcript', {
         slotId,
         text: text.trim(),
         elapsedSeconds,
+        transcriptId,
       });
     }
   }, [slotId]);
