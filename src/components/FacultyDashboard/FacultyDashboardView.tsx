@@ -204,25 +204,39 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               const isSelected = sl.id === session.id;
               const isCompleted = sl.status === 'completed';
               return (
-                <button
-                  key={sl.id}
-                  onClick={() => onSelectSlot(sl.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-                      : isCompleted
-                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {isCompleted && <CheckCircle2 className="w-3 h-3 text-purple-500" />}
-                  <span>{sl.slotName || sl.id}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}>
-                    {isCompleted ? 'Completed' : sl.status}
-                  </span>
-                </button>
+                <div key={sl.id} className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onSelectSlot(sl.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                        : isCompleted
+                        ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {isCompleted && <CheckCircle2 className="w-3 h-3 text-purple-500" />}
+                    <span>{sl.slotName || sl.id}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}>
+                      {isCompleted ? 'Completed' : sl.status}
+                    </span>
+                  </button>
+                  {onStartSession && !isCompleted && sl.status !== 'active' && (
+                    <button
+                      onClick={() => {
+                        onSelectSlot(sl.id);
+                        onStartSession(sl.id);
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Start this assigned GD slot"
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>Start</span>
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
