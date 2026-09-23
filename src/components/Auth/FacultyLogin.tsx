@@ -276,6 +276,47 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
               )}
             </button>
           </form>
+
+          {/* Demo faculty access — kept below the real login so production
+              faculty accounts still use normal authentication. */}
+          <div className="mt-5 rounded-2xl border border-teal-200/70 dark:border-teal-800/60 bg-teal-50/70 dark:bg-teal-950/30 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-wider text-teal-700 dark:text-teal-300">
+                  Demo Faculty
+                </p>
+                <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
+                  Use this for presentations without creating a faculty account.
+                </p>
+                <p className="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                  Dr. Sunita Rao · FAC-CSE-102
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => {
+                  setError(null);
+                  setSuccessMsg('Opening Demo Faculty Portal...');
+                  onLogin({
+                    id: 'demo-faculty-sunita',
+                    name: 'Dr. Sunita Rao',
+                    email: 'sunita.rao@demo.erus',
+                    role: 'faculty',
+                    facultyId: 'FAC-CSE-102',
+                    college: 'Delhi Institute of Technology',
+                    collegeCode: 'DIT',
+                    department: 'Computer Science & Engineering',
+                    designation: 'Professor & Head of Department',
+                    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+                  } as FacultyUser);
+                }}
+                className="shrink-0 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm transition-colors"
+              >
+                Use Demo
+              </button>
+            </div>
+          </div>
         </>
       ) : (
         /* 2. FACULTY REGISTRATION FORM */
