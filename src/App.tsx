@@ -293,7 +293,7 @@ function GDAppContent() {
             const isUserInSlot = bookedIds.includes(slot.id);
             return {
               ...slot,
-              students: slot.students.map((s, idx) => {
+              students: (slot.students || generateSlotParticipants(slot.enrolledCount || 8)).map((s, idx) => {
                 const shouldBeUser = isUserInSlot && (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber);
                 return {
                   ...s,
@@ -323,17 +323,10 @@ function GDAppContent() {
       // Candidate always lands on Topics & Slot Booking after logging in
       setCurrentTab('topics');
     } else if (user.role === 'faculty') {
-      // Faculty evaluator starts at the Faculty Analytics dashboard and observes sessions
-      setSession((prev) => ({
-        ...prev,
-        students: prev.students.map((s) => ({ ...s, isUser: false })),
-      }));
-      setAvailableSlots((prevSlots) =>
-        prevSlots.map((slot) => ({
-          ...slot,
-          students: slot.students.map((s) => ({ ...s, isUser: false })),
-        }))
-      );
+      // Faculty evaluator starts at the Faculty Analytics dashboard. The
+      // authoritative assigned slots were already fetched above; normalize
+      // their participant arrays before rendering so a backend slot without
+      // a local students array can never crash the dashboard.
       setCurrentTab('faculty');
     } else if (user.role === 'college_admin') {
       setSession((prev) => ({
@@ -769,7 +762,7 @@ function GDAppContent() {
               ...s,
               status: s.status === 'completed' ? 'completed' : 'waiting',
               enrolledCount: newPrevCount,
-              students: s.students.map((st) => (st.isUser ? { ...st, isUser: false } : st)),
+              students: (s.students || generateSlotParticipants(s.enrolledCount || 8)).map((st) => (st.isUser ? { ...st, isUser: false } : st)),
             };
           }
           return s;
