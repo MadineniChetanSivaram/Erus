@@ -307,15 +307,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     demoRosterInitializedRef.current = true;
 
     setSession((prev) => {
-      const realOrUserStudents = prev.students.filter((s) => !s.isDemoAI && !s.isEmptySeat);
-      const existingDemo = prev.students.filter((s) => s.isDemoAI);
+      const normalizedStudents = prev.students.map((s) =>
+        !s.isUser && !s.isRealPeer && !s.isEmptySeat && s.id.startsWith('slot-stu-')
+          ? { ...s, isDemoAI: true }
+          : s
+      );
+      const existingDemo = normalizedStudents.filter((s) => s.isDemoAI);
       const targetAiCount = 10;
-      const userCount = realOrUserStudents.filter((s) => s.isUser).length;
-      const missingAiCount = Math.max(0, targetAiCount - existingDemo.length - userCount);
+      const missingAiCount = Math.max(0, targetAiCount - existingDemo.length);
 
-      if (missingAiCount === 0) return prev;
+      if (missingAiCount === 0) {
+        return normalizedStudents === prev.students ? prev : { ...prev, students: normalizedStudents };
+      }
 
-      const usedSeats = new Set(prev.students.map((s) => s.seatNumber));
+      const usedSeats = new Set(normalizedStudents.map((s) => s.seatNumber));
       const additions: Student[] = [];
       let nextSeat = 1;
 
@@ -342,7 +347,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         nextSeat++;
       }
 
-      return { ...prev, students: [...prev.students, ...additions] };
+      return { ...prev, students: [...normalizedStudents, ...additions] };
     });
   }, [setSession]);
   // Active display students: merge static mock participants with live connected WebRTC peers
