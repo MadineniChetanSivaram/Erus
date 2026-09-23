@@ -878,12 +878,17 @@ function GDAppContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          studentId: studentKey,
-          studentIdentifier: studentKey,
-          slotId,
-          topic: topicKey,
+          // Send all stable identifiers. This handles older browser sessions
+          // whose stored currentUser.id is a legacy id while PostgreSQL uses a
+          // different CUID for the same student account.
+          studentId: currentUser.id,
+          studentIdentifier: (currentUser as any).studentId || currentUser.email || currentUser.id,
+          studentEmail: currentUser.email,
+          studentStudentId: (currentUser as any).studentId,
           studentName: currentUser.name,
           studentCollege: currentUser.college,
+          slotId,
+          topic: topicKey,
         }),
       });
       const bookingData = await bookingRes.json().catch(() => ({}));
