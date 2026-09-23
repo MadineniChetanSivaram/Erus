@@ -14,7 +14,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { FacultyUser } from '../../types/auth';
-import { loginUser, registerUser, fetchAdminColleges } from '../../utils/authApi';
+import { loginUser, registerUser, fetchAdminColleges, fetchCollegeFaculty } from '../../utils/authApi';
 
 interface FacultyLoginProps {
   onLogin: (user: FacultyUser) => void;
@@ -27,10 +27,20 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
 }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [availableColleges, setAvailableColleges] = useState<any[]>([]);
+  const [demoFaculty, setDemoFaculty] = useState<any[]>([]);
 
   React.useEffect(() => {
-    fetchAdminColleges().then((list) => {
+    fetchAdminColleges().then(async (list) => {
       if (list && list.length > 0) setAvailableColleges(list);
+      const codes = Array.from(new Set(['DIT', ...(list || []).map((c: any) => String(c.code || '').toUpperCase()).filter(Boolean)]));
+      const rosters = await Promise.all(codes.map((code) => fetchCollegeFaculty(code)));
+      const merged = rosters.flat();
+      const byId = new Map<string, any>();
+      merged.forEach((fac: any) => {
+        const key = fac.facultyId || fac.email;
+        if (key) byId.set(key, fac);
+      });
+      setDemoFaculty(Array.from(byId.values()));
     });
   }, []);
 
@@ -261,7 +271,50 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
               </div>
             </div>
 
-            <button
+            {/* Demo faculty created by the College Admin */}
+          {demoFaculty.length > 0 && (
+            <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs font-extrabold text-slate-800 dark:text-white">Demo Faculty</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Faculty added by the College Admin • click a name to fill the login
+                  </p>
+                </div>
+                <span className="text-[9px] px-2 py-1 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 font-bold">
+                  {demoFaculty.length} faculty
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto pr-1">
+                {demoFaculty.map((fac: any) => (
+                  <button
+                    key={fac.facultyId || fac.email}
+                    type="button"
+                    onClick={() => {
+                      setIdentifier(fac.facultyId || fac.email || '');
+                      setPassword('faculty123');
+                      setDepartment(fac.department || '');
+                      setError(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 hover:border-teal-400 hover:bg-teal-50/60 dark:hover:bg-teal-950/30 transition-all text-left cursor-pointer"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{fac.name || 'Faculty'}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        {fac.facultyId || fac.email} • {fac.department || 'Faculty'}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[9px] font-bold text-teal-700 dark:text-teal-300 bg-white dark:bg-slate-900 border border-teal-200 dark:border-teal-800 rounded-lg px-2 py-1">
+                      Use Demo
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button
               type="submit"
               disabled={isLoading}
               className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-teal-600 via-cyan-600 to-blue-600 text-white font-semibold text-xs sm:text-sm shadow-md shadow-teal-600/20 hover:shadow-lg hover:shadow-teal-600/30 transition-all flex items-center justify-center gap-2 group cursor-pointer"
