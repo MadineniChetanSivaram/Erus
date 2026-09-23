@@ -876,7 +876,12 @@ function GDAppContent() {
     try {
       const bookingRes = await fetch('/api/student/book-slot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('erus_jwt_token')
+            ? { Authorization: 'Bearer ' + localStorage.getItem('erus_jwt_token') }
+            : {}),
+        },
         body: JSON.stringify({
           // Send all stable identifiers. This handles older browser sessions
           // whose stored currentUser.id is a legacy id while PostgreSQL uses a
