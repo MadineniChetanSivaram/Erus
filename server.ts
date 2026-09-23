@@ -3318,6 +3318,9 @@ interface LiveGDRoomState {
   lastDeadlockAt?: number;
   deadlockCount: number;
   lastDeadlockTargetId?: string;
+  // Server-authoritative turn lock. Only one participant may own the floor.
+  waitingForParticipantId?: string;
+  floorVersion: number;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
