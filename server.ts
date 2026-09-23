@@ -1418,19 +1418,28 @@ app.post('/api/auth/login', async (req, res) => {
   // users hide accounts that were registered/updated in another session.
   if (isDbConnected && prisma) {
     try {
-      const dbUser = await prisma.user.findFirst({
-        where: {
-          ...(role ? { role } : {}),
-          OR: [
-            { email: { equals: cleanId, mode: 'insensitive' } },
-            { name: { contains: cleanId, mode: 'insensitive' } },
-            { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } },
-            { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } },
-            { collegeAdminProfile: { adminId: { equals: cleanId, mode: 'insensitive' } } },
-          ],
-        },
+      // Look up the account first by email. The role is validated after the
+      // account is found, which makes login resilient to older records whose
+      // role/profile metadata was created before the multi-portal auth changes.
+      let dbUser = await prisma.user.findUnique({
+        where: { email: cleanId },
         include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
       });
+
+      // For ID-based login, search the profile identifiers.
+      if (!dbUser) {
+        dbUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { studentProfile: { studentId: { equals: cleanId, mode: 'insensitive' } } },
+              { facultyProfile: { facultyId: { equals: cleanId, mode: 'insensitive' } } },
+              { collegeAdminProfile: { adminId: { equals: cleanId, mode: 'insensitive' } } },
+              { name: { contains: cleanId, mode: 'insensitive' } },
+            ],
+          },
+          include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
+        });
+      }
 
       if (dbUser) {
         user = {
@@ -1460,18 +1469,81 @@ app.post('/api/auth/login', async (req, res) => {
   // In-memory state is only a fallback when the database is unavailable.
   if (!user) {
     user = persistentState.users.find((u) => {
-      const matchRole = !role || u.role === role;
       const matchId =
         u.email.toLowerCase() === cleanId ||
         u.name.toLowerCase().includes(cleanId) ||
         (u.studentId && u.studentId.toLowerCase() === cleanId) ||
         (u.facultyId && u.facultyId.toLowerCase() === cleanId) ||
         (u.adminId && u.adminId.toLowerCase() === cleanId);
-      return matchRole && matchId;
+      return matchId;
     });
+  }
+
+  // Repair older accounts that exist in the persisted application state but
+  // were never written to PostgreSQL. This is especially important for faculty
+  // accounts registered before database-authoritative authentication was added.
+  if (user && isDbConnected && prisma && !user.id.startsWith('c')) {
+    try {
+      const passHash = user.password?.startsWith('$2')
+        ? user.password
+        : await bcrypt.hash(user.password || 'password123', 10);
+      const col = user.collegeCode
+        ? await prisma.college.findUnique({ where: { code: user.collegeCode } })
+        : null;
+      const repaired = await prisma.user.upsert({
+        where: { email: user.email.toLowerCase() },
+        update: {
+          name: user.name,
+          passwordHash: passHash,
+          role: user.role,
+          college: user.college || 'Engineering Institute',
+          collegeId: col?.id,
+          avatar: user.avatar,
+        },
+        create: {
+          email: user.email.toLowerCase(),
+          passwordHash: passHash,
+          name: user.name,
+          role: user.role,
+          college: user.college || 'Engineering Institute',
+          collegeId: col?.id,
+          avatar: user.avatar,
+          ...(user.role === 'faculty'
+            ? { facultyProfile: { create: {
+                facultyId: user.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+                department: user.department || 'Engineering',
+                designation: user.designation || 'Faculty Evaluator',
+              } } }
+            : user.role === 'student'
+            ? { studentProfile: { create: {
+                studentId: user.studentId || `STU-${Date.now().toString().slice(-4)}`,
+                course: user.course || 'General Engineering',
+                batch: user.batch || '2024-2028',
+                seatNumber: user.seatNumber || 1,
+              } } }
+            : {}),
+        },
+        include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
+      });
+      user = {
+        ...user,
+        id: repaired.id,
+        password: repaired.passwordHash,
+        role: repaired.role as any,
+        facultyId: repaired.facultyProfile?.facultyId || user.facultyId,
+        studentId: repaired.studentProfile?.studentId || user.studentId,
+      };
+    } catch (repairErr: any) {
+      console.warn('[Database] Could not repair legacy auth account:', repairErr.message);
+    }
   }
   if (!user) {
     return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
+  }
+
+  // A user found through email/ID must still be signing into the correct portal.
+  if (role && user.role !== role) {
+    return res.status(401).json({ success: false, error: `This account is registered as ${user.role.replace('_', ' ')}. Please use the correct portal.` });
   }
 
   if (password && user.password) {
