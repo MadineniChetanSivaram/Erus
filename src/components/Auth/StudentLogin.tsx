@@ -17,7 +17,7 @@ import {
   Zap
 } from 'lucide-react';
 import { StudentUser } from '../../types/auth';
-import { loginUser, registerUser, setStoredAuth, fetchAdminColleges } from '../../utils/authApi';
+import { loginUser, registerUser, setStoredAuth, fetchAdminColleges, fetchCollegeStudents } from '../../utils/authApi';
 
 interface StudentLoginProps {
   onLogin: (user: StudentUser) => void;
@@ -30,10 +30,20 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
 }) => {
   const [authMode, setAuthMode] = useState<'quick' | 'signin' | 'register'>('quick');
   const [availableColleges, setAvailableColleges] = useState<any[]>([]);
+  const [demoStudents, setDemoStudents] = useState<any[]>([]);
 
   React.useEffect(() => {
-    fetchAdminColleges().then((list) => {
+    fetchAdminColleges().then(async (list) => {
       if (list && list.length > 0) setAvailableColleges(list);
+      const codes = Array.from(new Set(['DIT', ...(list || []).map((c: any) => String(c.code || '').toUpperCase()).filter(Boolean)]));
+      const rosters = await Promise.all(codes.map((code) => fetchCollegeStudents(code)));
+      const merged = rosters.flat();
+      const byId = new Map<string, any>();
+      merged.forEach((student: any) => {
+        const key = student.studentId || student.email;
+        if (key) byId.set(key, student);
+      });
+      setDemoStudents(Array.from(byId.values()));
     });
   }, []);
 
@@ -313,6 +323,46 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
             )}
           </button>
         </form>
+      )}
+
+      {/* Demo students created by the College Admin */}
+      {authMode === 'signin' && demoStudents.length > 0 && (
+        <div className="mb-5 p-4 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-800/50">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs font-extrabold text-slate-800 dark:text-white">Demo Students</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Students added by the College Admin • click to fill login</p>
+            </div>
+            <span className="text-[9px] px-2 py-1 rounded-full bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold">
+              {demoStudents.length} students
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto pr-1">
+            {demoStudents.map((student: any) => (
+              <button
+                key={student.studentId || student.email}
+                type="button"
+                onClick={() => {
+                  setIdentifier(student.studentId || student.email || '');
+                  setPassword('student123');
+                  setError(null);
+                  setSuccessMsg(null);
+                }}
+                className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/60 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all text-left cursor-pointer"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{student.name || 'Student'}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                    {student.studentId || student.email} • {student.course || 'Student'}
+                  </p>
+                </div>
+                <span className="shrink-0 text-[9px] font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-lg px-2 py-1">
+                  Use Demo
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* 1. SIGN IN FORM */}
