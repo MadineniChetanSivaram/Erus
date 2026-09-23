@@ -3315,6 +3315,9 @@ interface LiveGDRoomState {
   transcripts: BackendTranscript[];
   silenceInterval?: NodeJS.Timeout;
   turnTimer?: NodeJS.Timeout;
+  lastDeadlockAt?: number;
+  deadlockCount: number;
+  lastDeadlockTargetId?: string;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -3365,6 +3368,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       status: 'waiting',
       topic: topic || currentLiveSession.topic,
       transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
+      deadlockCount: 0,
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -3380,9 +3384,18 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
           maxSilence: 20,
         });
 
-        // DEADLOCK DETECTED! If nobody speaks for 20 seconds
-        if (room.silenceTimerSeconds >= 20) {
+        // Deadlock intervention is a safety net, not the normal turn engine.
+        // Apply a cooldown so the same silence cannot repeatedly trigger the
+        // same moderator question.
+        const now = Date.now();
+        const deadlockCooldownMs = 45000;
+        if (
+          room.silenceTimerSeconds >= 20 &&
+          (!room.lastDeadlockAt || now - room.lastDeadlockAt >= deadlockCooldownMs)
+        ) {
           room.silenceTimerSeconds = 0;
+          room.lastDeadlockAt = now;
+          room.deadlockCount += 1;
           await triggerDeadlockIntervention(room);
         }
       } else {
@@ -3529,35 +3542,75 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   }, 1200);
 }
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
-  const quietPeer = Array.from(room.peers.values()).find(p => p.role === 'student' && (p.speakingTurns || 0) === 0) 
-    || Array.from(room.peers.values())[0];
+  const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
+  if (realStudents.length === 0) return;
+
+  // Prefer the participant with the fewest turns, then the longest silence.
+  // Do not immediately call the same person again when another participant
+  // is available.
+  const candidates = realStudents
+    .filter((p) => p.userId !== room.lastDeadlockTargetId)
+    .sort((a, b) =>
+      (a.speakingTurns || 0) - (b.speakingTurns || 0) ||
+      (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0)
+    );
+  const quietPeer = candidates[0] || realStudents.sort(
+    (a, b) => (a.speakingTurns || 0) - (b.speakingTurns || 0) || (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0)
+  )[0];
+
   const candidateName = quietPeer?.name || 'participants';
-  let deadlockQuestion = '';
+  if (quietPeer) room.lastDeadlockTargetId = quietPeer.userId;
+
+  const recentHistory = room.transcripts
+    .filter((t) => !t.isFacilitator)
+    .slice(-8)
+    .map((t) => `${t.speakerName}: ${t.text}`)
+    .join('\\n');
+
+  const previousDeadlocks = room.transcripts
+    .filter((t) => t.isFacilitator && t.type === 'intervention')
+    .slice(-5)
+    .map((t) => t.text)
+    .join('\\n');
+
+  const fallbackQuestions = [
+    `${candidateName}, what is one practical example that supports your position on "${room.topic}"?`,
+    `${candidateName}, what is the strongest concern you see with the viewpoint discussed so far?`,
+    `${candidateName}, how could this idea be implemented realistically in an Indian college or workplace?`,
+    `${candidateName}, who is most affected by this issue, and why should their perspective matter?`,
+    `${candidateName}, if you had to challenge one assumption in this discussion, which would you challenge?`,
+    `${candidateName}, what evidence or outcome would convince you that this approach is actually working?`
+  ];
+  let deadlockQuestion = fallbackQuestions[(room.deadlockCount - 1) % fallbackQuestions.length];
 
   if (ai) {
     try {
-      const recentHistory = room.transcripts.slice(-4).map(t => `${t.speakerName}: ${t.text}`).join('\n');
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are an Indian collegiate Group Discussion Facilitator on the topic: "${room.topic}".
-The discussion has reached a complete deadlock—no participant has spoken for 20 seconds.
-Recent points:
-${recentHistory || '(Discussion is in initial phase)'}
+        model: 'gemini-3.7-flash',
+        contents: `You are the live moderator of an Indian collegiate Group Discussion.
+Topic: "${room.topic}"
+Candidate to call: "${candidateName}"
+This is deadlock intervention number ${room.deadlockCount}.
 
-Generate a concise, insightful question addressing candidate ${candidateName} by name to revive the discussion.
-Format: Address ${candidateName} politely by name, ask an insightful probing question under 30 words in dignified Indian English moderator tone.`,
+Recent discussion:
+${recentHistory || '(no recent student speech)'}
+
+Previous moderator interventions that MUST NOT be repeated or paraphrased:
+${previousDeadlocks || '(none)'}
+
+Write ONE short, natural moderator question under 25 words.
+Call exactly ${candidateName} by name.
+Ask a NEW angle based on the recent discussion.
+Do not say "the floor is quiet", "since nobody is speaking", "opportunities and risks", or repeat any previous question.
+Do not mention AI.`,
       });
-      deadlockQuestion = response.text?.trim() || '';
+      const generated = response.text?.trim();
+      if (generated) deadlockQuestion = generated;
     } catch (err) {
       console.warn('[AI Deadlock Question Error]:', err);
     }
   }
 
-  if (!deadlockQuestion) {
-    deadlockQuestion = `${candidateName}, since the floor is quiet, we would like to hear your perspective. How do you evaluate the core opportunities and risks regarding "${room.topic}"?`;
-  }
-
-  const mins = Math.floor(room.transcripts.length).toString().padStart(2, '0');
   const interventionTranscript: BackendTranscript = {
     id: `t-facilitator-deadlock-${Date.now()}`,
     sessionId: room.slotId,
@@ -3565,7 +3618,7 @@ Format: Address ${candidateName} politely by name, ask an insightful probing que
     speakerName: 'AI Facilitator',
     seatNumber: null,
     isFacilitator: true,
-    timestamp: `${mins}:00`,
+    timestamp: '00:00',
     timestampSeconds: Date.now(),
     text: deadlockQuestion,
     type: 'intervention',
@@ -3574,14 +3627,24 @@ Format: Address ${candidateName} politely by name, ask an insightful probing que
 
   room.transcripts.push(interventionTranscript);
 
-  // Broadcast to all participants and faculty in the room
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text: deadlockQuestion,
     action: 'deadlock_intervention',
+    targetUserId: quietPeer?.userId,
+    targetSeatNumber: quietPeer?.seatNumber,
     transcript: interventionTranscript,
   });
-}
 
+  // A deadlock question should immediately hand control back to the normal
+  // turn engine; otherwise the room can sit silent for another full 20 seconds.
+  if (room.status === 'active') {
+    setTimeout(() => {
+      if (room.status === 'active' && !room.currentSpeakerId) {
+        scheduleNextTurn(room);
+      }
+    }, 2500);
+  }
+}
 function triggerDominanceNudge(room: LiveGDRoomState, dominantPeer: LiveRoomPeer) {
   const quietStudents = Array.from(room.peers.values()).filter(
     p => p.role === 'student' && p.userId !== dominantPeer.userId && p.speakingTurns <= 1
