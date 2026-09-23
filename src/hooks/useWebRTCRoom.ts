@@ -317,10 +317,12 @@ export function useWebRTCRoom({
     });
 
     // Received initial room state
-    socket.on('gd-room-joined', async ({ assignedSeat: mySeat, peers: existingPeers, silenceTimerSeconds: initialSilence }) => {
+    socket.on('gd-room-joined', async ({ assignedSeat: mySeat, peers: existingPeers, silenceTimerSeconds: initialSilence, aiParticipants: initialAiParticipants, simulationMode: initialSimulationMode }) => {
       if (!active) return;
       setAssignedSeat(mySeat);
       setPeers(existingPeers || []);
+      setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
+      setSimulationMode(Boolean(initialSimulationMode));
       setSilenceTimerSeconds(initialSilence || 0);
 
       // Initiate WebRTC offers to all peers already in the room
