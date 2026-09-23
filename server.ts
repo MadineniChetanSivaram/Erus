@@ -1377,15 +1377,34 @@ app.post('/api/student/book-slot', async (req, res) => {
     return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
   }
 
-  // PostgreSQL is authoritative in production. Resolve the student using
-  // every stable identifier supplied by the authenticated frontend session.
+  let authenticatedEmail: string | undefined;
+  let authenticatedUserId: string | undefined;
+  try {
+    const authHeader = String(req.headers.authorization || '');
+    if (authHeader.startsWith('Bearer ')) {
+      const claims = jwt.verify(authHeader.slice(7).trim(), JWT_SECRET) as { id?: string; email?: string; role?: string };
+      if (claims.role === 'student') {
+        authenticatedUserId = claims.id;
+        authenticatedEmail = claims.email?.toLowerCase();
+      }
+    }
+  } catch {}
+
+  const resolvedIdentifiers = Array.from(new Set(
+    [authenticatedUserId, authenticatedEmail, ...identifiers]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+
+  // PostgreSQL is authoritative in production. Resolve the authenticated
+  // student first, then use legacy identifiers as a compatibility fallback.
   let student: any = undefined;
   if (isDbConnected && prisma) {
     try {
       const include = { studentProfile: true, collegeOrg: true };
 
       // Prefer exact user id/email/profile-id matches before name matching.
-      for (const identifier of identifiers) {
+      for (const identifier of resolvedIdentifiers) {
         if (student) break;
 
         let dbUser = await prisma.user.findUnique({
