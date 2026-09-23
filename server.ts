@@ -867,7 +867,7 @@ app.get('/api/college/faculty', async (req, res) => {
       const dbFaculty = await prisma.user.findMany({
         where: {
           role: 'faculty',
-          college: { contains: code, mode: 'insensitive' },
+          college: { code },
         },
         include: { facultyProfile: true },
       });
