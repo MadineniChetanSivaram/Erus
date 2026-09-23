@@ -511,6 +511,15 @@ export function useWebRTCRoom({
     // Faculty Commences Session Broadcast
     socket.on('session-started', (data) => {
       if (!active) return;
+      if (data?.simulationMode) {
+        if (localStreamRef.current) {
+          localStreamRef.current.getAudioTracks().forEach((track) => {
+            track.enabled = false;
+          });
+        }
+        setIsMicMuted(true);
+        setIsSpeakingLive(false);
+      }
       if (onSessionStarted) {
         onSessionStarted(data);
       }
