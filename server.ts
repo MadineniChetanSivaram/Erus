@@ -3531,6 +3531,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       deadlockCount: 0,
       simulationMode: AI_GD_SIMULATION_MODE,
       floorVersion: 0,
+      openingStarted: false,
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -3652,7 +3653,13 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
     });
 
-    const target = candidates[0];
+    let target = candidates[0];
+    // Randomize only the opening turn. After the discussion starts, fairness
+    // is handled by the round/turn counters below.
+    if (!room.openingStarted) {
+      target = candidates[Math.floor(Math.random() * candidates.length)];
+      room.openingStarted = true;
+    }
     const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\\n');
 
     if (target.id.startsWith('ai-')) {
@@ -3679,7 +3686,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
           targetSeatNumber: target.seatNumber, transcript: moderatorTranscript,
           nextSpeaker: { id: target.id, name: target.name, seatNumber: target.seatNumber, reason: 'has_not_spoken' },
         });
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await new Promise((resolve) => setTimeout(resolve, 1800));
       }
       if (room.status !== 'active' || room.currentSpeakerId) return;
       const aiIndex = Math.max(0, target.seatNumber - 1);
