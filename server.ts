@@ -3643,9 +3643,40 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     });
 
     const target = candidates[0];
-    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
+    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\\n');
 
     if (target.id.startsWith('ai-')) {
+      // Announce the next speaker before handing over the floor. The moderator
+      // explicitly explains why this participant was selected, making the
+      // participation-awareness feature visible in the live GD.
+      const targetName = target.name;
+      const targetFirstName = targetName.split(' ')[0];
+      const hasNotSpoken = Number(target.speakingTurns || 0) === 0;
+      const silenceSeconds = target.lastSpokeAt ? Math.max(0, Math.round((now - target.lastSpokeAt) / 1000)) : null;
+      let announcement = hasNotSpoken
+        ? 'We have heard several perspectives, but ' + targetName + ' has not contributed yet. ' + targetFirstName + ', what is your view on "' + room.topic + '"?'
+        : silenceSeconds !== null && silenceSeconds >= 120
+          ? targetName + ' has been quiet for about ' + Math.round(silenceSeconds / 60) + ' minutes. ' + targetFirstName + ', how would you respond to the points we have heard on "' + room.topic + '"?'
+          : 'Thank you. Let us hear from ' + targetName + ' next. ' + targetFirstName + ', what is your perspective on "' + room.topic + '"?';
+      const moderatorTranscript: BackendTranscript = {
+        id: 't-next-ai-' + Date.now(), sessionId: room.slotId, speakerId: 'facilitator',
+        speakerName: 'AI Facilitator', seatNumber: null, isFacilitator: true, timestamp: '00:00',
+        timestampSeconds: Date.now(), text: announcement, type: 'intervention', sentiment: 'neutral',
+      };
+      room.transcripts.push(moderatorTranscript);
+      io.to('room-' + room.slotId).emit('facilitator-intervention', {
+        text: announcement,
+        action: hasNotSpoken ? 'invite_first_time_speaker' : 'next_speaker',
+        targetUserId: target.id,
+        targetSeatNumber: target.seatNumber,
+        transcript: moderatorTranscript,
+        nextSpeaker: { id: target.id, name: target.name, seatNumber: target.seatNumber, reason: hasNotSpoken ? 'has_not_spoken' : silenceSeconds !== null && silenceSeconds >= 120 ? 'longest_silence' : 'balanced_turns' },
+      });
+      // Give the browser moderator voice time to finish before the participant
+      // voice starts. This prevents SpeechSynthesis.cancel() from cutting off
+      // the facilitator or the next AI participant.
+      await new Promise((resolve) => setTimeout(resolve, 4500));
+      if (room.status !== 'active' || room.currentSpeakerId) return;
       const aiIndex = Math.max(0, target.seatNumber - 1);
       const perspectives = [
         'Use an evidence or data angle: mention a concrete trend, measurable outcome, or comparison.',
