@@ -1353,12 +1353,72 @@ app.get('/api/student/:studentId/booked-slot', (req, res) => {
 });
 
 app.post('/api/student/book-slot', async (req, res) => {
-  const { studentId, slotId, topic } = req.body;
-  if (!studentId || !slotId) {
+  const { studentId, studentIdentifier, slotId, topic } = req.body;
+  const identifier = String(studentId || studentIdentifier || '').trim();
+  if (!identifier || !slotId) {
     return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
   }
 
-  const student = persistentState.users.find((u) => u.id === studentId || u.studentId === studentId);
+  // PostgreSQL is authoritative in production. The student may have logged in
+  // from a DB-backed account that was not present in the older in-memory state
+  // snapshot, so resolve the account from PostgreSQL before falling back.
+  let student: any = undefined;
+  if (isDbConnected && prisma) {
+    try {
+      let dbUser = await prisma.user.findUnique({
+        where: { id: identifier },
+        include: { studentProfile: true, collegeOrg: true },
+      });
+      if (!dbUser) {
+        dbUser = await prisma.user.findUnique({
+          where: { email: identifier.toLowerCase() },
+          include: { studentProfile: true, collegeOrg: true },
+        });
+      }
+      if (!dbUser) {
+        dbUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { studentProfile: { studentId: { equals: identifier, mode: 'insensitive' } } },
+              { name: { contains: identifier, mode: 'insensitive' } },
+            ],
+          },
+          include: { studentProfile: true, collegeOrg: true },
+        });
+      }
+      if (dbUser && dbUser.role === 'student') {
+        student = {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role,
+          college: dbUser.college,
+          collegeCode: dbUser.collegeOrg?.code,
+          course: dbUser.studentProfile?.course,
+          batch: dbUser.studentProfile?.batch,
+          seatNumber: dbUser.studentProfile?.seatNumber,
+          studentId: dbUser.studentProfile?.studentId,
+          avatar: dbUser.avatar || undefined,
+        };
+
+        // Keep the compatibility state synchronized for booking/cancellation
+        // endpoints that still use persistentState as their local projection.
+        const existingIdx = persistentState.users.findIndex((u) => u.id === student.id || u.email.toLowerCase() === student.email.toLowerCase());
+        if (existingIdx >= 0) persistentState.users[existingIdx] = { ...persistentState.users[existingIdx], ...student };
+        else persistentState.users.push(student);
+      }
+    } catch (dbErr: any) {
+      console.warn('[Database] Student lookup during booking failed:', dbErr.message);
+    }
+  }
+
+  if (!student) {
+    student = persistentState.users.find((u) =>
+      u.role === 'student' &&
+      (u.id === identifier || u.studentId === identifier || u.email.toLowerCase() === identifier.toLowerCase())
+    );
+  }
+
   if (!student || student.role !== 'student') {
     return res.status(403).json({ success: false, error: 'Student account not found' });
   }
