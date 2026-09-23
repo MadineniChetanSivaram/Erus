@@ -3673,7 +3673,7 @@ io.on('connection', (socket) => {
   });
 
   // 4. Synchronized Live Transcript Broadcasting (PDF Page 5, FR-1)
-  socket.on('peer-transcript', ({ slotId, text, elapsedSeconds }) => {
+  socket.on('peer-transcript', ({ slotId, text, elapsedSeconds, transcriptId }) => {
     const safeSlotId = slotId || 'slot-dit-001';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (!room || !text?.trim()) return;
