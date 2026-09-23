@@ -246,14 +246,18 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         return [...prev, newTx];
       });
 
-      // Update speaker stats
+      // AI turns are already counted authoritatively by onAiParticipantSpeech.
+      // Counting them here as well would make every AI contribution appear twice.
+      if (String(newTx.speakerId || '').startsWith('ai-')) return;
+
+      // Update human speaker stats.
       setSession((prev) => ({
         ...prev,
         currentSpeakerId: newTx.speakerId,
         silenceTimerSeconds: 0,
         students: prev.students.map((s) =>
           s.id === newTx.speakerId || s.seatNumber === newTx.seatNumber
-            ? { ...s, speakingTurns: s.speakingTurns + 1, lastSpokenAt: Date.now() }
+            ? { ...s, speakingTurns: s.speakingTurns + 1, lastSpokeAt: Date.now() }
             : s
         ),
       }));
