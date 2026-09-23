@@ -3676,6 +3676,44 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\\n');
 
     if (target.id.startsWith('ai-')) {
+      // If nobody has started the discussion yet, the facilitator must open
+      // the floor by calling the randomly selected participant by name.
+      // This is intentionally separate from the participant's speech so the
+      // opening does not look like the AI participant started itself.
+      if (!room.transcripts.some((t) => !t.isFacilitator)) {
+        const firstName = target.name.split(' ')[0];
+        const openingOptions = [
+          'The discussion is open. ' + firstName + ', please begin with your view on this topic.',
+          'Let us get started. ' + firstName + ', could you share your opening thoughts on this topic?',
+          firstName + ', you can start the discussion. What is your perspective on this topic?',
+          'To begin, I would like to hear from ' + firstName + '. Please share your initial view.'
+        ];
+        const openingText = openingOptions[Math.floor(Math.random() * openingOptions.length)];
+        const openingTranscript: BackendTranscript = {
+          id: 't-facilitator-opening-' + Date.now(),
+          sessionId: room.slotId,
+          speakerId: 'facilitator',
+          speakerName: 'AI Facilitator',
+          seatNumber: null,
+          isFacilitator: true,
+          timestamp: '00:00',
+          timestampSeconds: Date.now(),
+          text: openingText,
+          type: 'intervention',
+          sentiment: 'neutral',
+        };
+        room.transcripts.push(openingTranscript);
+        room.nextSpeakerId = target.id;
+        room.facilitatorHandoffCount += 1;
+        io.to('room-' + room.slotId).emit('facilitator-intervention', {
+          text: openingText,
+          action: 'opening_turn',
+          targetUserId: target.id,
+          targetSeatNumber: target.seatNumber,
+          transcript: openingTranscript,
+        });
+      }
+
       // Normal AI turns use direct participant-to-participant handoffs.
       // The facilitator is reserved for genuine deadlocks, not every turn.
       if (room.status !== 'active' || room.currentSpeakerId) return;
