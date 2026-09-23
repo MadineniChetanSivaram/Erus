@@ -295,6 +295,56 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Local auto-simulation is retained only for the single-user demo mode.
   const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
 
+  const demoRosterInitializedRef = useRef(false);
+
+  // Demo mode: keep exactly 10 AI participants available when the room has no
+  // real peers yet. They are local visual/simulation participants only; they do
+  // not affect booking capacity or backend enrollment.
+  // Real WebRTC participants automatically occupy the same numbered seats and
+  // visually replace these AI participants as they join.
+  useEffect(() => {
+    if (demoRosterInitializedRef.current) return;
+    demoRosterInitializedRef.current = true;
+
+    setSession((prev) => {
+      const realOrUserStudents = prev.students.filter((s) => !s.isDemoAI && !s.isEmptySeat);
+      const existingDemo = prev.students.filter((s) => s.isDemoAI);
+      const targetAiCount = 10;
+      const userCount = realOrUserStudents.filter((s) => s.isUser).length;
+      const missingAiCount = Math.max(0, targetAiCount - existingDemo.length - userCount);
+
+      if (missingAiCount === 0) return prev;
+
+      const usedSeats = new Set(prev.students.map((s) => s.seatNumber));
+      const additions: Student[] = [];
+      let nextSeat = 1;
+
+      for (let i = 0; i < missingAiCount; i++) {
+        while (usedSeats.has(nextSeat)) nextSeat++;
+        const demo = generateSlotParticipants(1)[0];
+        additions.push({
+          ...demo,
+          id: 'demo-ai-' + Date.now() + '-' + i,
+          seatNumber: nextSeat,
+          isUser: false,
+          isDemoAI: true,
+          micActive: false,
+          isSpeaking: false,
+          isRealPeer: false,
+          isEmptySeat: false,
+          speakingTurns: 0,
+          speakingDurationSeconds: 0,
+          interruptionCount: 0,
+          questionsAnswered: 0,
+          questionsInitiated: 0,
+        });
+        usedSeats.add(nextSeat);
+        nextSeat++;
+      }
+
+      return { ...prev, students: [...prev.students, ...additions] };
+    });
+  }, [setSession]);
   // Active display students: merge static mock participants with live connected WebRTC peers
   const activeDisplayStudents = useMemo(() => {
     const targetUserSeat = !isFaculty
