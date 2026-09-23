@@ -91,6 +91,9 @@ export function useWebRTCRoom({
   const animFrameRef = useRef<number | null>(null);
   const silenceTimerCounterRef = useRef<number>(0);
   const speakingStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Server-authoritative floor owner. A participant may only enable their
+  // outgoing microphone when the floor is free or belongs to them.
+  const floorSpeakerIdRef = useRef<string | null>(null);
 
   // 1. Play incoming peer audio stream through browser speakers
   const attachRemoteAudio = useCallback((peerSocketId: string, stream: MediaStream) => {
@@ -260,7 +263,7 @@ export function useWebRTCRoom({
                   volumeLevel: 0,
                 });
                 speakingStateTimeoutRef.current = null;
-              }, 600);
+              }, 1800);
             }
           }
 
@@ -455,11 +458,29 @@ export function useWebRTCRoom({
       }
       setIsMicMuted(true);
       setIsSpeakingLive(false);
-      if (message) setError(message);
+      // Do not leave a stale error banner after the speaker finishes.
+      if (message) {
+        setError(message);
+        window.setTimeout(() => setError(null), 2500);
+      }
     });
 
     socket.on('floor-state', ({ speakerId }) => {
       if (!active) return;
+      floorSpeakerIdRef.current = speakerId || null;
+
+      // The server owns the floor. If another participant owns it, hard-mute
+      // this client's outgoing WebRTC track immediately. MediaStreamTrack.enabled
+      // sends silence while disabled, so the remote peer cannot hear overlap.
+      const isAnotherSpeaker = !!speakerId && speakerId !== currentUser?.id;
+      if (isAnotherSpeaker && localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+        setIsMicMuted(true);
+        setIsSpeakingLive(false);
+      }
+
       // Never automatically unmute when the floor opens. The participant must
       // explicitly enable the microphone again, preventing accidental overlap.
       if (!speakerId) {
@@ -543,6 +564,14 @@ export function useWebRTCRoom({
 
   // Set explicit microphone enabled state (true = unmuted, false = muted)
   const setMicEnabled = useCallback((enabled: boolean) => {
+    if (enabled && floorSpeakerIdRef.current && floorSpeakerIdRef.current !== currentUser?.id) {
+      setIsMicMuted(true);
+      setIsSpeakingLive(false);
+      setError('Another participant is speaking. Please wait for the floor to open.');
+      window.setTimeout(() => setError(null), 2500);
+      return;
+    }
+
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = enabled;
@@ -550,15 +579,17 @@ export function useWebRTCRoom({
       setIsMicMuted(!enabled);
 
       if (socketRef.current) {
+        // Enabling the microphone must NOT claim the speaking floor. The audio
+        // VAD below claims it only after actual speech is detected.
         socketRef.current.emit('peer-speaking-state', {
           slotId,
-          isSpeaking: enabled,
+          isSpeaking: false,
           micActive: enabled,
-          volumeLevel: enabled ? localVolume : 0,
+          volumeLevel: 0,
         });
       }
     }
-  }, [slotId, localVolume]);
+  }, [slotId, currentUser?.id]);
 
   // Broadcast spoken transcript to all room members
   const broadcastTranscript = useCallback((text: string, elapsedSeconds: number, transcriptId?: string) => {
