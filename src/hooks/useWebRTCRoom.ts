@@ -98,6 +98,19 @@ export function useWebRTCRoom({
   const floorSpeakerIdRef = useRef<string | null>(null);
   const handledAiTranscriptIdsRef = useRef<Set<string>>(new Set());
 
+  // Keep the latest UI callbacks without recreating the Socket.IO connection on every React render.
+  // The GD room receives frequent transcript/floor updates, so reconnecting on each render can
+  // cause clients to miss AI participant speech events. These refs keep handlers current while
+  // the socket lifecycle stays tied only to the room/user identity.
+  const onNewTranscriptRef = useRef(onNewTranscript);
+  const onFacilitatorInterventionRef = useRef(onFacilitatorIntervention);
+  const onSessionStartedRef = useRef(onSessionStarted);
+  const onAiParticipantSpeechRef = useRef(onAiParticipantSpeech);
+  onNewTranscriptRef.current = onNewTranscript;
+  onFacilitatorInterventionRef.current = onFacilitatorIntervention;
+  onSessionStartedRef.current = onSessionStarted;
+  onAiParticipantSpeechRef.current = onAiParticipantSpeech;
+
   // 1. Play incoming peer audio stream through browser speakers
   const attachRemoteAudio = useCallback((peerSocketId: string, stream: MediaStream) => {
     let audioEl = audioElementsRef.current.get(peerSocketId);
@@ -447,7 +460,7 @@ export function useWebRTCRoom({
       if (speakerId.startsWith('ai-') && transcript?.id) {
         if (!handledAiTranscriptIdsRef.current.has(String(transcript.id))) {
           handledAiTranscriptIdsRef.current.add(String(transcript.id));
-          onAiParticipantSpeech?.({
+          onAiParticipantSpeechRef.current?.({
             participant: {
               id: speakerId,
               name: transcript.speakerName,
@@ -463,16 +476,16 @@ export function useWebRTCRoom({
         }
       }
 
-      if (onNewTranscript) {
-        onNewTranscript(transcript);
+      if (onNewTranscriptRef.current) {
+        onNewTranscriptRef.current(transcript);
       }
     });
 
     // AI Facilitator Autonomous Intervention (Deadlock question or dominance nudge)
     socket.on('facilitator-intervention', (intervention) => {
       if (!active) return;
-      if (onFacilitatorIntervention) {
-        onFacilitatorIntervention(intervention);
+      if (onFacilitatorInterventionRef.current) {
+        onFacilitatorInterventionRef.current(intervention);
       }
     });
 
@@ -537,7 +550,7 @@ export function useWebRTCRoom({
       if (data?.transcript?.id) {
         handledAiTranscriptIdsRef.current.add(String(data.transcript.id));
       }
-      onAiParticipantSpeech?.(data);
+      onAiParticipantSpeechRef.current?.(data);
     });
 
     // Faculty Commences Session Broadcast
@@ -554,8 +567,8 @@ export function useWebRTCRoom({
         setIsMicMuted(true);
         setIsSpeakingLive(false);
       }
-      if (onSessionStarted) {
-        onSessionStarted(data);
+      if (onSessionStartedRef.current) {
+        onSessionStartedRef.current(data);
       }
     });
 
@@ -595,7 +608,7 @@ export function useWebRTCRoom({
 
       socket.disconnect();
     };
-  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio, onNewTranscript, onFacilitatorIntervention, onSessionStarted, onAiParticipantSpeech]);
+  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio]);
 
   // Toggle local microphone mute
   const toggleMute = useCallback(() => {
