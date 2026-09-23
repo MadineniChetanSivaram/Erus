@@ -319,9 +319,9 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   const currentStudentObj = session.students.find((s) => s.id === selectedStudentId);
   const isEndorsed = currentReport.facultyEndorsement?.endorsed;
-  const currentWpm = currentReport.wpm || 136;
-  const currentWpmStatus = currentReport.wpmStatus || (currentWpm >= 120 && currentWpm <= 150 ? 'Optimal' : currentWpm < 120 ? 'Too Slow' : 'Too Fast');
-  const fillerCount = currentReport.fillerWordsCount ?? 2;
+  const currentWpm = currentReport.wpm ?? 0;
+  const currentWpmStatus = currentReport.wpmStatus || (currentWpm === 0 ? 'No Speech' : currentWpm >= 120 && currentWpm <= 150 ? 'Optimal' : currentWpm < 120 ? 'Too Slow' : 'Too Fast');
+  const fillerCount = currentReport.fillerWordsCount ?? 0;
 
   if (activeReportTab === 'comparison') {
     return (
