@@ -150,7 +150,7 @@ function GDAppContent() {
     if (currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin') {
       setSession((prev) => ({
         ...prev,
-        students: prev.students.map((s) => (s.isUser ? { ...s, isUser: false } : s)),
+        students: (prev.students || []).map((s) => (s.isUser ? { ...s, isUser: false } : s)),
       }));
     }
   }, [currentUser]);
@@ -331,7 +331,7 @@ function GDAppContent() {
     } else if (user.role === 'college_admin') {
       setSession((prev) => ({
         ...prev,
-        students: prev.students.map((s) => ({ ...s, isUser: false })),
+        students: (prev.students || []).map((s) => ({ ...s, isUser: false })),
       }));
       setCurrentTab('college_admin');
     } else if (user.role === 'super_admin') {
