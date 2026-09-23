@@ -54,7 +54,12 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   );
 
   // Compute student rankings and scores
-  const studentStats = session.students.map((s, idx) => {
+  const safeStudents = Array.isArray(session?.students) ? session.students : [];
+  const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
+  const safeFacultyLiveNotes = Array.isArray(session?.facultyLiveNotes) ? session.facultyLiveNotes : [];
+  const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
+
+  const studentStats = safeStudents.map((s, idx) => {
     // Exact 7-parameter score approximation
     const english = Math.min(20, Math.max(14, 16 + (s.speakingTurns % 3)));
     const fluency = Math.min(20, Math.max(13, 15 + Math.round(s.speakingDurationSeconds / 80)));
@@ -80,12 +85,12 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     };
   }).sort((a, b) => b.calculatedScore - a.calculatedScore);
 
-  const averageScore = Math.round(
-    studentStats.reduce((acc, curr) => acc + curr.calculatedScore, 0) / studentStats.length
-  );
+  const averageScore = studentStats.length > 0
+    ? Math.round(studentStats.reduce((acc, curr) => acc + curr.calculatedScore, 0) / studentStats.length)
+    : 0;
 
   // Data for Speaking Time Chart
-  const chartData = session.students.map((s) => ({
+  const chartData = safeStudents.map((s) => ({
     name: s.name.split(' ')[0],
     fullName: s.name,
     seat: `Seat ${s.seatNumber}`,
@@ -104,7 +109,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   ];
 
   const handleExportTranscript = () => {
-    const textContent = transcripts
+    const textContent = safeTranscripts
       .map((t) => `[${t.timestamp}] ${t.speakerName} (Seat ${t.seatNumber || 'Mod'}): ${t.text}`)
       .join('\n\n');
 
@@ -186,7 +191,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
       </div>
 
       {/* Slot Switcher for Faculty: Easily inspect any completed or active slot */}
-      {availableSlots && availableSlots.length > 0 && onSelectSlot && (
+      {safeAvailableSlots.length > 0 && onSelectSlot && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -195,7 +200,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {availableSlots.map((sl) => {
+            {safeAvailableSlots.map((sl) => {
               const isSelected = sl.id === session.id;
               const isCompleted = sl.status === 'completed';
               return (
@@ -338,7 +343,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               <div key={idx} className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-3">
                 <span className="font-mono font-bold text-slate-600 dark:text-slate-400 w-14">{block.minute}</span>
                 <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                  {session.students.map((st) => {
+                  {safeStudents.map((st) => {
                     const isActiveInBlock = block.activeSeats.includes(st.seatNumber);
                     return (
                       <span
@@ -414,7 +419,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {session.facultyLiveNotes.map((note) => {
+            {safeFacultyLiveNotes.map((note) => {
               const tagConfig = {
                 strength: { label: 'Strength', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' },
                 improvement: { label: 'Improvement', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' },
