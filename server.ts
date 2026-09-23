@@ -1521,8 +1521,37 @@ app.post('/api/auth/register', async (req, res) => {
     try {
       const col = await prisma.college.findUnique({ where: { code: newUser.collegeCode || 'DIT' } });
       const passHash = await bcrypt.hash(newUser.password, 10);
-      await prisma.user.create({
-        data: {
+      await prisma.user.upsert({
+        where: { email: cleanEmail },
+        update: {
+          passwordHash: passHash,
+          name: newUser.name,
+          role: newUser.role,
+          college: newUser.college,
+          collegeId: col?.id,
+          avatar: newUser.avatar,
+          ...(role === 'student'
+            ? {
+                studentProfile: {
+                  upsert: {
+                    create: {
+                      studentId: newUser.studentId || `STU-${Date.now().toString().slice(-4)}`,
+                      course: newUser.course || 'General Engineering',
+                      batch: newUser.batch || '2024-2028',
+                      seatNumber: newUser.seatNumber || 1,
+                    },
+                    update: {
+                      studentId: newUser.studentId || undefined,
+                      course: newUser.course || undefined,
+                      batch: newUser.batch || undefined,
+                      seatNumber: newUser.seatNumber || undefined,
+                    },
+                  },
+                },
+              }
+            : {}),
+        },
+        create: {
           email: cleanEmail,
           passwordHash: passHash,
           name: newUser.name,
