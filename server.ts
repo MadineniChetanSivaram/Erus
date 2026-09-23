@@ -3264,9 +3264,22 @@ interface LiveRoomPeer {
   lastSpokeAt?: number;
 }
 
+interface AIParticipant {
+  id: string;
+  name: string;
+  seatNumber: number;
+  avatar: string;
+  role: 'student';
+  college: string;
+  speakingTurns: number;
+  speakingDurationSeconds: number;
+  lastSpokeAt?: number;
+}
+
 interface LiveGDRoomState {
   slotId: string;
   peers: Map<string, LiveRoomPeer>; // socketId -> LiveRoomPeer
+  aiParticipants: Map<string, AIParticipant>;
   assignedSeats: Map<number, string>; // seatNumber (1..15) -> socketId
   currentSpeakerId: string | null;
   currentSpeakerSocketId: string | null;
@@ -3280,12 +3293,42 @@ interface LiveGDRoomState {
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
 
+function getSlotCapacity(slotId: string) {
+  for (const slots of Object.values(persistentState.slots)) {
+    const slot = slots.find((s) => s.id === slotId);
+    if (slot) return Math.max(1, Number(slot.maxCapacity || 1));
+  }
+  return Math.max(1, Number((currentLiveSession as any)?.maxCapacity || 6));
+}
+
+const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy','Arjun Iyer','Meera Kapoor','Aditya Menon','Sneha Joshi'];
+
+function syncAiParticipants(room: LiveGDRoomState) {
+  const capacity = getSlotCapacity(room.slotId);
+  const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
+  const targetCount = Math.max(0, capacity - realStudents.length);
+  const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
+  const existing = Array.from(room.aiParticipants.values()).slice(0, targetCount);
+  room.aiParticipants = new Map(existing.map((p) => [p.id, p]));
+  let seat = 1;
+  while (room.aiParticipants.size < targetCount) {
+    while (usedSeats.has(seat)) seat++;
+    const name = AI_PARTICIPANT_NAMES[room.aiParticipants.size % AI_PARTICIPANT_NAMES.length];
+    const id = 'ai-' + room.slotId + '-' + (room.aiParticipants.size + 1);
+    room.aiParticipants.set(id, { id, name, seatNumber: seat, avatar: '', role: 'student', college: 'ERUS AI Participant', speakingTurns: 0, speakingDurationSeconds: 0 });
+    usedSeats.add(seat);
+    seat++;
+  }
+  return Array.from(room.aiParticipants.values());
+}
+
 function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
   let room = LIVE_ROOMS.get(slotId);
   if (!room) {
     room = {
       slotId,
       peers: new Map(),
+      aiParticipants: new Map(),
       assignedSeats: new Map(),
       currentSpeakerId: null,
       currentSpeakerSocketId: null,
@@ -3337,111 +3380,86 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
 }
 
 async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string) {
-  if (room.turnTimer) {
-    clearTimeout(room.turnTimer);
-    room.turnTimer = undefined;
-  }
+  if (room.turnTimer) clearTimeout(room.turnTimer);
+  room.turnTimer = undefined;
+  if (room.status !== 'active') return;
 
-  // With only one real participant there is no real peer to call; the client-side
-  // demo simulator remains responsible for that case.
-  const realStudents = Array.from(room.peers.values()).filter(
-    (p) => p.role === 'student'
-  );
-  if (room.status !== 'active' || realStudents.length < 2) return;
+  const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
+  const aiStudents = syncAiParticipants(room);
+  const candidates: any[] = [...realStudents, ...aiStudents].filter((p) => p.id !== completedUserId && p.userId !== completedUserId);
+  if (!candidates.length) return;
 
   room.turnTimer = setTimeout(async () => {
     room.turnTimer = undefined;
-
-    // A participant may still be speaking while this timer fires.
     if (room.currentSpeakerId) return;
-
-    const candidates = realStudents.filter(
-      (p) => p.userId !== completedUserId
-    );
-    if (!candidates.length) return;
-
     const now = Date.now();
 
-    // First priority: anyone who has not spoken in this session.
-    // Second priority: longest time since speaking.
-    // Third priority: lowest turn count.
     candidates.sort((a, b) => {
       const aNever = a.speakingTurns === 0 ? 0 : 1;
       const bNever = b.speakingTurns === 0 ? 0 : 1;
       if (aNever !== bNever) return aNever - bNever;
-
-      const aLast = a.lastSpokeAt || 0;
-      const bLast = b.lastSpokeAt || 0;
-      if (aLast !== bLast) return aLast - bLast;
-
-      return a.speakingTurns - b.speakingTurns;
+      const aQuiet = !a.lastSpokeAt || now - a.lastSpokeAt >= 180000 ? 0 : 1;
+      const bQuiet = !b.lastSpokeAt || now - b.lastSpokeAt >= 180000 ? 0 : 1;
+      if (aQuiet !== bQuiet) return aQuiet - bQuiet;
+      return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0) || a.speakingTurns - b.speakingTurns;
     });
 
     const target = candidates[0];
-    const recentHistory = room.transcripts
-      .filter((t) => !t.isFacilitator)
-      .slice(-8)
-      .map((t) => `${t.speakerName}: ${t.text}`)
-      .join('\n');
+    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
 
-    let invitation = `Thank you. Let us hear from ${target.name} from Seat ${target.seatNumber}. ${target.name.split(' ')[0]}, what is your perspective on the discussion so far?`;
+    if (target.id.startsWith('ai-')) {
+      let statement = target.name.split(' ')[0] + ': I think we should consider both the practical benefits and the risks before reaching a conclusion.';
+      if (ai) {
+        try {
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.7-flash',
+            contents: 'You are ' + target.name + ', a realistic Indian college student in a live group discussion. Topic: "' + room.topic + '". Recent discussion:\n' + (recentHistory || '(opening)') + '\nWrite a natural 35-70 word spoken contribution. Add a new point or constructively challenge/build on another point. Do not mention AI.',
+          });
+          statement = response.text?.trim() || statement;
+        } catch (err) { console.warn('[AI Participant Speech Error]:', err); }
+      }
+      target.speakingTurns += 1;
+      target.lastSpokeAt = now;
+      target.speakingDurationSeconds += Math.max(4, Math.round(statement.split(/\s+/).length / 2.2));
+      room.currentSpeakerId = target.id;
+      room.currentSpeakerSocketId = null;
+      const transcript: BackendTranscript = {
+        id: 't-ai-' + Date.now(), sessionId: room.slotId, speakerId: target.id, speakerName: target.name,
+        seatNumber: target.seatNumber, isFacilitator: false, timestamp: '00:00', timestampSeconds: Date.now(),
+        text: statement, type: 'statement', sentiment: 'neutral',
+      };
+      room.transcripts.push(transcript);
+      io.to('room-' + room.slotId).emit('ai-participant-speech', { participant: target, transcript, text: statement });
+      io.to('room-' + room.slotId).emit('new-transcript', { transcript, studentId: target.id, seatNumber: target.seatNumber });
+      const durationMs = Math.min(9000, Math.max(3500, statement.split(/\s+/).length * 180));
+      room.turnTimer = setTimeout(() => {
+        room.currentSpeakerId = null;
+        scheduleNextTurn(room, target.id);
+      }, durationMs);
+      return;
+    }
 
+    const targetReal = target as LiveRoomPeer;
+    const recentSeconds = targetReal.lastSpokeAt ? Math.round((now - targetReal.lastSpokeAt) / 1000) : null;
+    let invitation = 'Thank you. Let us hear from ' + targetReal.name + ' from Seat ' + targetReal.seatNumber + '. ' + targetReal.name.split(' ')[0] + ', what is your view on this topic?';
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `You are the live moderator of a collegiate Group Discussion on "${room.topic}".
-
-The previous speaker has completed their turn. You must invite exactly ONE participant next.
-
-Participant to invite:
-- Name: ${target.name}
-- Seat: ${target.seatNumber}
-- Turns so far: ${target.speakingTurns}
-- Last spoke: ${target.lastSpokeAt ? Math.max(0, Math.round((now - target.lastSpokeAt) / 1000)) + ' seconds ago' : 'has not spoken yet'}
-
-Recent discussion:
-${recentHistory || '(No student has spoken yet)'}
-
-Write ONE short moderator sentence (maximum 28 words) that:
-1. Names the participant.
-2. Clearly gives them the floor.
-3. If they have not spoken recently, asks a small topic-specific question.
-4. Does not repeat or paraphrase a point already made.
-5. Sounds like a natural Indian college GD moderator, not a scripted chatbot.`,
+          model: 'gemini-3.7-flash',
+          contents: 'You are the live moderator of a collegiate Group Discussion on "' + room.topic + '". Call exactly ' + targetReal.name + ' next. They have spoken ' + targetReal.speakingTurns + ' time(s). ' + (recentSeconds === null ? 'They have not spoken yet.' : 'They last spoke ' + recentSeconds + ' seconds ago.') + ' Recent discussion:\n' + (recentHistory || '(none)') + '\nWrite one natural moderator sentence under 28 words. Name the participant and ask a short topic-specific question if they have not spoken recently.',
         });
         invitation = response.text?.trim() || invitation;
-      } catch (err) {
-        console.warn('[AI Next Speaker Error]:', err);
-      }
+      } catch {}
     }
-
     const transcript: BackendTranscript = {
-      id: `t-next-turn-${Date.now()}`,
-      sessionId: room.slotId,
-      speakerId: 'facilitator',
-      speakerName: 'AI Facilitator',
-      seatNumber: null,
-      isFacilitator: true,
-      timestamp: '00:00',
-      timestampSeconds: Date.now(),
-      text: invitation,
-      type: 'intervention',
-      sentiment: 'neutral',
+      id: 't-next-turn-' + Date.now(), sessionId: room.slotId, speakerId: 'facilitator',
+      speakerName: 'AI Facilitator', seatNumber: null, isFacilitator: true, timestamp: '00:00',
+      timestampSeconds: Date.now(), text: invitation, type: 'intervention', sentiment: 'neutral',
     };
-
     room.transcripts.push(transcript);
-
-    io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
-      text: invitation,
-      action: 'next_turn',
-      targetUserId: target.userId,
-      targetSeatNumber: target.seatNumber,
-      transcript,
-    });
+    io.to('room-' + room.slotId).emit('facilitator-intervention', { text: invitation, action: 'next_turn', targetUserId: targetReal.userId, targetSeatNumber: targetReal.seatNumber, transcript });
   }, 1200);
 }
-
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   const quietPeer = Array.from(room.peers.values()).find(p => p.role === 'student' && (p.speakingTurns || 0) === 0) 
     || Array.from(room.peers.values())[0];
@@ -3572,11 +3590,14 @@ io.on('connection', (socket) => {
 
     room.peers.set(socket.id, peer);
 
+    syncAiParticipants(room);
+
     // Send existing room state to joining peer
     const otherPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
     socket.emit('gd-room-joined', {
       assignedSeat: seatNumber,
       peers: otherPeers,
+      aiParticipants: Array.from(room.aiParticipants.values()),
       transcripts: room.transcripts,
       topic: room.topic,
       silenceTimerSeconds: room.silenceTimerSeconds,
@@ -3697,6 +3718,7 @@ io.on('connection', (socket) => {
       if (peer) {
         room.assignedSeats.delete(peer.seatNumber);
         room.peers.delete(socket.id);
+        syncAiParticipants(room);
 
         if (room.currentSpeakerSocketId === socket.id) {
           room.currentSpeakerId = null;
