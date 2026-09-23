@@ -3461,6 +3461,7 @@ interface LiveGDRoomState {
   nextSpeakerId?: string;
   openingStarted?: boolean;
   facilitatorHandoffCount: number;
+  facilitatorHandoffStreak: number;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -3538,6 +3539,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       floorVersion: 0,
       openingStarted: false,
       facilitatorHandoffCount: 0,
+      facilitatorHandoffStreak: 0,
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -3790,23 +3792,23 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       const shuffled = [...leastSpoken].sort(() => Math.random() - 0.5);
       const nextParticipant = shuffled[0];
 
-      // About one out of every three handoffs is owned by the facilitator.
-      // Use a streak guard so direct AI-to-AI handoffs cannot run for too long.
-      // During the first round, allow the discussion to establish itself before
-      // introducing facilitator routing unless the facilitator is explicitly needed.
+      // The facilitator should be occasional, not the default turn router.
+      // Most turns flow directly from one participant to another.
+      // Never let the facilitator call two participants consecutively.
       const totalAiTurns = participantsAfterTurn.reduce(
         (sum, p) => sum + Number(p.speakingTurns || 0),
         0,
       );
       const isEarlyRound = totalAiTurns <= participantsAfterTurn.length;
-      const forceFacilitator = room.facilitatorHandoffCount >= 3;
-      const useFacilitatorHandoff = !!nextParticipant && (
-        forceFacilitator || (!isEarlyRound && Math.random() < 0.35)
+      const facilitatorWasJustUsed = room.facilitatorHandoffStreak > 0;
+      const useFacilitatorHandoff = !!nextParticipant && !facilitatorWasJustUsed && (
+        !isEarlyRound && Math.random() < 0.20
       );
 
       if (nextParticipant && useFacilitatorHandoff) {
         room.nextSpeakerId = nextParticipant.id;
         room.facilitatorHandoffCount += 1;
+        room.facilitatorHandoffStreak += 1;
 
         const firstName = nextParticipant.name.split(' ')[0];
         const facilitatorHandoffOptions = [
@@ -3843,7 +3845,10 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
           transcript: facilitatorTranscript,
         });
       } else if (nextParticipant) {
-        // Direct participant-to-participant handoff. Keep this randomized
+        // Direct participant-to-participant handoff. Reset the facilitator
+        // streak so the facilitator cannot appear repeatedly in succession.
+        room.facilitatorHandoffStreak = 0;
+        // Keep this randomized
         // and exclude the speaker who just finished.
         room.nextSpeakerId = nextParticipant.id;
         const firstName = nextParticipant.name.split(' ')[0];
