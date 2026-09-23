@@ -3466,7 +3466,12 @@ function getSlotCapacity(slotId: string) {
   return Math.max(1, Number((currentLiveSession as any)?.maxCapacity || 6));
 }
 
-const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy'];
+const AI_PARTICIPANT_NAMES = [
+  'Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy',
+  'Arjun Iyer','Meera Kapoor','Aditya Menon','Sneha Joshi','Kabir Shah','Diya Nair',
+  'Nikhil Reddy','Riya Malhotra','Vivek Rao','Pooja Menon','Karan Joshi','Anika Sharma',
+  'Manav Patel','Sanya Kapoor'
+];
 const AI_GD_SIMULATION_MODE = true;
 const AI_GD_SIMULATION_PARTICIPANTS = 6; // Fallback only; simulation normally follows slot capacity.
 
@@ -3499,6 +3504,17 @@ function syncAiParticipants(room: LiveGDRoomState) {
 function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
   let room = LIVE_ROOMS.get(slotId);
   if (!room) {
+    let resolvedTopic = topic;
+    if (!resolvedTopic) {
+      for (const slots of Object.values(persistentState.slots)) {
+        const slot = slots.find((s) => s.id === slotId);
+        if (slot?.topic) {
+          resolvedTopic = slot.topic;
+          break;
+        }
+      }
+    }
+    resolvedTopic = resolvedTopic || (currentLiveSession as any)?.topic || 'Group Discussion';
     room = {
       slotId,
       peers: new Map(),
@@ -3508,7 +3524,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       currentSpeakerSocketId: null,
       silenceTimerSeconds: 0,
       status: 'waiting',
-      topic: topic || currentLiveSession.topic,
+      topic: resolvedTopic,
       transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
       deadlockCount: 0,
       simulationMode: AI_GD_SIMULATION_MODE,
@@ -3630,7 +3646,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
 
     if (target.id.startsWith('ai-')) {
-      const aiIndex = Math.max(0, AI_PARTICIPANT_NAMES.findIndex((name) => name === target.name));
+      const aiIndex = Math.max(0, target.seatNumber - 1);
       const perspectives = [
         'Use an evidence or data angle: mention a concrete trend, measurable outcome, or comparison.',
         'Use an implementation angle: discuss feasibility, resources, infrastructure, or execution in India.',
@@ -3651,19 +3667,19 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
         .join('\n');
 
       let statement = '';
-      const fallbackStatements = [
-        'If we look at the evidence rather than only the headline benefits, the measurable outcomes should determine whether this idea actually works.',
-        'From an implementation perspective, the biggest question is whether institutions have the infrastructure, trained people, and budget to execute this at scale.',
-        'There is also an ethical dimension here. Efficiency should not come at the cost of fairness, privacy, or accountability for the people affected.',
-        'Economically, we should ask who gains from this change and who may carry the transition cost, especially when organisations are under pressure to reduce expenses.',
-        'The social impact deserves attention too. A solution can be technically successful but still exclude people who lack access, confidence, or support.',
-        'I want to challenge the assumption that faster adoption automatically means better outcomes. A phased approach could reveal problems before they become systemic.',
-        'Regulation and institutional accountability matter here. Clear responsibility is needed when a decision affects students, employees, or the public.',
-        'We should also consider the long-term effect. A solution that looks efficient today may create dependency or new risks several years later.',
-        'A simple campus or workplace example shows why this is more complicated than it first appears: the same policy can affect different groups very differently.',
-        'I see a middle ground between the two positions. We can retain the benefits while putting specific safeguards around the risks already mentioned.'
+      const topicFallbacks = [
+        'On "' + room.topic + '", I would start by looking at the actual evidence and measurable outcomes rather than assuming the headline benefits tell the whole story.',
+        'For "' + room.topic + '", the practical question is whether institutions, companies, or communities have the resources and infrastructure needed to implement the idea at scale.',
+        'The ethical side of "' + room.topic + '" matters because efficiency or convenience should not come at the cost of fairness, privacy, accountability, or inclusion.',
+        'Economically, "' + room.topic + '" should be examined by asking who benefits, who bears the cost, and how the change could affect jobs, productivity, or access.',
+        'The social impact of "' + room.topic + '" also deserves attention. A solution may work technically but still affect different groups very differently.',
+        'I would challenge the assumption that "' + room.topic + '" has a simple answer. A phased approach could help us test benefits while limiting unintended consequences.',
+        'From a policy perspective, "' + room.topic + '" needs clear responsibility and practical rules so that institutions know how decisions should be made and reviewed.',
+        'We should also consider the long-term consequences of "' + room.topic + '". What looks efficient today could create new dependencies, risks, or inequalities later.',
+        'A realistic campus or workplace example shows why "' + room.topic + '" is more complicated than it first appears: the same approach can produce different outcomes for different groups.',
+        'I see a possible middle ground on "' + room.topic + '": keep the useful benefits, but add specific safeguards for the risks raised in the discussion.'
       ];
-      statement = fallbackStatements[(aiIndex >= 0 ? aiIndex : target.speakingTurns) % fallbackStatements.length];
+      statement = topicFallbacks[(aiIndex >= 0 ? aiIndex : target.speakingTurns) % topicFallbacks.length];
 
       if (ai) {
         try {
@@ -3673,7 +3689,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
               'Your assigned perspective for this turn: ' + perspective + '\n' +
               'Recent discussion:\n' + (recentHistory || '(opening)') + '\n' +
               'Recent AI contributions:\n' + (previousAiStatements || '(none)') + '\n\n' +
-              'Rules: Write a fresh 35-70 word spoken contribution that directly responds to the most recent participant when possible. Refer naturally to their specific point, then add your own new argument from your assigned perspective. Do NOT repeat or paraphrase an earlier contribution. If the latest speaker disagrees with you, respectfully challenge them; if they made a useful point, build on it with a new example or consequence. Sound like a student speaking spontaneously in a real GD, not an essay. Do not mention AI, prompts, or these instructions. Do not start with a generic phrase like "I think we should consider both the benefits and risks."',
+              'Rules: Write a fresh 45-80 word spoken contribution that is specifically about the current topic "${room.topic}". First understand the topic and the recent discussion, then respond to the latest participant's actual point when possible. Add one new, topic-specific argument, example, implication, counterpoint, or practical consideration from your assigned perspective. Do NOT reuse stock wording, invent facts, or repeat/paraphrase earlier AI contributions. If the topic is unfamiliar, reason from its exact wording and the recent discussion instead of falling back to a generic AI/technology answer. Sound like a student speaking spontaneously in a real Indian college GD, not an essay. Do not mention AI, prompts, or these instructions.',
           });
           const generated = response.text?.trim();
           if (generated) statement = generated;
@@ -4225,5 +4241,4 @@ async function setupVite() {
 }
 
 setupVite();
-
 
