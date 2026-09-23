@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   BarChart3, 
   Users, 
@@ -37,6 +37,7 @@ interface FacultyDashboardViewProps {
   onStartSession?: (slotId?: string) => void;
   availableSlots?: GDSession[];
   onSelectSlot?: (slotId: string) => void;
+  facultyId?: string;
 }
 
 export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
@@ -47,11 +48,29 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   onStartSession,
   availableSlots,
   onSelectSlot,
+  facultyId,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [aiSummary, setAiSummary] = useState<string>(
-    'The discussion examined both opportunities and challenges of AI in modern education. Strong consensus emerged that while AI can significantly streamline administrative grading and adaptive personal tutoring, human empathy, creative mentorship, and moral ethics remain strictly irreplaceable. Active turn balancing by the AI moderator maintained high engagement across all 8 participants.'
-  );
+  const [persistedReports, setPersistedReports] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!facultyId || !safeSession?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(safeSession.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
+        const data = await res.json();
+        if (!cancelled) setPersistedReports(Array.isArray(data.reports) ? data.reports : []);
+      } catch (e) {
+        if (!cancelled) setPersistedReports([]);
+        console.warn('[Faculty Reports] Could not load persisted reports:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [facultyId, session?.id, session?.status]);
+  const aiSummary = persistedReports.length > 0
+    ? 'Reports are based on the persisted participant evaluations generated from the final session transcript.'
+    : 'No persisted participant evaluations are available for this session yet.';
 
   // Compute student rankings and scores. Normalize every incoming array so a
   // faculty account with no assigned slots/participants can never crash the UI.
@@ -61,34 +80,26 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
   const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
 
-  const studentStats = safeStudents.map((s, idx) => {
-    // Exact 7-parameter score approximation
-    const english = Math.min(20, Math.max(14, 16 + (s.speakingTurns % 3)));
-    const fluency = Math.min(20, Math.max(13, 15 + Math.round(s.speakingDurationSeconds / 80)));
-    const clarity = Math.min(15, Math.max(10, 12 + (s.questionsAnswered % 3)));
-    const confidence = Math.min(15, Math.max(11, 13 + (s.questionsInitiated % 3)));
-    const content = Math.min(15, Math.max(10, 12 + ((s.speakingTurns * 2) % 4)));
-    const collaboration = Math.min(10, Math.max(6, 8 - s.interruptionCount));
-    const leadership = Math.min(5, Math.max(3, 4 + (s.questionsInitiated > 0 ? 1 : 0)));
+  const reportByStudent = useMemo(() => {
+    const map = new Map<string, any>();
+    persistedReports.forEach((r) => map.set(r.studentId, r));
+    return map;
+  }, [persistedReports]);
 
-    const score = s.isUser ? 82 : english + fluency + clarity + confidence + content + collaboration + leadership;
-    let grade = 'Very Good';
-    if (score >= 90) grade = 'Excellent';
-    else if (score >= 75) grade = 'Very Good';
-    else if (score >= 60) grade = 'Good';
-    else if (score >= 40) grade = 'Average';
-    else grade = 'Needs Improvement';
-
+  const studentStats = safeStudents.map((s) => {
+    const persisted = reportByStudent.get(s.id);
+    let calculatedScore = typeof persisted?.overallScore === 'number' ? persisted.overallScore : 0;
+    let calculatedGrade = persisted?.overallScore >= 90 ? 'Excellent' : persisted?.overallScore >= 75 ? 'Very Good' : persisted?.overallScore >= 60 ? 'Good' : persisted?.overallScore >= 40 ? 'Average' : 'Needs Improvement';
     return {
       ...s,
-      calculatedScore: score,
-      calculatedGrade: grade,
+      calculatedScore,
+      calculatedGrade,
       speakingMins: (s.speakingDurationSeconds / 60).toFixed(1),
     };
-  }).sort((a, b) => b.calculatedScore - a.calculatedScore);
+  });
 
-  const averageScore = studentStats.length > 0
-    ? Math.round(studentStats.reduce((acc, curr) => acc + curr.calculatedScore, 0) / studentStats.length)
+  const averageScore = persistedReports.length > 0
+    ? Math.round(persistedReports.reduce((sum, report) => sum + Number(report.overallScore || 0), 0) / persistedReports.length)
     : 0;
 
   // Data for Speaking Time Chart
@@ -101,14 +112,18 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     score: studentStats.find((st) => st.id === s.id)?.calculatedScore || 75,
   }));
 
-  // Heat map simulation data across minutes
-  const heatMapTimeline = [
-    { minute: '0-4m', activeSeats: [1, 2, 3] },
-    { minute: '4-8m', activeSeats: [4, 1, 5] },
-    { minute: '8-12m', activeSeats: [6, 2, 7] },
-    { minute: '12-16m', activeSeats: [8, 3, 1] },
-    { minute: '16-20m', activeSeats: [2, 4, 5, 8] },
-  ];
+  // Heat map is derived from real transcript timestamps rather than fixed demo data.
+  const heatMapTimeline = Array.from({ length: Math.max(1, Math.ceil((safeSession.durationMinutes || 20) / 4)) }, (_, idx) => {
+    const start = idx * 4;
+    const end = start + 4;
+    const activeSeats = Array.from(new Set(
+      safeTranscripts
+        .filter((t) => !t.isFacilitator && Number(t.timestampSeconds || 0) >= start * 60 && Number(t.timestampSeconds || 0) < end * 60)
+        .map((t) => t.seatNumber)
+        .filter((seat): seat is number => typeof seat === 'number')
+    ));
+    return { minute: start + '-' + end + 'm', activeSeats };
+  });
 
   const handleExportTranscript = () => {
     const textContent = safeTranscripts
