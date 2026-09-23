@@ -371,7 +371,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
               <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-amber-50/60 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-800/40 flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 <span>
-                  All slots created under this topic will be evaluated by <strong>{facultyList.find((f) => f.facultyId === selectedFacultyId)?.name}</strong>. In the student portal, students who select this faculty in-charge will see and join these slots.
+                  Each slot is assigned to its own Faculty In-Charge. Students will see the assigned faculty on every published slot in the Student Portal.
                 </span>
               </div>
             </div>
