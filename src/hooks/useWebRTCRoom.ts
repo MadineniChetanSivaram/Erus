@@ -444,6 +444,29 @@ export function useWebRTCRoom({
       }
     });
 
+    // Server-enforced single-speaker floor. If another participant owns
+    // the floor, immediately stop this client's outgoing microphone track.
+    socket.on('floor-busy', ({ message }) => {
+      if (!active) return;
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+      setIsMicMuted(true);
+      setIsSpeakingLive(false);
+      if (message) setError(message);
+    });
+
+    socket.on('floor-state', ({ speakerId }) => {
+      if (!active) return;
+      // Never automatically unmute when the floor opens. The participant must
+      // explicitly enable the microphone again, preventing accidental overlap.
+      if (!speakerId) {
+        setError(null);
+      }
+    });
+
     // AI participant contribution broadcast. Every browser receives and vocalizes
     // the same contribution, so AI participants behave like room participants.
     socket.on('ai-participant-speech', (data) => {
