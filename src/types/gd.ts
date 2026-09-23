@@ -20,6 +20,7 @@ export interface Student {
   cameraActive?: boolean;
   gender?: 'female' | 'male';
   isRealPeer?: boolean;
+  isDemoAI?: boolean;
   isEmptySeat?: boolean;
   volumeLevel?: number;
   bookedSlotId?: string;
