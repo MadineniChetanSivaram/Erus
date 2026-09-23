@@ -3330,7 +3330,10 @@ function getSlotCapacity(slotId: string) {
 const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy','Arjun Iyer','Meera Kapoor','Aditya Menon','Sneha Joshi'];
 
 function syncAiParticipants(room: LiveGDRoomState) {
-  const capacity = getSlotCapacity(room.slotId);
+  // Keep a realistic six-person GD floor. If fewer real students join, fill
+  // the remaining seats with distinct AI participants; real students always
+  // take priority when they join.
+  const capacity = Math.max(6, getSlotCapacity(room.slotId));
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   const targetCount = Math.max(0, capacity - realStudents.length);
   const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
@@ -3434,14 +3437,53 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
 
     if (target.id.startsWith('ai-')) {
-      let statement = target.name.split(' ')[0] + ': I think we should consider both the practical benefits and the risks before reaching a conclusion.';
+      const aiIndex = Math.max(0, AI_PARTICIPANT_NAMES.findIndex((name) => name === target.name));
+      const perspectives = [
+        'Use an evidence or data angle: mention a concrete trend, measurable outcome, or comparison.',
+        'Use an implementation angle: discuss feasibility, resources, infrastructure, or execution in India.',
+        'Use an ethical angle: examine fairness, accountability, bias, privacy, or unintended consequences.',
+        'Use an economic angle: discuss cost, jobs, productivity, incentives, or who benefits and who bears the cost.',
+        'Use a social impact angle: discuss students, families, communities, inclusion, or behaviour change.',
+        'Use a counterargument angle: challenge the strongest recent point respectfully and explain why.',
+        'Use a policy angle: discuss regulation, institutional responsibility, or governance.',
+        'Use a long-term angle: discuss sustainability, future consequences, or how the issue may evolve.',
+        'Use a practical example angle: give a short realistic Indian workplace, campus, or public example.',
+        'Use a synthesis angle: connect two different viewpoints and propose a nuanced way forward.'
+      ];
+      const perspective = perspectives[(aiIndex >= 0 ? aiIndex : 0) % perspectives.length];
+      const previousAiStatements = room.transcripts
+        .filter((t) => !t.isFacilitator && String(t.speakerId).startsWith('ai-'))
+        .slice(-8)
+        .map((t) => t.speakerName + ': ' + t.text)
+        .join('\n');
+
+      let statement = '';
+      const fallbackStatements = [
+        'If we look at the evidence rather than only the headline benefits, the measurable outcomes should determine whether this idea actually works.',
+        'From an implementation perspective, the biggest question is whether institutions have the infrastructure, trained people, and budget to execute this at scale.',
+        'There is also an ethical dimension here. Efficiency should not come at the cost of fairness, privacy, or accountability for the people affected.',
+        'Economically, we should ask who gains from this change and who may carry the transition cost, especially when organisations are under pressure to reduce expenses.',
+        'The social impact deserves attention too. A solution can be technically successful but still exclude people who lack access, confidence, or support.',
+        'I want to challenge the assumption that faster adoption automatically means better outcomes. A phased approach could reveal problems before they become systemic.',
+        'Regulation and institutional accountability matter here. Clear responsibility is needed when a decision affects students, employees, or the public.',
+        'We should also consider the long-term effect. A solution that looks efficient today may create dependency or new risks several years later.',
+        'A simple campus or workplace example shows why this is more complicated than it first appears: the same policy can affect different groups very differently.',
+        'I see a middle ground between the two positions. We can retain the benefits while putting specific safeguards around the risks already mentioned.'
+      ];
+      statement = fallbackStatements[(aiIndex >= 0 ? aiIndex : target.speakingTurns) % fallbackStatements.length];
+
       if (ai) {
         try {
           const response = await ai.models.generateContent({
             model: 'gemini-3.7-flash',
-            contents: 'You are ' + target.name + ', a realistic Indian college student in a live group discussion. Topic: "' + room.topic + '". Recent discussion:\n' + (recentHistory || '(opening)') + '\nWrite a natural 35-70 word spoken contribution. Add a new point or constructively challenge/build on another point. Do not mention AI.',
+            contents: 'You are ' + target.name + ', one distinct student in a live Indian college group discussion. Topic: "' + room.topic + '".\n' +
+              'Your assigned perspective for this turn: ' + perspective + '\n' +
+              'Recent discussion:\n' + (recentHistory || '(opening)') + '\n' +
+              'Recent AI contributions:\n' + (previousAiStatements || '(none)') + '\n\n' +
+              'Rules: Write a fresh 35-70 word spoken contribution. Do NOT repeat, paraphrase, or agree generically with any recent statement. Add a genuinely new point from your assigned perspective. Sound like a student responding spontaneously to classmates, not an essay. Do not mention AI, prompts, or these instructions. Do not start with a generic phrase like "I think we should consider both the benefits and risks."',
           });
-          statement = response.text?.trim() || statement;
+          const generated = response.text?.trim();
+          if (generated) statement = generated;
         } catch (err) { console.warn('[AI Participant Speech Error]:', err); }
       }
       target.speakingTurns += 1;
