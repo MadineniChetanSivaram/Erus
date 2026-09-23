@@ -161,8 +161,8 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         slotName: slotNameStr,
         slotTiming: slotTimingStr,
         slotDate: slot.slotDate || 'Today',
-        maxCapacity: Math.max(15, studentCount),
-        enrolledCount: studentCount,
+        maxCapacity: studentCount,
+        enrolledCount: 0,
         roomLayout: roomLayout,
         topic: topic.trim(),
         description: description.trim(),
@@ -173,7 +173,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         assignedFacultyName: selectedFaculty.name,
         assignedFacultyDept: selectedFaculty.department,
         assignedFacultyEmail: selectedFaculty.email,
-        status: index === 0 ? 'active' : 'scheduled',
+        status: 'scheduled',
         students: seatedStudents,
         currentPhase: 'intro',
         facilitatorSpeech: `Good morning participants of ${slotNameStr}. Today's discussion topic is: "${topic}". There are ${studentCount} candidates participating in this slot scheduled for ${slotTimingStr}. Everyone will get an opportunity to speak. The floor will be open shortly.`,
@@ -205,7 +205,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
           },
         ],
         createdAt: new Date().toISOString(),
-        startedAt: Date.now(),
+        
       };
     });
 
