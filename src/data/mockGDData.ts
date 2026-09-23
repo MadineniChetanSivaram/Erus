@@ -3,13 +3,13 @@ import { GDSession, Student, TranscriptEntry, StudentAssessmentReport, GradeLeve
 export const INITIAL_STUDENTS: Student[] = [
   {
     id: 's1',
-    name: 'Rahul Kumar',
+    name: 'Aarav Mehta',
     seatNumber: 1,
-    college: 'Delhi Institute of Technology',
-    course: 'B.Tech CSE',
-    batch: '2022-2026',
+    college: 'ERUS AI Participant',
+    course: 'AI GD Participant',
+    batch: '',
     avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
-    isUser: true, // Defaults to the active student in practice
+    isUser: false,
     micActive: false,
     isSpeaking: false,
     hasRaisedHand: false,
