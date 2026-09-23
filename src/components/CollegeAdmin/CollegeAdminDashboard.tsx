@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Sparkles,
   Award,
-  BarChart3
+  BarChart3,
+  Trash2
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
