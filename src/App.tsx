@@ -1153,6 +1153,7 @@ function GDAppContent() {
         onClose={() => setIsCreateModalOpen(false)}
         onCreateSessions={handleCreateSessions}
         onCreateSession={handleCreateSession}
+        collegeCode={currentUser?.role === 'college_admin' ? currentUser.collegeCode : undefined}
       />
 
     </div>
