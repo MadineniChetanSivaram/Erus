@@ -1403,18 +1403,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const cleanId = identifier.trim().toLowerCase();
-  let user = persistentState.users.find((u) => {
-    const matchRole = !role || u.role === role;
-    const matchId =
-      u.email.toLowerCase() === cleanId ||
-      u.name.toLowerCase().includes(cleanId) ||
-      (u.studentId && u.studentId.toLowerCase() === cleanId) ||
-      (u.facultyId && u.facultyId.toLowerCase() === cleanId) ||
-      (u.adminId && u.adminId.toLowerCase() === cleanId);
-    return matchRole && matchId;
-  });
+  let user: StoredAuthUser | undefined;
 
-  if (!user && isDbConnected && prisma) {
+  // PostgreSQL is authoritative in production. Do not let stale in-memory
+  // users hide accounts that were registered/updated in another session.
+  if (isDbConnected && prisma) {
     try {
       const dbUser = await prisma.user.findFirst({
         where: {
@@ -1449,14 +1442,25 @@ app.post('/api/auth/login', async (req, res) => {
           adminId: dbUser.collegeAdminProfile?.adminId,
           avatar: dbUser.avatar || undefined,
         };
-        persistentState.users.push(user);
-        savePersistentState();
       }
     } catch (dbErr: any) {
       console.warn('[Database] DB lookup error during login:', dbErr.message);
     }
   }
 
+  // In-memory state is only a fallback when the database is unavailable.
+  if (!user) {
+    user = persistentState.users.find((u) => {
+      const matchRole = !role || u.role === role;
+      const matchId =
+        u.email.toLowerCase() === cleanId ||
+        u.name.toLowerCase().includes(cleanId) ||
+        (u.studentId && u.studentId.toLowerCase() === cleanId) ||
+        (u.facultyId && u.facultyId.toLowerCase() === cleanId) ||
+        (u.adminId && u.adminId.toLowerCase() === cleanId);
+      return matchRole && matchId;
+    });
+  }
   if (!user) {
     return res.status(401).json({ success: false, error: 'Invalid credentials. User not found.' });
   }
@@ -1549,7 +1553,22 @@ app.post('/api/auth/register', async (req, res) => {
                   },
                 },
               }
-            : {}),
+            : {
+                facultyProfile: {
+                  upsert: {
+                    create: {
+                      facultyId: newUser.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+                      department: newUser.department || 'Engineering',
+                      designation: newUser.designation || 'Faculty Evaluator',
+                    },
+                    update: {
+                      facultyId: newUser.facultyId || undefined,
+                      department: newUser.department || undefined,
+                      designation: newUser.designation || undefined,
+                    },
+                  },
+                },
+              }),
         },
         create: {
           email: cleanEmail,
@@ -1583,7 +1602,11 @@ app.post('/api/auth/register', async (req, res) => {
       });
       console.log(`[Database] User ${newUser.email} registered to PostgreSQL.`);
     } catch (dbErr: any) {
-      console.warn('[Database] Failed to register user to PostgreSQL:', dbErr.message);
+      console.error('[Database] Failed to register user to PostgreSQL:', dbErr.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Account could not be saved to the database. Please try registration again.',
+      });
     }
   }
 
