@@ -3288,6 +3288,7 @@ interface LiveRoomPeer {
   interruptionCount: number;
   joinedAt: number;
   lastSpokeAt?: number;
+  floorTurnCounted?: boolean;
 }
 
 interface AIParticipant {
@@ -3433,7 +3434,28 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   const aiStudents = syncAiParticipants(room);
-  const candidates: any[] = [...realStudents, ...aiStudents].filter((p) => p.id !== completedUserId && p.userId !== completedUserId);
+  const allParticipants: any[] = [...realStudents, ...aiStudents];
+  if (!allParticipants.length) return;
+
+  // Round-robin rule: nobody may receive a second turn until every active
+  // participant has completed the current round. A participant's
+  // speakingTurns count is therefore the round counter.
+  const minimumTurns = Math.min(...allParticipants.map((p) => Number(p.speakingTurns || 0)));
+  const currentRoundCandidates = allParticipants.filter(
+    (p) => Number(p.speakingTurns || 0) === minimumTurns
+  );
+
+  // Normally exclude the person who just finished. At the exact boundary
+  // where everyone has the same turn count, start the next round instead of
+  // allowing another participant to get an extra turn first.
+  const completedMatches = currentRoundCandidates.some(
+    (p) => p.id === completedUserId || p.userId === completedUserId
+  );
+  const candidates: any[] =
+    completedMatches && currentRoundCandidates.length > 1
+      ? currentRoundCandidates.filter((p) => p.id !== completedUserId && p.userId !== completedUserId)
+      : currentRoundCandidates;
+
   if (!candidates.length) return;
 
   room.turnTimer = setTimeout(async () => {
@@ -3442,13 +3464,8 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const now = Date.now();
 
     candidates.sort((a, b) => {
-      const aNever = a.speakingTurns === 0 ? 0 : 1;
-      const bNever = b.speakingTurns === 0 ? 0 : 1;
-      if (aNever !== bNever) return aNever - bNever;
-      const aQuiet = !a.lastSpokeAt || now - a.lastSpokeAt >= 180000 ? 0 : 1;
-      const bQuiet = !b.lastSpokeAt || now - b.lastSpokeAt >= 180000 ? 0 : 1;
-      if (aQuiet !== bQuiet) return aQuiet - bQuiet;
-      return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0) || a.speakingTurns - b.speakingTurns;
+      // Within a round, prefer the participant who has waited longest.
+      return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
     });
 
     const target = candidates[0];
@@ -3823,6 +3840,28 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Enforce one turn per participant per round.
+      const allTurnParticipants: any[] = [
+        ...Array.from(room.peers.values()).filter((p) => p.role === 'student'),
+        ...syncAiParticipants(room),
+      ];
+      const minimumTurns = allTurnParticipants.length
+        ? Math.min(...allTurnParticipants.map((p) => Number(p.speakingTurns || 0)))
+        : 0;
+      const peerTurns = Number(peer.speakingTurns || 0);
+      const someoneStillNeedsTurn = allTurnParticipants.some(
+        (p) => p.id !== peer.userId && p.userId !== peer.userId && Number(p.speakingTurns || 0) === minimumTurns
+      );
+      if (peerTurns > minimumTurns && someoneStillNeedsTurn) {
+        peer.isSpeaking = false;
+        peer.micActive = false;
+        socket.emit('floor-busy', {
+          speakerId: room.currentSpeakerId,
+          message: 'You have already spoken in this round. Please wait until all participants have spoken.'
+        });
+        return;
+      }
+
       // A human has taken the floor; cancel any pending AI selection.
       if (room.turnTimer) clearTimeout(room.turnTimer);
       room.turnTimer = undefined;
@@ -3831,6 +3870,7 @@ io.on('connection', (socket) => {
       room.currentSpeakerSocketId = socket.id;
       room.silenceTimerSeconds = 0;
       peer.lastSpokeAt = Date.now();
+      peer.floorTurnCounted = false;
       room.floorVersion += 1;
       io.to(`room-${safeSlotId}`).emit('floor-state', {
         speakerId: peer.userId,
@@ -3899,7 +3939,10 @@ io.on('connection', (socket) => {
       });
     }
 
-    peer.speakingTurns += 1;
+    if (!peer.floorTurnCounted) {
+      peer.speakingTurns += 1;
+      peer.floorTurnCounted = true;
+    }
     peer.lastSpokeAt = Date.now();
     room.silenceTimerSeconds = 0;
 
