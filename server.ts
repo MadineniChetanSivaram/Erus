@@ -1353,69 +1353,119 @@ app.get('/api/student/:studentId/booked-slot', (req, res) => {
 });
 
 app.post('/api/student/book-slot', async (req, res) => {
-  const { studentId, studentIdentifier, slotId, topic } = req.body;
-  const identifier = String(studentId || studentIdentifier || '').trim();
-  if (!identifier || !slotId) {
+  // Accept the canonical database user id plus stable student identifiers.
+  // Older browser sessions can still hold a legacy id (for example "s1"),
+  // while PostgreSQL has the same student under a CUID. In that case the
+  // email/studentId must be used to resolve the real account.
+  const {
+    studentId,
+    studentIdentifier,
+    studentEmail,
+    studentStudentId,
+    studentName,
+    slotId,
+    topic,
+  } = req.body;
+
+  const identifiers = Array.from(new Set(
+    [studentId, studentIdentifier, studentEmail, studentStudentId, studentName]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+
+  if (identifiers.length === 0 || !slotId) {
     return res.status(400).json({ success: false, error: 'studentId and slotId are required' });
   }
 
-  // PostgreSQL is authoritative in production. The student may have logged in
-  // from a DB-backed account that was not present in the older in-memory state
-  // snapshot, so resolve the account from PostgreSQL before falling back.
+  // PostgreSQL is authoritative in production. Resolve the student using
+  // every stable identifier supplied by the authenticated frontend session.
   let student: any = undefined;
   if (isDbConnected && prisma) {
     try {
-      let dbUser = await prisma.user.findUnique({
-        where: { id: identifier },
-        include: { studentProfile: true, collegeOrg: true },
-      });
-      if (!dbUser) {
-        dbUser = await prisma.user.findUnique({
-          where: { email: identifier.toLowerCase() },
-          include: { studentProfile: true, collegeOrg: true },
-        });
-      }
-      if (!dbUser) {
-        dbUser = await prisma.user.findFirst({
-          where: {
-            OR: [
-              { studentProfile: { studentId: { equals: identifier, mode: 'insensitive' } } },
-              { name: { contains: identifier, mode: 'insensitive' } },
-            ],
-          },
-          include: { studentProfile: true, collegeOrg: true },
-        });
-      }
-      if (dbUser && dbUser.role === 'student') {
-        student = {
-          id: dbUser.id,
-          name: dbUser.name,
-          email: dbUser.email,
-          role: dbUser.role,
-          college: dbUser.college,
-          collegeCode: dbUser.collegeOrg?.code,
-          course: dbUser.studentProfile?.course,
-          batch: dbUser.studentProfile?.batch,
-          seatNumber: dbUser.studentProfile?.seatNumber,
-          studentId: dbUser.studentProfile?.studentId,
-          avatar: dbUser.avatar || undefined,
-        };
+      const include = { studentProfile: true, collegeOrg: true };
 
-        // Keep the compatibility state synchronized for booking/cancellation
-        // endpoints that still use persistentState as their local projection.
-        const existingIdx = persistentState.users.findIndex((u) => u.id === student.id || u.email.toLowerCase() === student.email.toLowerCase());
-        if (existingIdx >= 0) persistentState.users[existingIdx] = { ...persistentState.users[existingIdx], ...student };
-        else persistentState.users.push(student);
+      // Prefer exact user id/email/profile-id matches before name matching.
+      for (const identifier of identifiers) {
+        if (student) break;
+
+        let dbUser = await prisma.user.findUnique({
+          where: { id: identifier },
+          include,
+        }).catch(() => null);
+
+        if (!dbUser && identifier.includes('@')) {
+          dbUser = await prisma.user.findUnique({
+            where: { email: identifier.toLowerCase() },
+            include,
+          }).catch(() => null);
+        }
+
+        if (!dbUser) {
+          dbUser = await prisma.user.findFirst({
+            where: {
+              studentProfile: {
+                studentId: { equals: identifier, mode: 'insensitive' },
+              },
+            },
+            include,
+          }).catch(() => null);
+        }
+
+        if (!dbUser) {
+          dbUser = await prisma.user.findFirst({
+            where: {
+              name: { equals: identifier, mode: 'insensitive' },
+              role: 'student',
+            },
+            include,
+          }).catch(() => null);
+        }
+
+        if (dbUser && dbUser.role === 'student') {
+          student = {
+            id: dbUser.id,
+            name: dbUser.name,
+            email: dbUser.email,
+            role: dbUser.role,
+            college: dbUser.college,
+            collegeCode: dbUser.collegeOrg?.code,
+            course: dbUser.studentProfile?.course,
+            batch: dbUser.studentProfile?.batch,
+            seatNumber: dbUser.studentProfile?.seatNumber,
+            studentId: dbUser.studentProfile?.studentId,
+            avatar: dbUser.avatar || undefined,
+          };
+
+          // Keep the compatibility state synchronized for booking/cancellation
+          // endpoints that still use persistentState as their local projection.
+          const existingIdx = persistentState.users.findIndex(
+            (u) => u.id === student.id || u.email.toLowerCase() === student.email.toLowerCase()
+          );
+          if (existingIdx >= 0) {
+            persistentState.users[existingIdx] = { ...persistentState.users[existingIdx], ...student };
+          } else {
+            persistentState.users.push(student);
+          }
+          savePersistentState();
+        }
       }
     } catch (dbErr: any) {
       console.warn('[Database] Student lookup during booking failed:', dbErr.message);
     }
   }
 
+  // Persistent-state fallback also checks every stable identifier so a stale
+  // browser session cannot produce a false "Student account not found".
   if (!student) {
+    const normalized = identifiers.map((value) => value.toLowerCase());
     student = persistentState.users.find((u) =>
       u.role === 'student' &&
-      (u.id === identifier || u.studentId === identifier || u.email.toLowerCase() === identifier.toLowerCase())
+      (
+        normalized.includes(String(u.id || '').toLowerCase()) ||
+        normalized.includes(String(u.studentId || '').toLowerCase()) ||
+        normalized.includes(String(u.email || '').toLowerCase()) ||
+        normalized.includes(String(u.name || '').toLowerCase())
+      )
     );
   }
 
