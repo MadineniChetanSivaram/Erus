@@ -295,34 +295,35 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Local auto-simulation is retained only for the single-user demo mode.
   const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
 
-  const demoRosterInitializedRef = useRef(false);
-
-  // Demo mode: keep exactly 10 AI participants available when the room has no
-  // real peers yet. They are local visual/simulation participants only; they do
-  // not affect booking capacity or backend enrollment.
-  // Real WebRTC participants automatically occupy the same numbered seats and
-  // visually replace these AI participants as they join.
+  // Demo participants follow the slot capacity exactly. If a slot has
+  // capacity 6, the room shows 6 participants total (including the current
+  // student), with AI participants filling the remaining seats.
   useEffect(() => {
-    if (demoRosterInitializedRef.current) return;
-    demoRosterInitializedRef.current = true;
-
     setSession((prev) => {
+      const capacity = Math.max(1, prev.maxCapacity || 15);
+
+      // Existing generated slot participants are demo participants unless they
+      // are the current user or a real WebRTC peer.
       const normalizedStudents = prev.students.map((s) =>
         !s.isUser && !s.isRealPeer && !s.isEmptySeat && s.id.startsWith('slot-stu-')
           ? { ...s, isDemoAI: true }
           : s
       );
-      const existingDemo = normalizedStudents.filter((s) => s.isDemoAI);
-      const targetAiCount = 10;
-      const missingAiCount = Math.max(0, targetAiCount - existingDemo.length);
 
-      if (missingAiCount === 0) {
+      const fixedStudents = normalizedStudents.filter((s) => !s.isDemoAI && !s.isEmptySeat);
+      const existingDemo = normalizedStudents
+        .filter((s) => s.isDemoAI && !s.isEmptySeat)
+        .slice(0, Math.max(0, capacity - fixedStudents.length));
+      const targetAiCount = Math.max(0, capacity - fixedStudents.length);
+
+      if (existingDemo.length === targetAiCount && normalizedStudents.length === capacity) {
         return normalizedStudents === prev.students ? prev : { ...prev, students: normalizedStudents };
       }
 
-      const usedSeats = new Set(normalizedStudents.map((s) => s.seatNumber));
+      const usedSeats = new Set([...fixedStudents, ...existingDemo].map((s) => s.seatNumber));
       const additions: Student[] = [];
-      const demoTemplates = generateSlotParticipants(targetAiCount);
+      const missingAiCount = targetAiCount - existingDemo.length;
+      const demoTemplates = generateSlotParticipants(Math.max(1, targetAiCount));
       let nextSeat = 1;
 
       for (let i = 0; i < missingAiCount; i++) {
@@ -348,9 +349,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         nextSeat++;
       }
 
-      return { ...prev, students: [...normalizedStudents, ...additions] };
+      return {
+        ...prev,
+        students: [...fixedStudents, ...existingDemo, ...additions].slice(0, capacity),
+      };
     });
-  }, [setSession]);
+  }, [session.id, session.maxCapacity, setSession]);
   // Active display students: merge static mock participants with live connected WebRTC peers
   const activeDisplayStudents = useMemo(() => {
     const targetUserSeat = !isFaculty
