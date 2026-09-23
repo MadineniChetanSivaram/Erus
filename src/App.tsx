@@ -524,24 +524,66 @@ function GDAppContent() {
 
   // Conclude GD and generate report
   const handleFinishSession = async () => {
-    // Generate AI evaluation for current user student
     const userStudent = session.students.find((s) => s.isUser) || session.students[0];
-    
-    try {
-      const res = await fetch('/api/facilitator/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student: userStudent,
-          transcriptHistory: transcripts,
-          sessionId: session.id,
-          topic: session.topic,
-          durationMinutes: session.durationMinutes,
-        }),
-      });
+    if (!userStudent) return;
 
-      const data = await res.json();
-      if (data.report) {
+    const finishedSlotId = session.id;
+
+    try {
+      if (currentUser?.role === 'faculty') {
+        // Faculty completion is the authoritative finalization point.
+        // The backend evaluates every real participant, persists every report,
+        // finalizes the transcript, and then closes the slot.
+        const endRes = await fetch('/api/college/slots/' + encodeURIComponent(finishedSlotId) + '/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
+        });
+        const endData = await endRes.json().catch(() => ({}));
+        if (!endRes.ok) throw new Error(endData.error || 'Unable to finalize GD session');
+
+        const ownReport = Array.isArray(endData.reports)
+          ? endData.reports.find((r: StudentAssessmentReport) => r.studentId === userStudent.id)
+          : null;
+        if (ownReport) {
+          const enhancedReport: StudentAssessmentReport = {
+            ...ownReport,
+            facultyLiveNotes: session.facultyLiveNotes?.filter(
+              (n) => n.studentId === userStudent.id || n.studentName.toLowerCase() === userStudent.name.toLowerCase()
+            ),
+          };
+          setActiveReport(enhancedReport);
+          addReportToStudentHistory(enhancedReport);
+        }
+
+        setSession((prev) => ({
+          ...prev,
+          status: 'completed',
+          currentPhase: 'conclusion',
+          facilitatorSpeech: 'Thank you everyone. The final transcript and participant evaluations have been compiled.',
+        }));
+        setAvailableSlots((prevSlots) =>
+          prevSlots.map((slot) =>
+            slot.id === finishedSlotId
+              ? { ...slot, status: 'completed', currentPhase: 'conclusion', facultyLiveNotes: session.facultyLiveNotes || slot.facultyLiveNotes }
+              : slot
+          )
+        );
+      } else {
+        // Students can request their own evaluation, but cannot close the GD.
+        const res = await fetch('/api/facilitator/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            student: userStudent,
+            transcriptHistory: transcripts,
+            sessionId: finishedSlotId,
+            topic: session.topic,
+            durationMinutes: session.durationMinutes,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.report) throw new Error(data.error || 'Unable to generate assessment');
         const enhancedReport: StudentAssessmentReport = {
           ...data.report,
           facultyLiveNotes: session.facultyLiveNotes?.filter(
@@ -551,63 +593,12 @@ function GDAppContent() {
         setActiveReport(enhancedReport);
         addReportToStudentHistory(enhancedReport);
       }
+
+      setCurrentTab('report');
     } catch (e) {
-      console.warn('Evaluation fallback:', e);
-      const fallbackRep = generateStudentReport(userStudent, session.topic, session.durationMinutes);
-      const enhancedReport: StudentAssessmentReport = {
-        ...fallbackRep,
-        facultyLiveNotes: session.facultyLiveNotes?.filter(
-          (n) => n.studentId === userStudent.id || n.studentName.toLowerCase() === userStudent.name.toLowerCase()
-        ),
-      };
-      setActiveReport(enhancedReport);
-      addReportToStudentHistory(enhancedReport);
+      console.error('[Evaluation] Finalization failed:', e);
+      alert(e instanceof Error ? e.message : 'Unable to generate the assessment report.');
     }
-
-    const finishedSlotId = session.id;
-
-    // Conclude active session
-    setSession((prev) => ({
-      ...prev,
-      status: 'completed',
-      currentPhase: 'conclusion',
-      facilitatorSpeech: 'Thank you everyone. We discussed both the advantages and disadvantages thoroughly. Individual assessment reports have now been compiled.',
-    }));
-
-    // Mark slot as completed in availableSlots roster
-    setAvailableSlots((prevSlots) =>
-      prevSlots.map((slot) => {
-        if (slot.id === finishedSlotId || slot.id === session.id) {
-          return {
-            ...slot,
-            status: 'completed',
-            currentPhase: 'conclusion',
-            facultyLiveNotes: session.facultyLiveNotes || slot.facultyLiveNotes,
-          };
-        }
-        return slot;
-      })
-    );
-
-    // Only the faculty assigned to this slot can end the GD.
-    if (currentUser?.role === 'faculty') {
-      try {
-        const endRes = await fetch(`/api/college/slots/${encodeURIComponent(finishedSlotId)}/complete`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
-        });
-        if (!endRes.ok) {
-          const endData = await endRes.json().catch(() => ({}));
-          throw new Error(endData.error || 'Unable to end GD session');
-        }
-      } catch (err) {
-        console.warn('[Slot Complete Sync Notice]:', err);
-        return;
-      }
-    }
-
-    setCurrentTab('report');
   };
 
   const handleSelectSlot = (slotId: string) => {
