@@ -3756,6 +3756,7 @@ io.on('connection', (socket) => {
       transcripts: room.transcripts,
       topic: room.topic,
       silenceTimerSeconds: room.silenceTimerSeconds,
+      currentSpeakerId: room.currentSpeakerId,
       status: room.status,
     });
 
@@ -3867,7 +3868,36 @@ io.on('connection', (socket) => {
     const peer = room.peers.get(socket.id);
     if (!peer) return;
 
+    // Transcript submission is also protected by the server-owned floor.
+    // A client must never be able to inject a second speaker's transcript
+    // while another participant owns the floor.
+    if (room.currentSpeakerId && room.currentSpeakerSocketId !== socket.id) {
+      peer.isSpeaking = false;
+      peer.micActive = false;
+      socket.emit('floor-busy', {
+        speakerId: room.currentSpeakerId,
+        message: 'Another participant is speaking. Please wait until the floor is released.'
+      });
+      return;
+    }
+
+    // A quick statement can arrive before VAD claims the floor. In that case,
+    // atomically grant the floor to this socket before accepting the transcript.
+    if (!room.currentSpeakerId) {
+      room.currentSpeakerId = peer.userId;
+      room.currentSpeakerSocketId = socket.id;
+      room.waitingForParticipantId = undefined;
+      room.silenceTimerSeconds = 0;
+      room.floorVersion += 1;
+      io.to(`room-${safeSlotId}`).emit('floor-state', {
+        speakerId: peer.userId,
+        speakerSocketId: socket.id,
+        floorVersion: room.floorVersion,
+      });
+    }
+
     peer.speakingTurns += 1;
+    peer.lastSpokeAt = Date.now();
     room.silenceTimerSeconds = 0;
 
     const mins = Math.floor((elapsedSeconds || 0) / 60).toString().padStart(2, '0');
