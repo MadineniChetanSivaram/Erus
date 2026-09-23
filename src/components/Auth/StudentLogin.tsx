@@ -344,7 +344,7 @@ export const StudentLogin: React.FC<StudentLoginProps> = ({
                 type="button"
                 onClick={() => {
                   setIdentifier(student.studentId || student.email || '');
-                  setPassword('student123');
+                  setPassword('password123');
                   setError(null);
                   setSuccessMsg(null);
                 }}
