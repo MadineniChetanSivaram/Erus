@@ -3464,7 +3464,18 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const now = Date.now();
 
     candidates.sort((a, b) => {
-      // Within a round, prefer the participant who has waited longest.
+      // AI participants must actively participate in every round. When both
+      // AI and human participants are still waiting for their first turn in
+      // the round, let the AI participants contribute before asking the
+      // facilitator to invite a human. This prevents the discussion from
+      // becoming facilitator-only while still preserving one turn per
+      // participant per round.
+      const aIsAI = String(a.id || '').startsWith('ai-');
+      const bIsAI = String(b.id || '').startsWith('ai-');
+      if (aIsAI !== bIsAI) return aIsAI ? -1 : 1;
+
+      // Within the same participant type, prefer the participant who has
+      // waited longest.
       return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
     });
 
