@@ -31,6 +31,8 @@ interface SessionCreationModalProps {
   collegeCode?: string;
 }
 
+const DEFAULT_FACULTY_ID = INSTITUTIONAL_FACULTY?.[0]?.facultyId || '';
+
 const PRESET_TIMINGS = [
   { label: 'Morning', start: '09:30 AM', end: '10:00 AM' },
   { label: 'Midday', start: '11:45 AM', end: '12:15 PM' },
@@ -54,7 +56,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
 
   // Faculty In-Charge Assignment State
   const [facultyList, setFacultyList] = useState<FacultyMemberInfo[]>(INSTITUTIONAL_FACULTY);
-  const [selectedFacultyId, setSelectedFacultyId] = useState<string>(INSTITUTIONAL_FACULTY[0].facultyId);
+  const [selectedFacultyId, setSelectedFacultyId] = useState<string>(DEFAULT_FACULTY_ID);
 
   // Load college faculty from API on mount
   useEffect(() => {
