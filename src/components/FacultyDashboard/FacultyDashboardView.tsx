@@ -53,10 +53,12 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     'The discussion examined both opportunities and challenges of AI in modern education. Strong consensus emerged that while AI can significantly streamline administrative grading and adaptive personal tutoring, human empathy, creative mentorship, and moral ethics remain strictly irreplaceable. Active turn balancing by the AI moderator maintained high engagement across all 8 participants.'
   );
 
-  // Compute student rankings and scores
-  const safeStudents = Array.isArray(session?.students) ? session.students : [];
+  // Compute student rankings and scores. Normalize every incoming array so a
+  // faculty account with no assigned slots/participants can never crash the UI.
+  const safeSession = session || ({ ...INITIAL_SESSION, students: [] } as any);
+  const safeStudents = Array.isArray(safeSession?.students) ? safeSession.students : [];
   const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
-  const safeFacultyLiveNotes = Array.isArray(session?.facultyLiveNotes) ? session.facultyLiveNotes : [];
+  const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
   const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
 
   const studentStats = safeStudents.map((s, idx) => {
@@ -117,7 +119,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ERUS-GD-Transcript-${session.id}.txt`;
+    a.download = `ERUS-GD-Transcript-${safeSession.id}.txt`;
     a.click();
   };
 
@@ -139,7 +141,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               Faculty Administration & Assessment Suite
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold">
-              Session #{session.id.toUpperCase()}
+              Session #{safeSession.id.toUpperCase()}
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-heading font-bold text-slate-900 dark:text-white tracking-tight">
@@ -151,10 +153,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {session.status === 'waiting' && onStartSession && (
+          {safeSession.status === 'waiting' && onStartSession && (
             <button
               onClick={() => {
-                onStartSession(session.id);
+                onStartSession(safeSession.id);
                 onBackToRoom();
               }}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md shadow-emerald-600/20 cursor-pointer animate-pulse"
@@ -165,7 +167,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </button>
           )}
 
-          {session.status === 'completed' && (
+          {safeSession.status === 'completed' && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs">
               <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
               <span>Session Evaluated & Completed</span>
@@ -201,7 +203,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {safeAvailableSlots.map((sl) => {
-              const isSelected = sl.id === session.id;
+              const isSelected = sl.id === safeSession.id;
               const isCompleted = sl.status === 'completed';
               return (
                 <div key={sl.id} className="flex items-center gap-1.5">
@@ -247,8 +249,8 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-colors">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Discussion Topic</span>
-          <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1" title={session.topic}>
-            {session.topic}
+          <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1" title={safeSession.topic}>
+            {safeSession.topic}
           </span>
           <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono block mt-1 font-semibold">Intermediate GD</span>
         </div>
@@ -257,12 +259,12 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Enrolled Students</span>
           <div className="flex items-baseline gap-1">
             <span className="text-2xl font-bold text-slate-900 dark:text-white font-mono">
-              {session.enrolledCount ?? session.students.length}
+              {safeSession.enrolledCount ?? safeStudents.length}
             </span>
-            <span className="text-xs text-slate-500">/ {session.maxCapacity || 15}</span>
+            <span className="text-xs text-slate-500">/ {safeSession.maxCapacity || 15}</span>
           </div>
           <span className={`text-[10px] font-semibold block mt-1 ${
-            (session.enrolledCount ?? session.students.length) >= (session.maxCapacity || 15)
+            (safeSession.enrolledCount ?? safeStudents.length) >= (session.maxCapacity || 15)
               ? 'text-rose-600 dark:text-rose-400'
               : 'text-emerald-600 dark:text-emerald-400'
           }`}>
@@ -275,7 +277,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-colors">
           <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">Session Duration</span>
           <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-slate-900 dark:text-white font-mono">{session.durationMinutes}</span>
+            <span className="text-2xl font-bold text-slate-900 dark:text-white font-mono">{safeSession.durationMinutes}</span>
             <span className="text-xs text-slate-500">Minutes</span>
           </div>
           <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono block mt-1">Target 20:00</span>
@@ -417,11 +419,11 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </p>
           </div>
           <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-violet-100 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 self-start sm:self-center">
-            {session.facultyLiveNotes?.length || 0} Recorded Notes
+            {safeFacultyLiveNotes.length} Recorded Notes
           </span>
         </div>
 
-        {(!session.facultyLiveNotes || session.facultyLiveNotes.length === 0) ? (
+        {safeFacultyLiveNotes.length === 0 ? (
           <div className="p-8 text-center bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
             <Bookmark className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
