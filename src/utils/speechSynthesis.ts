@@ -309,6 +309,10 @@ class RoomVoiceEngine {
       };
 
       this.currentUtterance = utterance;
+      // Tell the live GD room that an AI participant is now audible. This is
+      // required to pause human speech recognition and prevent AI audio from
+      // being captured as a human statement.
+      window.dispatchEvent(new CustomEvent('erus-ai-voice-start'));
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn('Student voice synthesis error:', e);
