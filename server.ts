@@ -1286,8 +1286,15 @@ app.get('/api/faculty/sessions', async (req, res) => {
   const faculty = roster.find((f) => f.facultyId === facultyId || f.id === facultyId);
   if (!faculty) return res.status(403).json({ success: false, error: 'Faculty is not registered for this college' });
 
+  // A faculty member can be referenced by faculty ID or internal User ID
+  // depending on when the slot was created. Match both so every slot assigned
+  // to this faculty is visible in the faculty portal.
+  const facultyAssignmentIds = new Set(
+    [faculty.facultyId, faculty.id, faculty.email].filter(Boolean).map(String)
+  );
+
   let slots = (persistentState.slots[code] || []).filter(
-    (slot) => slot.assignedFacultyId === faculty.facultyId || slot.assignedFacultyId === faculty.id
+    (slot) => !!slot.assignedFacultyId && facultyAssignmentIds.has(String(slot.assignedFacultyId))
   );
 
   if (isDbConnected && prisma) {
@@ -1295,21 +1302,40 @@ app.get('/api/faculty/sessions', async (req, res) => {
       const dbSlots = await prisma.gDSession.findMany({
         where: {
           college: { code },
-          assignedFacultyId: faculty.facultyId,
+          OR: [
+            { assignedFacultyId: faculty.facultyId },
+            { assignedFacultyId: faculty.id },
+            { assignedFacultyId: faculty.email },
+          ],
         },
         orderBy: { createdAt: 'desc' },
       });
-      if (dbSlots.length > 0) {
-        slots = dbSlots.map((s) => ({
-          id: s.id, slotName: s.slotName || s.topic, topic: s.topic,
-          description: s.description || '', slotTiming: s.slotTiming || '',
-          status: s.status, durationMinutes: s.durationMinutes,
-          enrolledCount: s.enrolledCount, maxCapacity: s.maxCapacity,
-          assignedFacultyId: faculty.facultyId, assignedFacultyName: faculty.name,
-          assignedFacultyEmail: faculty.email, assignedFacultyDept: faculty.department,
-          collegeCode: code, createdAt: s.createdAt.toISOString(),
-        }));
+
+      // Merge DB records with the persistent roster rather than allowing one
+      // representation to hide assignments stored under the other identifier.
+      const merged = new Map(slots.map((slot) => [slot.id, slot]));
+      for (const s of dbSlots) {
+        merged.set(s.id, {
+          id: s.id,
+          slotName: s.slotName || s.topic,
+          topic: s.topic,
+          description: s.description || '',
+          slotTiming: s.slotTiming || '',
+          status: s.status,
+          durationMinutes: s.durationMinutes,
+          enrolledCount: s.enrolledCount,
+          maxCapacity: s.maxCapacity,
+          assignedFacultyId: s.assignedFacultyId || faculty.facultyId,
+          assignedFacultyName: faculty.name,
+          assignedFacultyEmail: faculty.email,
+          assignedFacultyDept: faculty.department,
+          collegeCode: code,
+          createdAt: s.createdAt.toISOString(),
+        });
       }
+      slots = Array.from(merged.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
     } catch (e) {
       console.warn('[Faculty Sessions] DB read failed:', e);
     }
