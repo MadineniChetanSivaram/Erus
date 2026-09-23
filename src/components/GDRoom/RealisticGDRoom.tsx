@@ -59,6 +59,7 @@ import {
   generateStudentFollowUpStatement
 } from '../../utils/facilitatorQuestionEngine';
 import { LobbyAudioTester } from './LobbyAudioTester';
+import { generateSlotParticipants } from '../../data/mockGDData';
 
 interface RealisticGDRoomProps {
   session: GDSession;
