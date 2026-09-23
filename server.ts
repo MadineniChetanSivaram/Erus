@@ -3369,6 +3369,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       topic: topic || currentLiveSession.topic,
       transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
       deadlockCount: 0,
+      floorVersion: 0,
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -3391,6 +3392,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         const deadlockCooldownMs = 45000;
         if (
           room.silenceTimerSeconds >= 20 &&
+          !room.waitingForParticipantId &&
           (!room.lastDeadlockAt || now - room.lastDeadlockAt >= deadlockCooldownMs)
         ) {
           room.silenceTimerSeconds = 0;
@@ -3504,6 +3506,13 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       target.speakingDurationSeconds += Math.max(4, Math.round(statement.split(/\s+/).length / 2.2));
       room.currentSpeakerId = target.id;
       room.currentSpeakerSocketId = null;
+      room.waitingForParticipantId = undefined;
+      room.floorVersion += 1;
+      io.to('room-' + room.slotId).emit('floor-state', {
+        speakerId: target.id,
+        speakerSocketId: null,
+        floorVersion: room.floorVersion,
+      });
       const transcript: BackendTranscript = {
         id: 't-ai-' + Date.now(), sessionId: room.slotId, speakerId: target.id, speakerName: target.name,
         seatNumber: target.seatNumber, isFacilitator: false, timestamp: '00:00', timestampSeconds: Date.now(),
@@ -3514,13 +3523,24 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       io.to('room-' + room.slotId).emit('new-transcript', { transcript, studentId: target.id, seatNumber: target.seatNumber });
       const durationMs = Math.min(9000, Math.max(3500, statement.split(/\s+/).length * 180));
       room.turnTimer = setTimeout(() => {
+        // Only this AI turn may release the floor. A stale timer can never
+        // release a newer speaker's floor.
+        if (room.currentSpeakerId !== target.id) return;
         room.currentSpeakerId = null;
+        room.currentSpeakerSocketId = null;
+        room.floorVersion += 1;
+        io.to('room-' + room.slotId).emit('floor-state', {
+          speakerId: null,
+          speakerSocketId: null,
+          floorVersion: room.floorVersion,
+        });
         scheduleNextTurn(room, target.id);
       }, durationMs);
       return;
     }
 
     const targetReal = target as LiveRoomPeer;
+    room.waitingForParticipantId = targetReal.userId;
     const recentSeconds = targetReal.lastSpokeAt ? Math.round((now - targetReal.lastSpokeAt) / 1000) : null;
     let invitation = 'Thank you. Let us hear from ' + targetReal.name + ' from Seat ' + targetReal.seatNumber + '. ' + targetReal.name.split(' ')[0] + ', what is your view on this topic?';
     if (ai) {
@@ -3773,32 +3793,63 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const peer = room.peers.get(socket.id);
-    if (peer) {
-      peer.isSpeaking = isSpeaking;
-      if (micActive !== undefined) peer.micActive = micActive;
-      if (cameraActive !== undefined) peer.cameraActive = cameraActive;
+    if (!peer) return;
 
-      if (isSpeaking) {
-        room.currentSpeakerId = peer.userId;
-        room.currentSpeakerSocketId = socket.id;
-        room.silenceTimerSeconds = 0;
-        peer.lastSpokeAt = Date.now();
-      } else if (room.currentSpeakerSocketId === socket.id) {
-        room.currentSpeakerId = null;
-        room.currentSpeakerSocketId = null;
-        // The speaker released the floor; let the server moderator select the
-        // next participant using real participation history.
-        scheduleNextTurn(room, peer?.userId);
+    peer.isSpeaking = isSpeaking;
+    if (micActive !== undefined) peer.micActive = micActive;
+    if (cameraActive !== undefined) peer.cameraActive = cameraActive;
+
+    if (isSpeaking) {
+      // HARD FLOOR LOCK: one participant at a time. A second participant
+      // cannot claim the floor while another human or AI participant owns it.
+      if (
+        room.currentSpeakerId &&
+        room.currentSpeakerId !== peer.userId
+      ) {
+        peer.isSpeaking = false;
+        peer.micActive = false;
+        socket.emit('floor-busy', {
+          speakerId: room.currentSpeakerId,
+          message: 'Another participant is speaking. Please wait until the floor is released.'
+        });
+        return;
       }
+
+      // A human has taken the floor; cancel any pending AI selection.
+      if (room.turnTimer) clearTimeout(room.turnTimer);
+      room.turnTimer = undefined;
+      room.waitingForParticipantId = undefined;
+      room.currentSpeakerId = peer.userId;
+      room.currentSpeakerSocketId = socket.id;
+      room.silenceTimerSeconds = 0;
+      peer.lastSpokeAt = Date.now();
+      room.floorVersion += 1;
+      io.to(`room-${safeSlotId}`).emit('floor-state', {
+        speakerId: peer.userId,
+        speakerSocketId: socket.id,
+        floorVersion: room.floorVersion,
+      });
+    } else if (room.currentSpeakerSocketId === socket.id) {
+      // Only the current speaker can release the floor.
+      room.currentSpeakerId = null;
+      room.currentSpeakerSocketId = null;
+      room.waitingForParticipantId = undefined;
+      room.floorVersion += 1;
+      io.to(`room-${safeSlotId}`).emit('floor-state', {
+        speakerId: null,
+        speakerSocketId: null,
+        floorVersion: room.floorVersion,
+      });
+      scheduleNextTurn(room, peer.userId);
     }
 
     io.to(`room-${safeSlotId}`).emit('peer-speaking-updated', {
       socketId: socket.id,
-      userId: peer?.userId,
-      seatNumber: peer?.seatNumber,
-      isSpeaking,
-      micActive: peer?.micActive,
-      cameraActive: peer?.cameraActive,
+      userId: peer.userId,
+      seatNumber: peer.seatNumber,
+      isSpeaking: peer.isSpeaking,
+      micActive: peer.micActive,
+      cameraActive: peer.cameraActive,
       volumeLevel: volumeLevel || 0,
     });
   });
