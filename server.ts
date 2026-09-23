@@ -3448,6 +3448,9 @@ interface LiveGDRoomState {
   lastDeadlockAt?: number;
   deadlockCount: number;
   lastDeadlockTargetId?: string;
+  // Temporary demo mode: the room is populated and driven entirely by AI
+  // participants so the GD can be simulated without multiple human devices.
+  simulationMode: boolean;
   // Server-authoritative turn lock. Only one participant may own the floor.
   waitingForParticipantId?: string;
   floorVersion: number;
@@ -3463,7 +3466,9 @@ function getSlotCapacity(slotId: string) {
   return Math.max(1, Number((currentLiveSession as any)?.maxCapacity || 6));
 }
 
-const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy','Arjun Iyer','Meera Kapoor','Aditya Menon','Sneha Joshi'];
+const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy'];
+const AI_GD_SIMULATION_MODE = true;
+const AI_GD_SIMULATION_PARTICIPANTS = 6;
 
 function syncAiParticipants(room: LiveGDRoomState) {
   // Keep a realistic six-person GD floor. If fewer real students join, fill
@@ -3471,7 +3476,11 @@ function syncAiParticipants(room: LiveGDRoomState) {
   // take priority when they join.
   const capacity = Math.max(6, getSlotCapacity(room.slotId));
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
-  const targetCount = Math.max(0, capacity - realStudents.length);
+  // In simulation mode the humans connected to the browser are observers only.
+  // Keep exactly six distinct AI students on the discussion floor.
+  const targetCount = room.simulationMode
+    ? AI_GD_SIMULATION_PARTICIPANTS
+    : Math.max(0, capacity - realStudents.length);
   const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
   const existing = Array.from(room.aiParticipants.values()).slice(0, targetCount);
   room.aiParticipants = new Map(existing.map((p) => [p.id, p]));
@@ -3502,6 +3511,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       topic: topic || currentLiveSession.topic,
       transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
       deadlockCount: 0,
+      simulationMode: AI_GD_SIMULATION_MODE,
       floorVersion: 0,
     };
 
@@ -3563,7 +3573,11 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   const aiStudents = syncAiParticipants(room);
-  const allParticipants: any[] = [...realStudents, ...aiStudents];
+  // Simulation mode deliberately removes humans from the speaking pool.
+  // Connected humans are observers; all six seats are AI participants.
+  const allParticipants: any[] = room.simulationMode
+    ? [...aiStudents]
+    : [...realStudents, ...aiStudents];
   if (!allParticipants.length) return;
 
   // Round-robin rule: nobody may receive a second turn until every active
@@ -3917,32 +3931,51 @@ io.on('connection', (socket) => {
       assignedSeat: seatNumber,
       peers: otherPeers,
       aiParticipants: Array.from(room.aiParticipants.values()),
+      simulationMode: room.simulationMode,
       transcripts: room.transcripts,
       topic: room.topic,
       silenceTimerSeconds: room.silenceTimerSeconds,
       currentSpeakerId: room.currentSpeakerId,
       status: room.status,
+      simulationMode: room.simulationMode,
     });
 
     // Notify all other peers in the room
     socket.to(`room-${safeSlotId}`).emit('peer-joined', {
       peer,
     });
+
+    if (room.simulationMode && room.status === 'waiting') {
+      room.status = 'active';
+      room.silenceTimerSeconds = 0;
+      syncAiParticipants(room);
+      io.to(`room-${safeSlotId}`).emit('session-started', {
+        slotId: safeSlotId,
+        status: 'active',
+        topic: room.topic,
+        simulationMode: true,
+        aiParticipants: Array.from(room.aiParticipants.values()),
+      });
+      scheduleNextTurn(room);
+    }
   });
 
-  // 1.5 Start Discussion Session (Faculty In-Charge / Host)
+  // 1.5 Start Discussion Session. In the current demo configuration,
+  // the room is an autonomous six-AI GD; connected students are observers.
   socket.on('start-session', ({ slotId }: { slotId: string }) => {
     const safeSlotId = slotId || 'slot-dit-001';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.status = 'active';
       room.silenceTimerSeconds = 0;
+      syncAiParticipants(room);
       io.to(`room-${safeSlotId}`).emit('session-started', {
         slotId: safeSlotId,
         status: 'active',
         topic: room.topic,
+        simulationMode: room.simulationMode,
+        aiParticipants: Array.from(room.aiParticipants.values()),
       });
-      // After the AI introduction, call a real participant to open the GD.
       scheduleNextTurn(room);
     }
   });
@@ -3967,6 +4000,16 @@ io.on('connection', (socket) => {
     peer.isSpeaking = isSpeaking;
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
+
+    if (isSpeaking && room.simulationMode) {
+      // AI simulation owns the entire speaking floor. Humans are observers.
+      peer.isSpeaking = false;
+      peer.micActive = false;
+      io.to(socket.id).emit('floor-busy', {
+        message: 'AI simulation is running. Human microphones are disabled while AI participants conduct the GD.'
+      });
+      return;
+    }
 
     if (isSpeaking) {
       // HARD FLOOR LOCK: one participant at a time. A second participant
