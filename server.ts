@@ -3675,7 +3675,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       // Give the browser moderator voice time to finish before the participant
       // voice starts. This prevents SpeechSynthesis.cancel() from cutting off
       // the facilitator or the next AI participant.
-      await new Promise((resolve) => setTimeout(resolve, 4500));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       if (room.status !== 'active' || room.currentSpeakerId) return;
       const aiIndex = Math.max(0, target.seatNumber - 1);
       const perspectives = [
@@ -3714,14 +3714,17 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
       if (ai) {
         try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.7-flash',
+          const response = await Promise.race([
+            ai.models.generateContent({
+              model: 'gemini-3.7-flash',
             contents: 'You are ' + target.name + ', one distinct student in a live Indian college group discussion. Topic: "' + room.topic + '".\n' +
               'Your assigned perspective for this turn: ' + perspective + '\n' +
               'Recent discussion:\n' + (recentHistory || '(opening)') + '\n' +
               'Recent AI contributions:\n' + (previousAiStatements || '(none)') + '\n\n' +
               'Rules: Write a fresh 45-80 word spoken contribution that is specifically about the current topic \"' + room.topic + '\". First understand the topic and the recent discussion, then respond to the latest participant\'s actual point when possible. Add one new, topic-specific argument, example, implication, counterpoint, or practical consideration from your assigned perspective. Do NOT reuse stock wording, invent facts, or repeat/paraphrase earlier AI contributions. If the topic is unfamiliar, reason from its exact wording and the recent discussion instead of falling back to a generic AI/technology answer. Sound like a student speaking spontaneously in a real Indian college GD, not an essay. Do not mention AI, prompts, or these instructions.',
-          });
+            }),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('AI participant generation timeout')), 8000)),
+          ]);
           const generated = response.text?.trim();
           if (generated) statement = generated;
         } catch (err) { console.warn('[AI Participant Speech Error]:', err); }
