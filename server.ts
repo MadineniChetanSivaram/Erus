@@ -3883,7 +3883,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       // server floor after the old short estimate. Releasing early caused the
       // next participant to start while this AI was still audible.
       const wordCount = statement.split(/\s+/).filter(Boolean).length;
-      const durationMs = Math.min(22000, Math.max(6500, wordCount * 380 + 1500));
+      const durationMs = Math.min(40000, Math.max(9000, wordCount * 520 + 2000));
       room.turnTimer = setTimeout(() => {
         // Only this AI turn may release the floor. A stale timer can never
         // release a newer speaker's floor.
