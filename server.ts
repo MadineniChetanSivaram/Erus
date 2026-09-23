@@ -3468,7 +3468,7 @@ function getSlotCapacity(slotId: string) {
 
 const AI_PARTICIPANT_NAMES = ['Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy'];
 const AI_GD_SIMULATION_MODE = true;
-const AI_GD_SIMULATION_PARTICIPANTS = 6;
+const AI_GD_SIMULATION_PARTICIPANTS = 6; // Demo mode: all six speaking seats are AI.
 
 function syncAiParticipants(room: LiveGDRoomState) {
   // Keep a realistic six-person GD floor. If fewer real students join, fill
@@ -3930,8 +3930,9 @@ io.on('connection', (socket) => {
 
     syncAiParticipants(room);
 
-    // Send existing room state to joining peer
-    const otherPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
+    // Demo mode: connected browser users are observers only. The speaking
+    // floor contains AI participants exclusively.
+    const otherPeers = room.simulationMode ? [] : Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
     socket.emit('gd-room-joined', {
       assignedSeat: seatNumber,
       peers: otherPeers,
