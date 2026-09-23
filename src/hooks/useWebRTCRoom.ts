@@ -31,6 +31,7 @@ interface UseWebRTCRoomOptions {
     targetSeatNumber?: number;
   }) => void;
   onSessionStarted?: (data: any) => void;
+  onAiParticipantSpeech?: (data: any) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -69,6 +70,7 @@ export function useWebRTCRoom({
   onNewTranscript,
   onFacilitatorIntervention,
   onSessionStarted,
+  onAiParticipantSpeech,
 }: UseWebRTCRoomOptions) {
   const [connected, setConnected] = useState(false);
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
@@ -442,6 +444,13 @@ export function useWebRTCRoom({
       }
     });
 
+    // AI participant contribution broadcast. Every browser receives and vocalizes
+    // the same contribution, so AI participants behave like room participants.
+    socket.on('ai-participant-speech', (data) => {
+      if (!active) return;
+      onAiParticipantSpeech?.(data);
+    });
+
     // Faculty Commences Session Broadcast
     socket.on('session-started', (data) => {
       if (!active) return;
@@ -486,7 +495,7 @@ export function useWebRTCRoom({
 
       socket.disconnect();
     };
-  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio, onNewTranscript, onFacilitatorIntervention, onSessionStarted]);
+  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio, onNewTranscript, onFacilitatorIntervention, onSessionStarted, onAiParticipantSpeech]);
 
   // Toggle local microphone mute
   const toggleMute = useCallback(() => {
