@@ -547,6 +547,14 @@ export function useWebRTCRoom({
     // the same contribution, so AI participants behave like room participants.
     socket.on('ai-participant-speech', (data) => {
       if (!active) return;
+      // Keep the server-authoritative AI roster in sync with every turn so
+      // the seat cards immediately show 1, 2, 3... speaking turns instead of
+      // being reset to zero by the roster effect.
+      if (data?.participant?.id) {
+        setAiParticipants((prev) => prev.map((p) =>
+          p.id === data.participant.id ? { ...p, ...data.participant } : p
+        ));
+      }
       if (data?.transcript?.id) {
         handledAiTranscriptIdsRef.current.add(String(data.transcript.id));
       }
