@@ -103,7 +103,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const [isListeningMic, setIsListeningMic] = useState(false);
   const [interruptionWarning, setInterruptionWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [autoSimulatePeers, setAutoSimulatePeers] = useState(true);
+  // Server-side Socket.IO is now the single source of truth for AI turns.
+  // Keeping the legacy local simulator enabled can queue a second voice while
+  // a real participant is speaking, so it is disabled for live GDs.
+  const [autoSimulatePeers, setAutoSimulatePeers] = useState(false);
   const [invitedStudentPrompt, setInvitedStudentPrompt] = useState<{ student: Student; reason: string; promptText?: string } | null>(null);
   const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
 
