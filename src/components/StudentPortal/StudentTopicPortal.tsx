@@ -373,17 +373,14 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                     <div className="space-y-1 pt-1">
                       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1">
                         <GraduationCap className="w-3 h-3 text-amber-500" />
-                        <span>Allotted Faculty Evaluators:</span>
+                        <span>Allotted Faculty In-Charge:</span>
                       </span>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {topicItem.facultyList.map((fac) => (
-                          <span
-                            key={fac.name}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/40 text-[11px] font-medium"
-                          >
-                            <strong>{fac.name}</strong> {fac.dept ? `(${fac.dept.split(' ')[0]})` : ''}
+                        {topicItem.facultyList[0] && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/40 text-[11px] font-medium">
+                            <strong>{topicItem.facultyList[0].name}</strong>{topicItem.facultyList[0].dept ? ` (${topicItem.facultyList[0].dept.split(' ')[0]})` : ''}
                           </span>
-                        ))}
+                        )}
                       </div>
                     </div>
                   </div>
