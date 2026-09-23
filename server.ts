@@ -850,9 +850,52 @@ app.post('/api/college/students', async (req, res) => {
   res.json({ success: true, addedCount: addedStudents.length, students: persistentState.students[code] });
 });
 
-app.get('/api/college/faculty', (req, res) => {
+app.get('/api/college/faculty', async (req, res) => {
   const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
-  const faculty = persistentState.faculty[code] || [];
+  const facultyMap = new Map<string, any>();
+
+  // Persistent roster remains the fast path / fallback.
+  for (const f of (persistentState.faculty[code] || [])) {
+    facultyMap.set(f.facultyId || f.email, f);
+  }
+
+  // When PostgreSQL is configured, merge the actual faculty roster from the
+  // college database so faculty created in another browser/session survives
+  // reloads and is available to the slot-creation modal.
+  if (isDbConnected && prisma) {
+    try {
+      const dbFaculty = await prisma.user.findMany({
+        where: {
+          role: 'faculty',
+          college: { contains: code, mode: 'insensitive' },
+        },
+        include: { facultyProfile: true },
+      });
+
+      for (const u of dbFaculty) {
+        const f = {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          facultyId: u.facultyProfile?.facultyId || (u as any).facultyId || u.id,
+          department: u.facultyProfile?.department || (u as any).department || 'Academic Department',
+          designation: u.facultyProfile?.designation || (u as any).designation || 'Faculty Evaluator',
+          college: u.college || code,
+          collegeCode: code,
+          assignedSlotsCount: (persistentState.slots[code] || []).filter(
+            (s) => s.assignedFacultyId === (u.facultyProfile?.facultyId || u.id)
+          ).length,
+        };
+        facultyMap.set(f.facultyId || f.email, f);
+      }
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to read faculty roster:', dbErr.message);
+    }
+  }
+
+  const faculty = Array.from(facultyMap.values());
+  persistentState.faculty[code] = faculty;
+  savePersistentState();
   res.json({ success: true, faculty });
 });
 
@@ -902,6 +945,20 @@ app.post('/api/college/faculty', async (req, res) => {
           name: newFac.name,
           college: newFac.college,
           collegeId: col?.id,
+          facultyProfile: {
+            upsert: {
+              create: {
+                facultyId: newFac.facultyId,
+                department: newFac.department,
+                designation: newFac.designation,
+              },
+              update: {
+                facultyId: newFac.facultyId,
+                department: newFac.department,
+                designation: newFac.designation,
+              },
+            },
+          },
         },
         create: {
           email: newFac.email.toLowerCase(),
@@ -1025,6 +1082,40 @@ app.post('/api/college/slots', async (req, res) => {
   }
 
   res.json({ success: true, slot: newSlot });
+});
+
+app.delete('/api/college/slots/:id', async (req, res) => {
+  const slotId = req.params.id;
+  let target: any = null;
+  let code = '';
+
+  for (const [collegeCode, list] of Object.entries(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) {
+      target = found;
+      code = collegeCode;
+      break;
+    }
+  }
+
+  if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
+  if (target.status === 'active') {
+    return res.status(409).json({ success: false, error: 'An active GD session cannot be deleted' });
+  }
+
+  persistentState.slots[code] = (persistentState.slots[code] || []).filter((s) => s.id !== slotId);
+  savePersistentState();
+
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDBooking.deleteMany({ where: { sessionId: slotId } });
+      await prisma.gDSession.delete({ where: { id: slotId } });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to delete GD slot from PostgreSQL:', dbErr.message);
+    }
+  }
+
+  res.json({ success: true, slotId });
 });
 
 app.post('/api/college/slots/:id/complete', async (req, res) => {
