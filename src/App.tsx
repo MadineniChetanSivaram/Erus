@@ -177,27 +177,48 @@ function GDAppContent() {
     const collegeCode = (currentUser as any).collegeCode || 'DIT';
     const timer = setInterval(async () => {
       try {
-        const slots = await fetchCollegeSlots(collegeCode);
-        // Even an empty response is authoritative: the college currently has no published slots.
-        // Backend is authoritative: slots missing from the response were deleted
-        // and must disappear from the student portal as well.
-        setAvailableSlots(slots.map((fresh: any) => ({
-          ...fresh,
-          status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting',
-        })));
+        const rawSlots = await fetchCollegeSlots(collegeCode);
+        // Map raw backend slots into full GDSession format (same as handleLogin)
+        // so fields like 'students', 'currentPhase', 'facilitatorSpeech' are always present.
+        const mappedSlots: GDSession[] = rawSlots.map((s: any): GDSession => ({
+          ...INITIAL_SESSION,
+          id: s.id,
+          topic: s.topic || s.slotName || 'Group Discussion',
+          description: s.description || '',
+          slotName: s.slotName || s.topic || 'Slot',
+          slotTiming: s.slotTiming || '',
+          durationMinutes: s.durationMinutes || 15,
+          difficulty: s.difficulty || 'Intermediate',
+          assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
+          status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
+          students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 8),
+          currentPhase: 'intro',
+          facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
+          facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
+          isFacilitatorSpeaking: false,
+          silenceTimerSeconds: 0,
+          currentSpeakerId: null,
+          breakoutRooms: [],
+          enrolledCount: s.enrolledCount ?? (s.students?.length ?? 0),
+          maxCapacity: s.maxCapacity ?? 15,
+          assignedFacultyId: s.assignedFacultyId || '',
+          assignedFacultyName: s.assignedFacultyName || '',
+          assignedFacultyEmail: s.assignedFacultyEmail || '',
+          assignedFacultyDept: s.assignedFacultyDept || '',
+          facultyLiveNotes: s.facultyLiveNotes || [],
+          createdAt: s.createdAt || new Date().toISOString(),
+        }));
+        setAvailableSlots(mappedSlots);
         setSession((prev) => {
-          const fresh = slots.find((s: any) => s.id === prev.id);
-          if (!fresh) {
-            return slots[0]
-              ? { ...prev, ...slots[0], status: slots[0].status === 'active' ? 'active' : slots[0].status === 'completed' ? 'completed' : 'waiting' }
-              : prev;
-          }
-          return { ...prev, ...fresh, status: fresh.status === 'active' ? 'active' : fresh.status === 'completed' ? 'completed' : 'waiting' };
+          const fresh = mappedSlots.find((s) => s.id === prev.id);
+          if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
+          return { ...prev, ...fresh };
         });
       } catch {}
-    }, 2000);
+    }, 5000);
     return () => clearInterval(timer);
   }, [currentUser]);
+
 
   // Reset slots back to clean demo defaults
   const handleResetSlots = () => {
