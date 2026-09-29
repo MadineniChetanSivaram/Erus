@@ -266,6 +266,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }));
     },
     onAiParticipantSpeech: (data) => {
+      if (!rtcSimulationMode) return;
       const participant = data?.participant;
       const newTx = data?.transcript;
       if (!participant || !newTx) return;
@@ -2122,18 +2123,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             <Video className="w-3 h-3" /> Camera Streaming
                           </span>
                         )}
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <label className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={autoSimulatePeers} 
-                            onChange={(e) => setAutoSimulatePeers(e.target.checked)}
-                            className="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-0"
-                          />
-                          <span>Auto-Simulate Peer Replies</span>
-                        </label>
                       </div>
                     </div>
                   );

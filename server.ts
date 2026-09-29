@@ -3761,16 +3761,18 @@ const AI_GD_SIMULATION_MODE = false;
 const AI_GD_SIMULATION_PARTICIPANTS = 6; // Fallback only; simulation normally follows slot capacity.
 
 function syncAiParticipants(room: LiveGDRoomState) {
-  // Keep a realistic six-person GD floor. If fewer real students join, fill
-  // the remaining seats with distinct AI participants; real students always
-  // take priority when they join.
-  const capacity = Math.max(6, getSlotCapacity(room.slotId));
+  // Real students only. Do not spawn AI bot participants unless simulationMode is explicitly enabled.
+  // Empty seats are available desks for other students to join, not AI participants.
+  if (!room.simulationMode && process.env.ENABLE_AI_PARTICIPANTS !== 'true') {
+    room.aiParticipants.clear();
+    return [];
+  }
+
+  const capacity = Math.max(1, getSlotCapacity(room.slotId));
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
-  // In simulation mode the humans connected to the browser are observers only.
-  // Keep exactly six distinct AI students on the discussion floor.
   const targetCount = room.simulationMode
-    ? Math.max(1, getSlotCapacity(room.slotId))
-    : Math.max(0, capacity - realStudents.length);
+    ? Math.max(1, capacity)
+    : 0;
   const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
   const existing = Array.from(room.aiParticipants.values()).slice(0, targetCount);
   room.aiParticipants = new Map(existing.map((p) => [p.id, p]));
