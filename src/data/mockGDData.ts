@@ -15,6 +15,7 @@ export function generateSlotParticipants(
       college: userStudent.college || 'Participant',
       course: userStudent.course || '',
       batch: '',
+      avatar: '',
       isUser: true,
       micActive: false,
       isSpeaking: false,

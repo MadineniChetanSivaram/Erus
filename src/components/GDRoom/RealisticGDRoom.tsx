@@ -395,11 +395,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // AI speech events. Merge the roster instead of rebuilding students from
     // the original zero-turn roster on every speaker change.
     setSession((prev) => {
-      const previousById = new Map(prev.students.map((s) => [s.id, s]));
+      const previousById = new Map<string, Student>(prev.students.map((s) => [s.id, s]));
       const aiStudents: Student[] = rtcAiParticipants.map((p: any) => {
-        const previous = previousById.get(p.id);
-        return {
-          ...(previous || {}),
+        const previous: Student | undefined = previousById.get(p.id);
+        const student: Student = {
           id: p.id,
           name: p.name,
           avatar: p.avatar || previous?.avatar || '',
@@ -414,12 +413,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           isSpeaking: previous?.isSpeaking || false,
           micActive: true,
           cameraActive: false,
+          hasRaisedHand: previous?.hasRaisedHand || false,
           speakingTurns: Math.max(previous?.speakingTurns || 0, p.speakingTurns || 0),
           speakingDurationSeconds: Math.max(previous?.speakingDurationSeconds || 0, p.speakingDurationSeconds || 0),
           interruptionCount: previous?.interruptionCount || 0,
           questionsAnswered: previous?.questionsAnswered || 0,
           questionsInitiated: previous?.questionsInitiated || 0,
-        } as any;
+          sentiment: previous?.sentiment || 'neutral',
+        };
+        return student;
       });
       return {
         ...prev,

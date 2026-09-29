@@ -19,6 +19,7 @@ import {
   Tag
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
+import { INITIAL_SESSION } from '../../data/mockGDData';
 import { 
   BarChart, 
   Bar, 
