@@ -13,6 +13,8 @@ import {
   connectMongoDB,
   initMongoDBTablesAndSubTables,
   isMongoConnected,
+  getMongoLastError,
+  getActiveMongoUri,
   CollegeModel,
   UserModel,
   GDSessionModel,
@@ -2770,12 +2772,19 @@ app.get('/api/health', async (req, res) => {
     } catch {}
   }
 
+  const activeUri = getActiveMongoUri();
+  const maskedUri = activeUri.includes('@')
+    ? activeUri.replace(/:([^:@]+)@/, ':****@')
+    : activeUri;
+
   res.json({
     status: 'ok',
     service: 'ERUS AI Group Discussion Facilitator (ERUS-AIGDF)',
     database: mongoActive ? 'mongodb' : isDbConnected ? 'postgresql' : 'in-memory',
     mongoConnected: mongoActive,
     mongoTables,
+    mongoError: getMongoLastError(),
+    mongoUriDetected: maskedUri.startsWith('mongodb://127.0.0.1') ? 'default-local' : maskedUri,
     hasGeminiKey: !!process.env.GEMINI_API_KEY,
     activeSessionId: currentLiveSession.id,
     participants: currentLiveSession.students.length,

@@ -9,52 +9,104 @@ mongoose.set('autoIndex', false);
 // =========================================================================
 // MONGODB CONNECTION
 // =========================================================================
-const MONGODB_URI =
-  process.env.MONGODB_URI ||
-  process.env.MONGO_URL ||
-  process.env.MONGODB_URL ||
-  'mongodb://127.0.0.1:27017/erus';
-
 let isConnected = false;
+let lastMongoError: string | null = null;
+
+export function getMongoLastError(): string | null {
+  return lastMongoError;
+}
+
+export function getActiveMongoUri(): string {
+  return (
+    process.env.MONGODB_URI ||
+    process.env.MONGO_URL ||
+    process.env.MONGODB_URL ||
+    'mongodb://127.0.0.1:27017/erus'
+  ).trim();
+}
+
+function candidateMongoUris(raw: string): string[] {
+  const list: string[] = [];
+  const trimmed = raw.trim();
+  if (!trimmed) return ['mongodb://127.0.0.1:27017/erus'];
+
+  // 1. If URI has credentials (@) but no database name or authSource
+  // e.g. mongodb://mongo:pass@mongodb.railway.internal:27017
+  if (trimmed.includes('@')) {
+    const withoutQuery = trimmed.split('?')[0].replace(/\/+$/, '');
+    const queryPart = trimmed.split('?')[1] || '';
+    const hasPath = /:\d+\/[^/?]+/.test(withoutQuery);
+
+    if (!hasPath) {
+      // Add /erus with authSource=admin
+      const q = queryPart
+        ? (queryPart.includes('authSource=') ? queryPart : `${queryPart}&authSource=admin`)
+        : 'authSource=admin';
+      list.push(`${withoutQuery}/erus?${q}`);
+      // Also try with /railway default database
+      list.push(`${withoutQuery}/railway?${q}`);
+    } else {
+      if (!trimmed.includes('authSource=')) {
+        const separator = trimmed.includes('?') ? '&' : '?';
+        list.push(`${trimmed}${separator}authSource=admin`);
+      }
+    }
+  }
+
+  // 2. Direct user-provided URI
+  if (!list.includes(trimmed)) {
+    list.push(trimmed);
+  }
+
+  return list;
+}
 
 export async function connectMongoDB(): Promise<boolean> {
-  if (isConnected) return true;
+  if (isConnected && mongoose.connection.readyState === 1) return true;
 
-  try {
-    const maskedUri = MONGODB_URI.includes('@')
-      ? MONGODB_URI.replace(/:([^:@]+)@/, ':****@')
-      : MONGODB_URI;
-    console.log(`[MongoDB] Connecting to database at ${maskedUri}...`);
-    await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 10000,
-      autoIndex: false,
-    });
-    isConnected = true;
-    console.log(`[MongoDB] Successfully connected to MongoDB (database: ${mongoose.connection.name || 'erus'})`);
-    return true;
-  } catch (err: any) {
-    if (MONGODB_URI.includes('localhost') || MONGODB_URI.includes('127.0.0.1')) {
-      console.warn(`[MongoDB] Local connection warning (${err.message}). Attempting fallback to 127.0.0.1...`);
-      try {
-        const fallbackUri = 'mongodb://127.0.0.1:27017/erus';
-        await mongoose.connect(fallbackUri, {
-          serverSelectionTimeoutMS: 5000,
-        });
-        isConnected = true;
-        console.log(`[MongoDB] Successfully connected to MongoDB via 127.0.0.1:27017`);
-        return true;
-      } catch (fallbackErr: any) {
-        console.warn(`[MongoDB] Could not connect to local MongoDB: ${fallbackErr.message}`);
-        isConnected = false;
-        return false;
-      }
-    } else {
-      console.warn(`[MongoDB] Remote MongoDB connection error: ${err.message}. Server will continue in resilient fallback mode.`);
+  const rawUri = getActiveMongoUri();
+  const candidates = candidateMongoUris(rawUri);
+
+  for (const uri of candidates) {
+    const masked = uri.includes('@')
+      ? uri.replace(/:([^:@]+)@/, ':****@')
+      : uri;
+
+    try {
+      console.log(`[MongoDB] Attempting connection to ${masked}...`);
+      await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+        autoIndex: false,
+      });
+      isConnected = true;
+      lastMongoError = null;
+      console.log(`[MongoDB] Successfully connected to MongoDB (database: ${mongoose.connection.name || 'erus'})`);
+      return true;
+    } catch (err: any) {
+      lastMongoError = err.message || String(err);
+      console.warn(`[MongoDB] Connection attempt to ${masked} failed: ${lastMongoError}`);
+    }
+  }
+
+  // Local fallback if target was local
+  if (rawUri.includes('localhost') || rawUri.includes('127.0.0.1')) {
+    try {
+      const fallbackUri = 'mongodb://127.0.0.1:27017/erus';
+      await mongoose.connect(fallbackUri, { serverSelectionTimeoutMS: 5000 });
+      isConnected = true;
+      lastMongoError = null;
+      console.log(`[MongoDB] Successfully connected to MongoDB via 127.0.0.1:27017`);
+      return true;
+    } catch (fallbackErr: any) {
+      lastMongoError = fallbackErr.message;
       isConnected = false;
       return false;
     }
   }
+
+  isConnected = false;
+  return false;
 }
 
 export function isMongoConnected(): boolean {
