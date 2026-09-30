@@ -2012,25 +2012,35 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   const userData = req.body;
-  if (!userData || !userData.email || !userData.name) {
+  const userName = (userData?.name || userData?.fullName || '').trim();
+  const cleanEmail = (userData?.email || '').trim().toLowerCase();
+  const password = userData?.password || '';
+
+  if (!userData || !cleanEmail || !userName) {
     return res.status(400).json({ success: false, error: 'Name and email are required.' });
   }
 
-  const cleanEmail = userData.email.trim().toLowerCase();
+  if (!password || password.length < 6) {
+    return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
+  }
+
   const existing = persistentState.users.find((u) => u.email.toLowerCase() === cleanEmail);
   if (existing) {
     return res.status(400).json({ success: false, error: 'Email already registered.' });
   }
 
   const role = userData.role || 'student';
+  const collegeName = userData.college || userData.collegeName || 'General Campus';
+  const collegeCode = userData.collegeCode || (collegeName.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'CAMPUS');
+
   const newUser: StoredAuthUser = {
     id: `${role === 'student' ? 's' : 'fac'}-reg-${Date.now().toString().slice(-4)}`,
-    name: userData.name.trim(),
+    name: userName,
     email: cleanEmail,
-    password: userData.password || 'password123',
+    password: password,
     role: role,
-    college: userData.college || 'Engineering Institute',
-    collegeCode: userData.collegeCode || 'DIT',
+    college: collegeName,
+    collegeCode: collegeCode,
     course: userData.course,
     batch: userData.batch,
     seatNumber: userData.seatNumber || 1,
@@ -2038,7 +2048,7 @@ app.post('/api/auth/register', async (req, res) => {
     facultyId: userData.facultyId,
     department: userData.department,
     designation: userData.designation,
-    avatar: userData.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userData.name)}`,
+    avatar: userData.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userName)}`,
   };
 
   persistentState.users.push(newUser);
@@ -2061,7 +2071,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   if (isDbConnected && prisma) {
     try {
-      const col = await prisma.college.findUnique({ where: { code: newUser.collegeCode || 'DIT' } });
+      const col = newUser.collegeCode ? await prisma.college.findUnique({ where: { code: newUser.collegeCode } }) : null;
       const passHash = await bcrypt.hash(newUser.password, 10);
       await prisma.user.upsert({
         where: { email: cleanEmail },
@@ -2341,112 +2351,7 @@ interface BackendSession {
 
 const DEFAULT_STUDENTS: BackendStudent[] = [];
 
-const DEFAULT_SERVER_SLOTS = [
-  {
-    id: 'slot-genai-1',
-    slotName: 'Slot 1 - Morning Batch',
-    slotTiming: '10:00 AM - 10:30 AM',
-    slotDate: 'Today',
-    enrolledCount: 3,
-    maxCapacity: 15,
-    roomLayout: 'round_table',
-    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-    description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
-    allottedFaculty: 'Dr. Sunita Rao (Department)',
-    durationMinutes: 25,
-    difficulty: 'Intermediate',
-    assessmentRubric: 'Standard Academic 7-Parameter Rubric (English, Fluency, Clarity, Confidence, Content, Collaboration, Leadership)',
-    status: 'active',
-    students: [],
-    currentPhase: 'intro',
-    facilitatorSpeech: 'Welcome participants. Today we analyze how generative AI is shifting tech talent evaluation from syntax memorization to architectural thinking. The floor is open.',
-    facilitatorAction: 'Monitoring participation balance and encouraging critical examples.',
-    isFacilitatorSpeaking: false,
-    silenceTimerSeconds: 0,
-    currentSpeakerId: null,
-    breakoutRooms: [],
-    createdAt: new Date().toISOString(),
-    startedAt: Date.now(),
-  },
-  {
-    id: 'slot-genai-2',
-    slotName: 'Slot 2 - Afternoon Batch',
-    slotTiming: '02:30 PM - 03:00 PM',
-    slotDate: 'Today',
-    enrolledCount: 4,
-    maxCapacity: 15,
-    roomLayout: 'round_table',
-    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-    description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
-    allottedFaculty: 'Dr. Sunita Rao (Department)',
-    durationMinutes: 25,
-    difficulty: 'Intermediate',
-    assessmentRubric: 'Standard Academic 7-Parameter Rubric',
-    status: 'scheduled',
-    students: [],
-    currentPhase: 'intro',
-    facilitatorSpeech: 'Welcome to Slot 2. We will begin our discussion momentarily.',
-    facilitatorAction: 'Session scheduled for afternoon batch',
-    isFacilitatorSpeaking: false,
-    silenceTimerSeconds: 0,
-    currentSpeakerId: null,
-    breakoutRooms: [],
-    createdAt: new Date().toISOString(),
-    startedAt: Date.now(),
-  },
-  {
-    id: 'slot-teachers-1',
-    slotName: 'Slot 1 - Morning Batch',
-    slotTiming: '11:30 AM - 12:00 PM',
-    slotDate: 'Today',
-    enrolledCount: 2,
-    maxCapacity: 15,
-    roomLayout: 'round_table',
-    topic: 'Should Artificial Intelligence replace teachers in Higher Education?',
-    description: 'Debating cognitive personalization algorithms versus empathetic educator mentoring in higher technical education.',
-    allottedFaculty: 'Prof. Rajesh Verma (Department)',
-    durationMinutes: 25,
-    difficulty: 'Intermediate',
-    assessmentRubric: 'Standard Academic 7-Parameter Rubric',
-    status: 'scheduled',
-    students: [],
-    currentPhase: 'intro',
-    facilitatorSpeech: 'Good morning participants. Today we debate whether AI can substitute teachers in higher education. Please maintain decorum.',
-    facilitatorAction: 'Waiting for room start',
-    isFacilitatorSpeaking: false,
-    silenceTimerSeconds: 0,
-    currentSpeakerId: null,
-    breakoutRooms: [],
-    createdAt: new Date().toISOString(),
-    startedAt: Date.now(),
-  },
-  {
-    id: 'slot-ev-1',
-    slotName: 'Slot 1 - Evening Batch',
-    slotTiming: '04:30 PM - 05:00 PM',
-    slotDate: 'Today',
-    enrolledCount: 1,
-    maxCapacity: 15,
-    roomLayout: 'round_table',
-    topic: 'Electric Vehicles vs Hydrogen Fuel Cells: The Future of Mobility',
-    description: 'Analyzing battery infrastructure, environmental life-cycle emissions, and commercial feasibility in Indian logistics.',
-    allottedFaculty: 'Dr. Ananya Sen (Department)',
-    durationMinutes: 25,
-    difficulty: 'Advanced',
-    assessmentRubric: 'Standard Academic 7-Parameter Rubric',
-    status: 'scheduled',
-    students: [],
-    currentPhase: 'intro',
-    facilitatorSpeech: 'Welcome to the Future of Mobility debate. Which powertrain offers the most viable path to zero emissions?',
-    facilitatorAction: 'Session scheduled for evening batch',
-    isFacilitatorSpeaking: false,
-    silenceTimerSeconds: 0,
-    currentSpeakerId: null,
-    breakoutRooms: [],
-    createdAt: new Date().toISOString(),
-    startedAt: Date.now(),
-  },
-];
+const DEFAULT_SERVER_SLOTS: any[] = [];
 
 let serverSlots: any[] = [...DEFAULT_SERVER_SLOTS];
 let ioInstance: any = null;
@@ -2486,38 +2391,7 @@ interface InMemCollege {
   createdAt: string;
 }
 
-const IN_MEM_COLLEGES: InMemCollege[] = [
-  {
-    id: 'col-1',
-    name: 'Delhi Institute of Technology',
-    code: 'DIT',
-    contactEmail: 'admin@dit.edu.in',
-    phone: '+91 11 2659 1000',
-    address: 'Hauz Khas, New Delhi, Delhi 110016',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'col-2',
-    name: 'Indian Institute of Technology Bombay',
-    code: 'IITB',
-    contactEmail: 'admin@iitb.ac.in',
-    phone: '+91 22 2572 2545',
-    address: 'Powai, Mumbai, Maharashtra 400076',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'col-3',
-    name: 'St. Xavier Engineering College',
-    code: 'SXEC',
-    contactEmail: 'admin@sxec.edu.in',
-    phone: '+91 22 2262 0661',
-    address: 'Mahapalika Marg, Mumbai 400001',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-  },
-];
+const IN_MEM_COLLEGES: InMemCollege[] = [];
 
 interface InMemUser {
   id: string;
@@ -2551,73 +2425,6 @@ const IN_MEM_USERS: InMemUser[] = [
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
     accessLevel: 'root',
   },
-  {
-    id: 'ca1',
-    name: 'DIT College Administrator',
-    email: 'admin@dit.edu.in',
-    passwordHash: bcrypt.hashSync('college123', 10),
-    role: 'college_admin',
-    college: 'Delhi Institute of Technology',
-    collegeId: 'col-1',
-    collegeCode: 'DIT',
-    adminId: 'CADM-DIT-001',
-    department: 'Academic & Placement Affairs',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',
-  },
-  {
-    id: 's1',
-    name: 'Rahul Kumar',
-    email: 'rahul.kumar@dit.edu.in',
-    role: 'student',
-    studentId: 'STU-2022-041',
-    college: 'Delhi Institute of Technology',
-    collegeId: 'col-1',
-    course: 'B.Tech CSE',
-    batch: '2022-2026',
-    seatNumber: 1,
-    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80',
-    passwordHash: bcrypt.hashSync('password123', 10),
-  },
-  {
-    id: 's2',
-    name: 'Priya Sharma',
-    email: 'priya.sharma@sxec.edu.in',
-    role: 'student',
-    studentId: 'STU-2022-089',
-    college: 'St. Xavier Engineering College',
-    collegeId: 'col-3',
-    course: 'B.Tech IT',
-    batch: '2022-2026',
-    seatNumber: 2,
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80',
-    passwordHash: bcrypt.hashSync('password123', 10),
-  },
-  {
-    id: 'f1',
-    name: 'Dr. Sunita Rao',
-    email: 'sunita.rao@dit.edu.in',
-    role: 'faculty',
-    facultyId: 'FAC-CSE-102',
-    college: 'Delhi Institute of Technology',
-    collegeId: 'col-1',
-    department: 'Computer Science & Engineering',
-    designation: 'Professor & Head of Department',
-    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-    passwordHash: bcrypt.hashSync('faculty123', 10),
-  },
-  {
-    id: 'f2',
-    name: 'Prof. Aravind Swamy',
-    email: 'aravind.swamy@iitb.ac.in',
-    role: 'faculty',
-    facultyId: 'FAC-AI-204',
-    college: 'Indian Institute of Technology Bombay',
-    collegeId: 'col-2',
-    department: 'Artificial Intelligence & Robotics',
-    designation: 'Associate Professor',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-    passwordHash: bcrypt.hashSync('faculty123', 10),
-  },
 ];
 
 interface InMemSlot {
@@ -2640,62 +2447,7 @@ interface InMemSlot {
   createdAt: string;
 }
 
-const IN_MEM_SLOTS: InMemSlot[] = [
-  {
-    id: 'slot-101',
-    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-    description: 'Autonomous AI evaluation of technical arguments, ethics, and career roadmaps.',
-    durationMinutes: 15,
-    difficulty: 'Intermediate',
-    status: 'scheduled',
-    scheduledTime: '10:30 AM - 10:45 AM',
-    slotTiming: '10:30 AM - 10:45 AM',
-    slotName: 'Slot 1: AI & Tech Careers',
-    maxCapacity: 15,
-    enrolledCount: 8,
-    assignedFacultyId: 'FAC-CSE-102',
-    assignedFacultyName: 'Dr. Sunita Rao',
-    collegeId: 'col-1',
-    collegeName: 'Delhi Institute of Technology',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'slot-102',
-    topic: 'Electric Vehicles vs Hydrogen Fuel Cells: Sustainability Tradeoffs',
-    description: 'Assessment on technical feasibility, grid strain, and infrastructure.',
-    durationMinutes: 20,
-    difficulty: 'Advanced',
-    status: 'scheduled',
-    scheduledTime: '11:00 AM - 11:20 AM',
-    slotTiming: '11:00 AM - 11:20 AM',
-    slotName: 'Slot 2: Clean Tech Mobility',
-    maxCapacity: 15,
-    enrolledCount: 5,
-    assignedFacultyId: 'FAC-AI-204',
-    assignedFacultyName: 'Prof. Aravind Swamy',
-    collegeId: 'col-1',
-    collegeName: 'Delhi Institute of Technology',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'slot-103',
-    topic: 'Should Academic Campuses Mandate Attendance or Outcome-Based Grading?',
-    description: 'Evaluation of student engagement, mental health, and institutional rigor.',
-    durationMinutes: 15,
-    difficulty: 'Beginner',
-    status: 'completed',
-    scheduledTime: '09:00 AM - 09:15 AM',
-    slotTiming: '09:00 AM - 09:15 AM',
-    slotName: 'Slot 0: Academic Pedagogy',
-    maxCapacity: 15,
-    enrolledCount: 15,
-    assignedFacultyId: 'FAC-CSE-102',
-    assignedFacultyName: 'Dr. Sunita Rao',
-    collegeId: 'col-1',
-    collegeName: 'Delhi Institute of Technology',
-    createdAt: new Date().toISOString(),
-  },
-];
+const IN_MEM_SLOTS: InMemSlot[] = [];
 
 function formatUserResponse(u: any) {
   if (u.role === 'student') {
@@ -3619,9 +3371,9 @@ app.post('/api/facilitator/endorse', (req, res) => {
       grade: newGrade,
       facultyEndorsement: {
         endorsed: true,
-        facultyName: facultyUser?.name || 'Dr. Sunita Rao',
-        facultyId: facultyUser?.facultyId || 'FAC-CSE-102',
-        designation: facultyUser?.designation || 'Professor & Head of Department',
+        facultyName: facultyUser?.name || 'Faculty Evaluator',
+        facultyId: facultyUser?.facultyId || 'FAC-EVAL',
+        designation: facultyUser?.designation || 'Academic Evaluator',
         remarks: facultyRemarks || 'Performance validated and verified against academic evaluation rubric.',
         endorsedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         adjustedScores: !!updatedSkills,
@@ -4095,7 +3847,7 @@ function triggerDominanceNudge(room: LiveGDRoomState, dominantPeer: LiveRoomPeer
 io.on('connection', (socket) => {
   // 1. Join Slot Room
   socket.on('join-gd-room', ({ slotId, user }) => {
-    const safeSlotId = slotId || 'slot-dit-001';
+    const safeSlotId = slotId || 'session-101';
     const room = getOrCreateLiveRoom(safeSlotId);
     socket.join(`room-${safeSlotId}`);
 
@@ -4171,7 +3923,7 @@ io.on('connection', (socket) => {
   // 1.5 Start Discussion Session. In the current demo configuration,
   // the room is an autonomous six-AI GD; connected students are observers.
   socket.on('start-session', ({ slotId }: { slotId: string }) => {
-    const safeSlotId = slotId || 'slot-dit-001';
+    const safeSlotId = slotId || 'session-101';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.status = 'active';
@@ -4198,7 +3950,7 @@ io.on('connection', (socket) => {
 
   // 3. Speaking Activity & Floor State
   socket.on('peer-speaking-state', ({ slotId, isSpeaking, micActive, cameraActive, volumeLevel }) => {
-    const safeSlotId = slotId || 'slot-dit-001';
+    const safeSlotId = slotId || 'session-101';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (!room) return;
 
@@ -4252,7 +4004,7 @@ io.on('connection', (socket) => {
 
   // 4. Synchronized Live Transcript Broadcasting (PDF Page 5, FR-1)
   socket.on('peer-transcript', ({ slotId, text, elapsedSeconds, transcriptId }) => {
-    const safeSlotId = slotId || 'slot-dit-001';
+    const safeSlotId = slotId || 'session-101';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (!room || !text?.trim()) return;
 
