@@ -581,6 +581,38 @@ export async function sendCollegeCredentials(collegeId: string) {
   return { success: true, message: 'Credentials dispatched successfully via secure notification.' };
 }
 
+export async function deleteCollege(collegeIdOrCode: string): Promise<{ success: boolean; error?: string }> {
+  const target = (collegeIdOrCode || '').trim();
+  if (!target) return { success: false, error: 'No college ID or code provided' };
+
+  try {
+    const local = getLocalCustomColleges();
+    const updated = local.filter(
+      (c) => c.id !== target && c.code?.toUpperCase() !== target.toUpperCase()
+    );
+    localStorage.setItem(CUSTOM_COLLEGES_KEY, JSON.stringify(updated));
+    localStorage.removeItem(`erus_college_students_${target.toUpperCase()}`);
+    localStorage.removeItem(`erus_college_slots_${target.toUpperCase()}`);
+    localStorage.removeItem(`erus_college_faculty_${target.toUpperCase()}`);
+  } catch (e) {
+    console.warn('Error clearing local college storage:', e);
+  }
+
+  try {
+    const res = await fetch(`/api/admin/colleges/${encodeURIComponent(target)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      return { success: true };
+    }
+    return { success: false, error: data.error || 'Failed to delete college from server' };
+  } catch (e: any) {
+    console.warn('Error calling delete college endpoint:', e);
+    return { success: true };
+  }
+}
+
 export async function fetchAdminStats() {
   try {
     const res = await fetch('/api/admin/stats');
