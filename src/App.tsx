@@ -83,18 +83,23 @@ function GDAppContent() {
 
   const [currentTab, setCurrentTab] = useState<NavTabType>(() => {
     try {
+      const savedUser = localStorage.getItem('erus_auth_user');
+      let role: string | undefined;
+      if (savedUser) {
+        role = JSON.parse(savedUser)?.role;
+      }
+      if (role === 'super_admin') return 'super_admin';
+      if (role === 'college_admin') {
+        const savedTab = localStorage.getItem('erus_current_tab');
+        if (savedTab === 'report') return 'report';
+        return 'college_admin';
+      }
       const savedTab = localStorage.getItem('erus_current_tab');
-      if (savedTab && ['room', 'topics', 'report', 'faculty', 'college_admin', 'super_admin'].includes(savedTab)) {
+      if (savedTab && ['room', 'topics', 'report', 'faculty'].includes(savedTab)) {
         return savedTab as NavTabType;
       }
-      const saved = localStorage.getItem('erus_auth_user');
-      if (saved) {
-        const u = JSON.parse(saved);
-        if (u.role === 'super_admin') return 'super_admin';
-        if (u.role === 'college_admin') return 'college_admin';
-        if (u.role === 'faculty') return 'faculty';
-        if (u.role === 'student') return 'topics';
-      }
+      if (role === 'faculty') return 'faculty';
+      if (role === 'student') return 'topics';
     } catch {}
     return 'topics';
   });
@@ -138,14 +143,21 @@ function GDAppContent() {
       setCurrentTab('super_admin');
       return;
     }
+    if (currentUser?.role === 'college_admin' && currentTab !== 'college_admin' && currentTab !== 'report') {
+      setCurrentTab('college_admin');
+      return;
+    }
     if (currentUser?.role === 'student' && (currentTab === 'faculty' || currentTab === 'college_admin' || currentTab === 'super_admin')) {
       setCurrentTab('topics');
+      return;
     }
     if (currentUser?.role !== 'super_admin' && currentTab === 'super_admin') {
-      setCurrentTab(currentUser?.role === 'student' ? 'topics' : 'room');
+      setCurrentTab(currentUser?.role === 'student' ? 'topics' : (currentUser?.role === 'college_admin' ? 'college_admin' : 'faculty'));
+      return;
     }
     if (currentUser?.role !== 'college_admin' && currentTab === 'college_admin') {
-      setCurrentTab(currentUser?.role === 'student' ? 'topics' : 'room');
+      setCurrentTab(currentUser?.role === 'student' ? 'topics' : 'faculty');
+      return;
     }
   }, [currentUser, currentTab]);
 
@@ -1108,7 +1120,7 @@ function GDAppContent() {
           />
         )}
 
-        {currentTab === 'room' && (
+        {currentTab === 'room' && currentUser?.role !== 'college_admin' && currentUser?.role !== 'super_admin' && (
           <RealisticGDRoom
             session={session}
             setSession={setSession}
@@ -1137,6 +1149,10 @@ function GDAppContent() {
             session={session}
             report={activeReport}
             onBackToRoom={() => {
+              if (currentUser?.role === 'college_admin') {
+                setCurrentTab('college_admin');
+                return;
+              }
               if (session.status === 'completed') {
                 if (currentUser?.role !== 'student') {
                   const openSlot = availableSlots.find((s) => s.status !== 'completed');
@@ -1148,7 +1164,13 @@ function GDAppContent() {
               }
               setCurrentTab('room');
             }}
-            onViewFacultyDashboard={() => setCurrentTab('faculty')}
+            onViewFacultyDashboard={() => {
+              if (currentUser?.role === 'college_admin') {
+                setCurrentTab('college_admin');
+              } else {
+                setCurrentTab('faculty');
+              }
+            }}
             currentUser={currentUser}
             targetStudentId={viewingStudentId}
             availableSlots={availableSlots}

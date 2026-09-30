@@ -416,6 +416,15 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               <span>{session.status === 'completed' ? 'Go to Active GD Room' : 'Back to GD Room'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
+          ) : currentUser?.role === 'college_admin' ? (
+            <button
+              id="college-admin-dash-cta"
+              onClick={onViewFacultyDashboard}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+            >
+              <span>Back to Campus Management</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           ) : (
             <button
               id="faculty-dash-cta"

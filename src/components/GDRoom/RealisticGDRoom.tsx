@@ -115,7 +115,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const lastFacilitatorInterventionTimeRef = useRef<number>(0);
 
   const isFaculty = currentUser?.role === 'faculty';
-  const canStartSession = isFaculty || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
+  const canStartSession = isFaculty;
   const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
   // Faculty Live Observation Notes State (Enhancement 4)
