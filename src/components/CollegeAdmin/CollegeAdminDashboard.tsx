@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   ChevronRight,
   Sparkles,
+  Award,
   BarChart3,
   Trash2,
   Mail,

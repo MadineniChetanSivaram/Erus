@@ -1665,7 +1665,7 @@ app.get('/api/faculty/sessions', async (req, res) => {
     (slot) =>
       !slot.assignedFacultyId ||
       facultyAssignmentIds.has(String(slot.assignedFacultyId)) ||
-      (faculty && (slot.assignedFacultyName === faculty.name || slot.allottedFaculty?.includes(faculty.name)))
+      (faculty && (slot.assignedFacultyName === faculty.name || (slot as any).allottedFaculty?.includes(faculty.name)))
   );
 
   if (isDbConnected && prisma) {
