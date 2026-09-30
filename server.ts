@@ -2757,6 +2757,9 @@ function formatUserResponse(u: any) {
 
 // Health Check (Deployment & Railway liveness probe)
 app.get('/api/health', async (req, res) => {
+  if (!isMongoConnected()) {
+    await connectMongoDB();
+  }
   const mongoActive = isMongoConnected();
   let mongoTables: Record<string, number> | null = null;
   if (mongoActive) {
