@@ -19,8 +19,8 @@ interface SuperAdminLoginProps {
 export const SuperAdminLogin: React.FC<SuperAdminLoginProps> = ({
   onLogin,
 }) => {
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
+  const [identifier, setIdentifier] = useState('superadmin@erus.ai');
+  const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
