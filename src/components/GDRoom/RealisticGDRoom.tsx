@@ -265,87 +265,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         ),
       }));
     },
-    onAiParticipantSpeech: (data) => {
-      if (!rtcSimulationMode) return;
-      const participant = data?.participant;
-      const newTx = data?.transcript;
-      if (!participant || !newTx) return;
-
-      // Mirror the server's AI seat into the UI.
-      setSession((prev) => {
-        const exists = prev.students.some((s) => s.id === participant.id);
-        if (exists) {
-          return {
-            ...prev,
-            currentSpeakerId: participant.id,
-            students: prev.students.map((s) =>
-              s.id === participant.id
-                ? {
-                    ...s,
-                    name: participant.name,
-                    seatNumber: participant.seatNumber,
-                    isDemoAI: true,
-                    isRealPeer: false,
-                    isSpeaking: true,
-                    micActive: true,
-                    speakingTurns: (s.speakingTurns || 0) + 1,
-                    speakingDurationSeconds: (s.speakingDurationSeconds || 0) + Math.max(4, Math.round(String(data.text || '').split(/\s+/).length / 2.2)),
-                    lastSpokenAt: Date.now(),
-                  }
-                : { ...s, isSpeaking: false }
-            ),
-          };
-        }
-        return {
-          ...prev,
-          currentSpeakerId: participant.id,
-          students: [
-            ...prev.students.map((s) => ({ ...s, isSpeaking: false })),
-            {
-              id: participant.id,
-              name: participant.name,
-              avatar: participant.avatar || '',
-              college: participant.college || 'ERUS AI Participant',
-              seatNumber: participant.seatNumber,
-              isUser: false,
-              isDemoAI: true,
-              isRealPeer: false,
-              isEmptySeat: false,
-              isSpeaking: true,
-              micActive: true,
-              cameraActive: false,
-              speakingTurns: 1,
-              speakingDurationSeconds: Math.max(4, Math.round(String(data.text || '').split(/\s+/).length / 2.2)),
-              interruptionCount: 0,
-              questionsAnswered: 0,
-              questionsInitiated: 0,
-              lastSpokenAt: Date.now(),
-            } as any,
-          ],
-        };
-      });
-
-      setTranscripts((prev) => prev.some((t) => t.id === newTx.id) ? prev : [...prev, newTx]);
-
-      // All connected browsers vocalize the same AI contribution. The speech
-      // utility temporarily disables Web Speech recognition + outgoing mic
-      // while the AI is speaking, preventing the AI audio from becoming
-      // the human participant's transcript.
-      if (!voiceMuted) {
-        roomVoice.speakAsStudent(participant, data.text, () => {
-          setSession((prev) => ({
-            ...prev,
-            currentSpeakerId: null,
-            students: prev.students.map((s) => s.id === participant.id ? { ...s, isSpeaking: false } : s),
-          }));
-        });
-      } else {
-        setSession((prev) => ({
-          ...prev,
-          currentSpeakerId: null,
-          students: prev.students.map((s) => s.id === participant.id ? { ...s, isSpeaking: false } : s),
-        }));
-      }
+    onAiParticipantSpeech: () => {
+      // AI simulated participants are disabled; real human students only.
     },
 
     onFacilitatorIntervention: (intervention) => {
@@ -387,52 +308,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
   });
 
-  // In autonomous simulation mode the server owns the entire roster and turn
-  // engine. Do not let the legacy local demo roster introduce Rahul or any
-  // other mock human participant.
-  useEffect(() => {
-    if (!rtcSimulationMode || !rtcAiParticipants.length) return;
-    // The server sends the roster once, while live speaking stats arrive via
-    // AI speech events. Merge the roster instead of rebuilding students from
-    // the original zero-turn roster on every speaker change.
-    setSession((prev) => {
-      const previousById = new Map<string, Student>(prev.students.map((s) => [s.id, s]));
-      const aiStudents: Student[] = rtcAiParticipants.map((p: any) => {
-        const previous: Student | undefined = previousById.get(p.id);
-        const student: Student = {
-          id: p.id,
-          name: p.name,
-          avatar: p.avatar || previous?.avatar || '',
-          college: p.college || previous?.college || 'ERUS AI Participant',
-          course: 'AI GD Participant',
-          batch: '',
-          seatNumber: p.seatNumber,
-          isUser: false,
-          isDemoAI: true,
-          isRealPeer: false,
-          isEmptySeat: false,
-          isSpeaking: previous?.isSpeaking || false,
-          micActive: true,
-          cameraActive: false,
-          hasRaisedHand: previous?.hasRaisedHand || false,
-          speakingTurns: Math.max(previous?.speakingTurns || 0, p.speakingTurns || 0),
-          speakingDurationSeconds: Math.max(previous?.speakingDurationSeconds || 0, p.speakingDurationSeconds || 0),
-          interruptionCount: previous?.interruptionCount || 0,
-          questionsAnswered: previous?.questionsAnswered || 0,
-          questionsInitiated: previous?.questionsInitiated || 0,
-          sentiment: previous?.sentiment || 'neutral',
-        };
-        return student;
-      });
-      return {
-        ...prev,
-        students: aiStudents,
-        currentSpeakerId: prev.currentSpeakerId && aiStudents.some((s) => s.id === prev.currentSpeakerId)
-          ? prev.currentSpeakerId
-          : null,
-      };
-    });
-  }, [rtcSimulationMode, rtcAiParticipants, setSession]);
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.

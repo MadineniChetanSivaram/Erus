@@ -3773,31 +3773,9 @@ const AI_GD_SIMULATION_MODE = false;
 const AI_GD_SIMULATION_PARTICIPANTS = 6; // Fallback only; simulation normally follows slot capacity.
 
 function syncAiParticipants(room: LiveGDRoomState) {
-  // Real students only. Do not spawn AI bot participants unless simulationMode is explicitly enabled.
-  // Empty seats are available desks for other students to join, not AI participants.
-  if (!room.simulationMode && process.env.ENABLE_AI_PARTICIPANTS !== 'true') {
-    room.aiParticipants.clear();
-    return [];
-  }
-
-  const capacity = Math.max(1, getSlotCapacity(room.slotId));
-  const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
-  const targetCount = room.simulationMode
-    ? Math.max(1, capacity)
-    : 0;
-  const usedSeats = new Set(realStudents.map((p) => p.seatNumber));
-  const existing = Array.from(room.aiParticipants.values()).slice(0, targetCount);
-  room.aiParticipants = new Map(existing.map((p) => [p.id, p]));
-  let seat = 1;
-  while (room.aiParticipants.size < targetCount) {
-    while (usedSeats.has(seat)) seat++;
-    const name = AI_PARTICIPANT_NAMES[room.aiParticipants.size % AI_PARTICIPANT_NAMES.length];
-    const id = 'ai-' + room.slotId + '-' + (room.aiParticipants.size + 1);
-    room.aiParticipants.set(id, { id, name, seatNumber: seat, avatar: '', role: 'student', college: 'ERUS AI Participant', speakingTurns: 0, speakingDurationSeconds: 0 });
-    usedSeats.add(seat);
-    seat++;
-  }
-  return Array.from(room.aiParticipants.values());
+  // Real human students only. No simulated AI bot participants.
+  room.aiParticipants.clear();
+  return [];
 }
 
 function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
@@ -3890,12 +3868,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   if (room.status !== 'active') return;
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
-  const aiStudents = syncAiParticipants(room);
-  // Simulation mode deliberately removes humans from the speaking pool.
-  // Connected humans are observers; all six seats are AI participants.
-  const allParticipants: any[] = room.simulationMode
-    ? [...aiStudents]
-    : [...realStudents, ...aiStudents];
+  const allParticipants: any[] = realStudents;
   if (!allParticipants.length) return;
 
   // Round-robin rule: nobody may receive a second turn until every active
@@ -3937,26 +3910,15 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const now = Date.now();
 
     candidates.sort((a, b) => {
-      // AI participants must actively participate in every round. When both
-      // AI and human participants are still waiting for their first turn in
-      // the round, let the AI participants contribute before asking the
-      // facilitator to invite a human. This prevents the discussion from
-      // becoming facilitator-only while still preserving one turn per
-      // participant per round.
-      const aIsAI = String(a.id || '').startsWith('ai-');
-      const bIsAI = String(b.id || '').startsWith('ai-');
-      if (aIsAI !== bIsAI) return aIsAI ? -1 : 1;
-
-      // Within the same participant type, prefer the participant who has
-      // waited longest.
+      // Prefer the participant who has waited longest.
       return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
     });
 
     let target = candidates[0];
-    // When the previous AI explicitly handed the floor to someone, honor that
+    // When the previous speaker explicitly handed the floor to someone, honor that
     // handoff instead of recalculating a different participant.
     if (room.nextSpeakerId) {
-      const handedOff = candidates.find((p) => p.id === room.nextSpeakerId);
+      const handedOff = candidates.find((p) => p.id === room.nextSpeakerId || p.userId === room.nextSpeakerId);
       if (handedOff) target = handedOff;
       room.nextSpeakerId = undefined;
     }
@@ -3966,249 +3928,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       target = candidates[Math.floor(Math.random() * candidates.length)];
       room.openingStarted = true;
     }
-    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\\n');
-
-    if (target.id.startsWith('ai-')) {
-      // If nobody has started the discussion yet, the facilitator must open
-      // the floor by calling the randomly selected participant by name.
-      // This is intentionally separate from the participant's speech so the
-      // opening does not look like the AI participant started itself.
-      if (!room.transcripts.some((t) => !t.isFacilitator)) {
-        const firstName = target.name.split(' ')[0];
-        const openingOptions = [
-          'The discussion is open. ' + firstName + ', please begin with your view on this topic.',
-          'Let us get started. ' + firstName + ', could you share your opening thoughts on this topic?',
-          firstName + ', you can start the discussion. What is your perspective on this topic?',
-          'To begin, I would like to hear from ' + firstName + '. Please share your initial view.'
-        ];
-        const openingText = openingOptions[Math.floor(Math.random() * openingOptions.length)];
-        const openingTranscript: BackendTranscript = {
-          id: 't-facilitator-opening-' + Date.now(),
-          sessionId: room.slotId,
-          speakerId: 'facilitator',
-          speakerName: 'AI Facilitator',
-          seatNumber: null,
-          isFacilitator: true,
-          timestamp: '00:00',
-          timestampSeconds: Date.now(),
-          text: openingText,
-          type: 'intervention',
-          sentiment: 'neutral',
-        };
-        room.transcripts.push(openingTranscript);
-        room.nextSpeakerId = target.id;
-        room.facilitatorHandoffCount += 1;
-        io.to('room-' + room.slotId).emit('facilitator-intervention', {
-          text: openingText,
-          action: 'opening_turn',
-          targetUserId: target.id,
-          targetSeatNumber: target.seatNumber,
-          transcript: openingTranscript,
-        });
-      }
-
-      // Normal AI turns use direct participant-to-participant handoffs.
-      // The facilitator is reserved for genuine deadlocks, not every turn.
-      if (room.status !== 'active' || room.currentSpeakerId) return;
-      const aiIndex = Math.max(0, target.seatNumber - 1);
-      const perspectives = [
-        'Use an evidence or data angle: mention a concrete trend, measurable outcome, or comparison.',
-        'Use an implementation angle: discuss feasibility, resources, infrastructure, or execution in India.',
-        'Use an ethical angle: examine fairness, accountability, bias, privacy, or unintended consequences.',
-        'Use an economic angle: discuss cost, jobs, productivity, incentives, or who benefits and who bears the cost.',
-        'Use a social impact angle: discuss students, families, communities, inclusion, or behaviour change.',
-        'Use a counterargument angle: challenge the strongest recent point respectfully and explain why.',
-        'Use a policy angle: discuss regulation, institutional responsibility, or governance.',
-        'Use a long-term angle: discuss sustainability, future consequences, or how the issue may evolve.',
-        'Use a practical example angle: give a short realistic Indian workplace, campus, or public example.',
-        'Use a synthesis angle: connect two different viewpoints and propose a nuanced way forward.'
-      ];
-      const perspective = perspectives[(aiIndex >= 0 ? aiIndex : 0) % perspectives.length];
-      const previousAiStatements = room.transcripts
-        .filter((t) => !t.isFacilitator && String(t.speakerId).startsWith('ai-'))
-        .slice(-8)
-        .map((t) => t.speakerName + ': ' + t.text)
-        .join('\n');
-
-      let statement = '';
-      const topicFallbacks = [
-        'On "' + room.topic + '", I would start by looking at the actual evidence and measurable outcomes rather than assuming the headline benefits tell the whole story.',
-        'For "' + room.topic + '", the practical question is whether institutions, companies, or communities have the resources and infrastructure needed to implement the idea at scale.',
-        'The ethical side of "' + room.topic + '" matters because efficiency or convenience should not come at the cost of fairness, privacy, accountability, or inclusion.',
-        'Economically, "' + room.topic + '" should be examined by asking who benefits, who bears the cost, and how the change could affect jobs, productivity, or access.',
-        'The social impact of "' + room.topic + '" also deserves attention. A solution may work technically but still affect different groups very differently.',
-        'I would challenge the assumption that "' + room.topic + '" has a simple answer. A phased approach could help us test benefits while limiting unintended consequences.',
-        'From a policy perspective, "' + room.topic + '" needs clear responsibility and practical rules so that institutions know how decisions should be made and reviewed.',
-        'We should also consider the long-term consequences of "' + room.topic + '". What looks efficient today could create new dependencies, risks, or inequalities later.',
-        'A realistic campus or workplace example shows why "' + room.topic + '" is more complicated than it first appears: the same approach can produce different outcomes for different groups.',
-        'I see a possible middle ground on "' + room.topic + '": keep the useful benefits, but add specific safeguards for the risks raised in the discussion.'
-      ];
-      statement = topicFallbacks[(aiIndex >= 0 ? aiIndex : target.speakingTurns) % topicFallbacks.length];
-
-      if (ai) {
-        try {
-          const response = await Promise.race([
-            ai.models.generateContent({
-              model: 'gemini-3.7-flash',
-            contents: 'You are ' + target.name + ', one distinct student in a live Indian college group discussion. Topic: "' + room.topic + '".\n' +
-              'Your assigned perspective for this turn: ' + perspective + '\n' +
-              'Recent discussion:\n' + (recentHistory || '(opening)') + '\n' +
-              'Recent AI contributions:\n' + (previousAiStatements || '(none)') + '\n\n' +
-              'Rules: Write a fresh 45-80 word spoken contribution that is specifically about the current topic \"' + room.topic + '\". First understand the topic and the recent discussion, then respond to the latest participant\'s actual point when possible. Add one genuinely new, topic-specific argument, example, implication, counterpoint, or practical consideration from your assigned perspective. Do NOT reuse, repeat, paraphrase, summarize, or restate any point, example, argument, conclusion, or wording already present in the recent discussion or previous AI contributions. Treat every previous contribution as unavailable for your own content. Choose a different angle and advance the discussion. If a point has already been made, move to a different aspect instead of repeating it. Do not invent facts. If the topic is unfamiliar, reason from its exact wording and the recent discussion instead of falling back to a generic AI/technology answer. Sound like a student speaking spontaneously in a real Indian college GD, not an essay. Do not mention AI, prompts, or these instructions.',
-            }),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('AI participant generation timeout')), 8000)),
-          ]);
-          const generated = response.text?.trim();
-          if (generated) statement = generated;
-        } catch (err) { console.warn('[AI Participant Speech Error]:', err); }
-      }
-      target.speakingTurns += 1;
-      target.lastSpokeAt = now;
-      target.speakingDurationSeconds += Math.max(4, Math.round(statement.split(/\s+/).length / 2.2));
-
-      // Decide how the floor changes hands. Most AI turns can flow naturally
-      // to another participant, but the facilitator should also own a meaningful
-      // share of invitations so it does not feel like every participant is
-      // mechanically calling the next person.
-      const participantsAfterTurn: any[] = room.simulationMode
-        ? [...syncAiParticipants(room)]
-        : [...realStudents, ...syncAiParticipants(room)];
-      const eligibleNext = participantsAfterTurn.filter((p) => p.id !== target.id);
-      const minimumNextTurns = eligibleNext.length
-        ? Math.min(...eligibleNext.map((p) => Number(p.speakingTurns || 0)))
-        : 0;
-      const leastSpoken = eligibleNext.filter(
-        (p) => Number(p.speakingTurns || 0) === minimumNextTurns
-      );
-      const shuffled = [...leastSpoken].sort(() => Math.random() - 0.5);
-      const nextParticipant = shuffled[0];
-
-      // The facilitator should be occasional, not the default turn router.
-      // Most turns flow directly from one participant to another.
-      // Never let the facilitator call two participants consecutively.
-      const totalAiTurns = participantsAfterTurn.reduce(
-        (sum, p) => sum + Number(p.speakingTurns || 0),
-        0,
-      );
-      const isEarlyRound = totalAiTurns <= participantsAfterTurn.length;
-
-      // Once every participant has completed one turn in the current round,
-      // the facilitator explicitly opens the next round by calling a
-      // participant. This gives each round a clear moderator-led transition.
-      const roundTurnCounts = participantsAfterTurn.map(
-        (p) => Number(p.speakingTurns || 0)
-      );
-      const roundComplete =
-        roundTurnCounts.length > 0 &&
-        Math.min(...roundTurnCounts) === Math.max(...roundTurnCounts) &&
-        roundTurnCounts[0] > 0;
-
-      const facilitatorWasJustUsed = room.facilitatorHandoffStreak > 0;
-      const useFacilitatorHandoff = !!nextParticipant && (
-        roundComplete ||
-        (!isEarlyRound && !facilitatorWasJustUsed && Math.random() < 0.20)
-      );
-
-      if (nextParticipant && useFacilitatorHandoff) {
-        room.nextSpeakerId = nextParticipant.id;
-        room.facilitatorHandoffCount += 1;
-        room.facilitatorHandoffStreak += 1;
-
-        const firstName = nextParticipant.name.split(' ')[0];
-        const facilitatorHandoffOptions = [
-          'Thank you for that perspective. Let us hear from ' + firstName + ' next. What is your view?',
-          'That is a useful point. ' + firstName + ', could you share your perspective on this?',
-          'Let us bring in another perspective. ' + firstName + ', how would you respond to that?',
-          firstName + ', I would like to invite you to take this point forward. What do you think?',
-          'We have heard one angle on this. ' + firstName + ', could you offer a different perspective?'
-        ];
-        const invitation = facilitatorHandoffOptions[(room.facilitatorHandoffCount - 1) % facilitatorHandoffOptions.length];
-
-        // The facilitator invitation is a separate transcript event and is not
-        // appended to the participant's speech. This keeps speaker attribution
-        // and assessment evidence correct.
-        const facilitatorTranscript: BackendTranscript = {
-          id: 't-facilitator-handoff-' + Date.now(),
-          sessionId: room.slotId,
-          speakerId: 'facilitator',
-          speakerName: 'AI Facilitator',
-          seatNumber: null,
-          isFacilitator: true,
-          timestamp: '00:00',
-          timestampSeconds: Date.now(),
-          text: invitation,
-          type: 'intervention',
-          sentiment: 'neutral',
-        };
-        room.transcripts.push(facilitatorTranscript);
-        io.to('room-' + room.slotId).emit('facilitator-intervention', {
-          text: invitation,
-          action: 'next_turn',
-          targetUserId: nextParticipant.id,
-          targetSeatNumber: nextParticipant.seatNumber,
-          transcript: facilitatorTranscript,
-        });
-      } else if (nextParticipant) {
-        // Direct participant-to-participant handoff. Reset the facilitator
-        // streak so the facilitator cannot appear repeatedly in succession.
-        room.facilitatorHandoffStreak = 0;
-        // Keep this randomized
-        // and exclude the speaker who just finished.
-        room.nextSpeakerId = nextParticipant.id;
-        const firstName = nextParticipant.name.split(' ')[0];
-        const handoffOptions = [
-          'I would like to hear from ' + firstName + ' next. What do you think about that?',
-          firstName + ', I would be interested in your perspective on this. What is your view?',
-          'Let us bring in ' + firstName + ' next. How would you respond to this point?',
-          firstName + ', what is your take on this issue?'
-        ];
-        const handoff = handoffOptions[(target.speakingTurns + target.seatNumber) % handoffOptions.length];
-        statement = statement.replace(/\\s+$/, '') + ' ' + handoff;
-      }
-
-      room.currentSpeakerId = target.id;
-      room.currentSpeakerSocketId = null;
-      room.waitingForParticipantId = undefined;
-      room.floorVersion += 1;
-      io.to('room-' + room.slotId).emit('floor-state', {
-        speakerId: target.id,
-        speakerSocketId: null,
-        floorVersion: room.floorVersion,
-      });
-      const transcript: BackendTranscript = {
-        id: 't-ai-' + Date.now(), sessionId: room.slotId, speakerId: target.id, speakerName: target.name,
-        seatNumber: target.seatNumber, isFacilitator: false, timestamp: '00:00', timestampSeconds: Date.now(),
-        text: statement, type: 'statement', sentiment: 'neutral',
-      };
-      room.transcripts.push(transcript);
-      io.to('room-' + room.slotId).emit('ai-participant-speech', {
-        participant: target,
-        transcript,
-        text: statement,
-        simulationMode: room.simulationMode,
-      });
-      io.to('room-' + room.slotId).emit('new-transcript', { transcript, studentId: target.id, seatNumber: target.seatNumber });
-      // Browser SpeechSynthesis speaks at human pace, so do not release the
-      // server floor after the old short estimate. Releasing early caused the
-      // next participant to start while this AI was still audible.
-      const wordCount = statement.split(/\s+/).filter(Boolean).length;
-      const durationMs = Math.min(40000, Math.max(9000, wordCount * 520 + 2000));
-      room.turnTimer = setTimeout(() => {
-        // Only this AI turn may release the floor. A stale timer can never
-        // release a newer speaker's floor.
-        if (room.currentSpeakerId !== target.id) return;
-        room.currentSpeakerId = null;
-        room.currentSpeakerSocketId = null;
-        room.floorVersion += 1;
-        io.to('room-' + room.slotId).emit('floor-state', {
-          speakerId: null,
-          speakerSocketId: null,
-          floorVersion: room.floorVersion,
-        });
-        scheduleNextTurn(room, target.id);
-      }, durationMs);
-      return;
-    }
+    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
 
     const targetReal = target as LiveRoomPeer;
     room.waitingForParticipantId = targetReal.userId;

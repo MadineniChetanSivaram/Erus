@@ -488,30 +488,6 @@ export function useWebRTCRoom({
     // Synchronized Live Transcript Chunk Broadcast
     socket.on('new-transcript', ({ transcript }) => {
       if (!active) return;
-
-      // In autonomous AI simulation mode, use the transcript as a reliable
-      // fallback trigger for AI speech if the companion Socket.IO event was
-      // missed by the browser.
-      const speakerId = String(transcript?.speakerId || '');
-      if (speakerId.startsWith('ai-') && transcript?.id) {
-        if (!handledAiTranscriptIdsRef.current.has(String(transcript.id))) {
-          handledAiTranscriptIdsRef.current.add(String(transcript.id));
-          onAiParticipantSpeechRef.current?.({
-            participant: {
-              id: speakerId,
-              name: transcript.speakerName,
-              seatNumber: transcript.seatNumber,
-              avatar: '',
-              role: 'student',
-              college: 'ERUS AI Participant',
-            },
-            transcript,
-            text: transcript.text,
-            simulationMode: true,
-          });
-        }
-      }
-
       if (onNewTranscriptRef.current) {
         onNewTranscriptRef.current(transcript);
       }
