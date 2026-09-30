@@ -1515,18 +1515,39 @@ app.get('/api/faculty/sessions', async (req, res) => {
   if (!facultyId) return res.status(400).json({ success: false, error: 'facultyId is required' });
 
   const roster = persistentState.faculty[code] || [];
-  const faculty = roster.find((f) => f.facultyId === facultyId || f.id === facultyId);
-  if (!faculty) return res.status(403).json({ success: false, error: 'Faculty is not registered for this college' });
+  let faculty = roster.find((f) => f.facultyId === facultyId || f.id === facultyId || f.email === facultyId);
+  if (!faculty) {
+    const user = persistentState.users.find(
+      (u) => u.role === 'faculty' && (u.facultyId === facultyId || u.id === facultyId || u.email === facultyId)
+    );
+    if (user) {
+      faculty = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        facultyId: user.facultyId || user.id,
+        department: user.department || 'Computer Science & Engineering',
+        designation: user.designation || 'Faculty Evaluator',
+        college: user.college,
+        collegeCode: user.collegeCode || code,
+        assignedSlotsCount: 0,
+      };
+      if (!persistentState.faculty[code]) persistentState.faculty[code] = [];
+      persistentState.faculty[code].push(faculty);
+    }
+  }
 
-  // A faculty member can be referenced by faculty ID or internal User ID
-  // depending on when the slot was created. Match both so every slot assigned
-  // to this faculty is visible in the faculty portal.
   const facultyAssignmentIds = new Set(
-    [faculty.facultyId, faculty.id, faculty.email].filter(Boolean).map(String)
+    faculty
+      ? [faculty.facultyId, faculty.id, faculty.email, faculty.name].filter(Boolean).map(String)
+      : [facultyId]
   );
 
   let slots = (persistentState.slots[code] || []).filter(
-    (slot) => !!slot.assignedFacultyId && facultyAssignmentIds.has(String(slot.assignedFacultyId))
+    (slot) =>
+      !slot.assignedFacultyId ||
+      facultyAssignmentIds.has(String(slot.assignedFacultyId)) ||
+      (faculty && (slot.assignedFacultyName === faculty.name || slot.allottedFaculty?.includes(faculty.name)))
   );
 
   if (isDbConnected && prisma) {
@@ -2065,6 +2086,19 @@ app.post('/api/auth/register', async (req, res) => {
       college: newUser.college,
       collegeCode: newUser.collegeCode,
     });
+  } else if (role === 'faculty' && newUser.collegeCode) {
+    if (!persistentState.faculty[newUser.collegeCode]) persistentState.faculty[newUser.collegeCode] = [];
+    persistentState.faculty[newUser.collegeCode].push({
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      facultyId: newUser.facultyId || `FAC-${Date.now().toString().slice(-4)}`,
+      department: newUser.department || 'Computer Science & Engineering',
+      designation: newUser.designation || 'Faculty Evaluator',
+      college: newUser.college,
+      collegeCode: newUser.collegeCode,
+      assignedSlotsCount: 0,
+    });
   }
   savePersistentState();
   persistUserToMongoDB(newUser);
@@ -2450,6 +2484,8 @@ interface InMemSlot {
 const IN_MEM_SLOTS: InMemSlot[] = [];
 
 function formatUserResponse(u: any) {
+  const collegeCode = u.collegeCode || (u.collegeOrg ? u.collegeOrg.code : (u.college ? u.college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS'));
+
   if (u.role === 'student') {
     const prof = u.studentProfile || {};
     return {
@@ -2459,6 +2495,7 @@ function formatUserResponse(u: any) {
       role: 'student' as const,
       college: u.college,
       collegeId: u.collegeId,
+      collegeCode: collegeCode,
       avatar: u.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=256&q=80',
       studentId: prof.studentId || u.studentId || 'STU-001',
       course: prof.course || u.course || 'General Engineering',
@@ -2474,6 +2511,7 @@ function formatUserResponse(u: any) {
       role: 'faculty' as const,
       college: u.college,
       collegeId: u.collegeId,
+      collegeCode: collegeCode,
       avatar: u.avatar || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
       facultyId: prof.facultyId || u.facultyId || 'FAC-001',
       department: prof.department || u.department || 'Computer Science',
@@ -2488,7 +2526,7 @@ function formatUserResponse(u: any) {
       role: 'college_admin' as const,
       college: u.college,
       collegeId: u.collegeId,
-      collegeCode: u.collegeCode || (u.collegeOrg ? u.collegeOrg.code : 'DIT'),
+      collegeCode: collegeCode,
       adminId: prof.adminId || u.adminId || 'CADM-001',
       department: prof.department || u.department || 'Academic Administration',
       avatar: u.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=256&q=80',

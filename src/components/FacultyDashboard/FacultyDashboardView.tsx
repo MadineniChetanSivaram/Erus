@@ -16,7 +16,8 @@ import {
   ExternalLink,
   ChevronRight,
   Bookmark,
-  Tag
+  Tag,
+  PlusCircle
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { INITIAL_SESSION } from '../../data/mockGDData';
@@ -36,6 +37,7 @@ interface FacultyDashboardViewProps {
   onViewStudentReport: (studentId: string) => void;
   onBackToRoom: () => void;
   onStartSession?: (slotId?: string) => void;
+  onOpenCreateSession?: () => void;
   availableSlots?: GDSession[];
   onSelectSlot?: (slotId: string) => void;
   facultyId?: string;
@@ -47,6 +49,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   onViewStudentReport,
   onBackToRoom,
   onStartSession,
+  onOpenCreateSession,
   availableSlots,
   onSelectSlot,
   facultyId,
@@ -204,6 +207,17 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <span>Download Transcript</span>
           </button>
 
+          {onOpenCreateSession && (
+            <button
+              onClick={onOpenCreateSession}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all shadow-xs cursor-pointer"
+              title="Create New Discussion Session & Schedule Slots"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Create Slot</span>
+            </button>
+          )}
+
           <button
             onClick={onBackToRoom}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
@@ -321,6 +335,25 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {safeAvailableSlots.length === 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xs text-center">
+          <Layers className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+          <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Discussion Slots Scheduled Yet</h4>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+            Schedule a discussion slot with your topic, student capacity, and time window so students can book and participate.
+          </p>
+          {onOpenCreateSession && (
+            <button
+              onClick={onOpenCreateSession}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Create Discussion Slot</span>
+            </button>
+          )}
         </div>
       )}
 

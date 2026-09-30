@@ -321,6 +321,15 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
           {/* Topics Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+            {filteredTopics.length === 0 && (
+              <div className="col-span-full p-8 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl">
+                <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Discussion Topics Scheduled Yet</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+                  Your campus faculty and administrators have not scheduled discussion slots yet. Once scheduled, topics and time slots will appear here for booking.
+                </p>
+              </div>
+            )}
             {filteredTopics.map((topicItem, index) => {
               const openSeats = Math.max(0, topicItem.totalSeats - topicItem.enrolledSeats);
               const isTopicBooked = topicItem.hasBookedSlot;

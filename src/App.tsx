@@ -83,6 +83,10 @@ function GDAppContent() {
 
   const [currentTab, setCurrentTab] = useState<NavTabType>(() => {
     try {
+      const savedTab = localStorage.getItem('erus_current_tab');
+      if (savedTab && ['room', 'topics', 'report', 'faculty', 'college_admin', 'super_admin'].includes(savedTab)) {
+        return savedTab as NavTabType;
+      }
       const saved = localStorage.getItem('erus_auth_user');
       if (saved) {
         const u = JSON.parse(saved);
@@ -154,6 +158,13 @@ function GDAppContent() {
       }));
     }
   }, [currentUser]);
+ 
+  // Save currentTab to localStorage so page refresh preserves active view
+  useEffect(() => {
+    try {
+      localStorage.setItem('erus_current_tab', currentTab);
+    } catch {}
+  }, [currentTab]);
 
   // Keep availableSlots persisted to localStorage
   useEffect(() => {
@@ -171,51 +182,63 @@ function GDAppContent() {
     }
   }, [session.id, session.facultyLiveNotes]);
 
-  // Student live-session status polling: backend remains the source of truth.
+  // Authoritative slot synchronization: runs immediately on mount and periodically for all logged-in roles
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'student') return;
-    const collegeCode = (currentUser as any).collegeCode || 'DIT';
-    const timer = setInterval(async () => {
+    if (!currentUser) return;
+    const collegeCode = (currentUser as any).collegeCode || ((currentUser as any).college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
+
+    const syncSlots = async () => {
       try {
-        const rawSlots = await fetchCollegeSlots(collegeCode);
-        // Map raw backend slots into full GDSession format (same as handleLogin)
-        // so fields like 'students', 'currentPhase', 'facilitatorSpeech' are always present.
-        const mappedSlots: GDSession[] = rawSlots.map((s: any): GDSession => ({
-          ...INITIAL_SESSION,
-          id: s.id,
-          topic: s.topic || s.slotName || 'Group Discussion',
-          description: s.description || '',
-          slotName: s.slotName || s.topic || 'Slot',
-          slotTiming: s.slotTiming || '',
-          durationMinutes: s.durationMinutes || 15,
-          difficulty: s.difficulty || 'Intermediate',
-          assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
-          status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-          students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 8),
-          currentPhase: 'intro',
-          facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
-          facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
-          isFacilitatorSpeaking: false,
-          silenceTimerSeconds: 0,
-          currentSpeakerId: null,
-          breakoutRooms: [],
-          enrolledCount: s.enrolledCount ?? (s.students?.length ?? 0),
-          maxCapacity: s.maxCapacity ?? 15,
-          assignedFacultyId: s.assignedFacultyId || '',
-          assignedFacultyName: s.assignedFacultyName || '',
-          assignedFacultyEmail: s.assignedFacultyEmail || '',
-          assignedFacultyDept: s.assignedFacultyDept || '',
-          facultyLiveNotes: s.facultyLiveNotes || [],
-          createdAt: s.createdAt || new Date().toISOString(),
-        }));
-        setAvailableSlots(mappedSlots);
-        setSession((prev) => {
-          const fresh = mappedSlots.find((s) => s.id === prev.id);
-          if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
-          return { ...prev, ...fresh };
-        });
-      } catch {}
-    }, 5000);
+        const rawSlots = currentUser.role === 'faculty'
+          ? await fetchFacultyAssignedSlots((currentUser as any).facultyId || currentUser.id, collegeCode)
+          : await fetchCollegeSlots(collegeCode);
+
+        if (Array.isArray(rawSlots)) {
+          const mappedSlots: GDSession[] = rawSlots.map((s: any): GDSession => ({
+            ...INITIAL_SESSION,
+            id: s.id,
+            topic: s.topic || s.slotName || 'Group Discussion',
+            description: s.description || '',
+            slotName: s.slotName || s.topic || 'Slot',
+            slotTiming: s.slotTiming || '',
+            durationMinutes: s.durationMinutes || 15,
+            difficulty: s.difficulty || 'Intermediate',
+            assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
+            status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
+            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 0),
+            currentPhase: 'intro',
+            facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
+            facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
+            isFacilitatorSpeaking: false,
+            silenceTimerSeconds: 0,
+            currentSpeakerId: null,
+            breakoutRooms: [],
+            enrolledCount: s.enrolledCount ?? (s.students?.length ?? 0),
+            maxCapacity: s.maxCapacity ?? 15,
+            assignedFacultyId: s.assignedFacultyId || '',
+            assignedFacultyName: s.assignedFacultyName || '',
+            assignedFacultyEmail: s.assignedFacultyEmail || '',
+            assignedFacultyDept: s.assignedFacultyDept || '',
+            facultyLiveNotes: s.facultyLiveNotes || [],
+            createdAt: s.createdAt || new Date().toISOString(),
+          }));
+          setAvailableSlots(mappedSlots);
+          setSession((prev) => {
+            const fresh = mappedSlots.find((s) => s.id === prev.id);
+            if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
+            return { ...prev, ...fresh };
+          });
+        }
+      } catch (err) {
+        console.warn('[Slots] Polling sync error:', err);
+      }
+    };
+
+    // Run immediately on mount / currentUser change
+    syncSlots();
+
+    // Poll periodically for live status updates
+    const timer = setInterval(syncSlots, 4000);
     return () => clearInterval(timer);
   }, [currentUser]);
 
@@ -242,7 +265,7 @@ function GDAppContent() {
     } catch {}
 
     // Fetch real slots from backend. Faculty portals are restricted to their assigned sessions.
-    const collegeCode = (user as any).collegeCode || 'DIT';
+    const collegeCode = (user as any).collegeCode || ((user as any).college ? (user as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
     const slotSource = user.role === 'faculty'
       ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
       : fetchCollegeSlots(collegeCode);
@@ -813,8 +836,9 @@ function GDAppContent() {
     sessionQuestionTracker.clear();
     setAvailableSlots((prev) => [...newSessions, ...prev]);
 
-    // Persist new slots to backend college API if college admin
-    if (currentUser?.role === 'college_admin') {
+    // Persist new slots to backend college API for college admins and faculty
+    if (currentUser?.role === 'college_admin' || currentUser?.role === 'faculty') {
+      const code = (currentUser as any).collegeCode || ((currentUser as any).college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
       newSessions.forEach((s) => {
         createCollegeSlot({
           topic: s.topic,
@@ -824,12 +848,18 @@ function GDAppContent() {
           slotTiming: s.slotTiming,
           slotName: s.slotName,
           maxCapacity: s.maxCapacity || 15,
-          collegeCode: (currentUser as any).collegeCode || 'DIT',
-          assignedFacultyId: s.assignedFacultyId,
-          assignedFacultyName: s.assignedFacultyName,
-          assignedFacultyDept: s.assignedFacultyDept,
-          assignedFacultyEmail: s.assignedFacultyEmail,
-        }).catch((err) => console.warn('Failed to sync new slot to backend:', err));
+          collegeCode: code,
+          assignedFacultyId: s.assignedFacultyId || (currentUser.role === 'faculty' ? (currentUser as any).facultyId || currentUser.id : undefined),
+          assignedFacultyName: s.assignedFacultyName || (currentUser.role === 'faculty' ? currentUser.name : undefined),
+          assignedFacultyDept: s.assignedFacultyDept || (currentUser.role === 'faculty' ? (currentUser as any).department : undefined),
+          assignedFacultyEmail: s.assignedFacultyEmail || (currentUser.role === 'faculty' ? currentUser.email : undefined),
+        })
+          .then((res) => {
+            if (res && res.slot) {
+              setAvailableSlots((prev) => prev.map((item) => (item.id === s.id ? { ...item, id: res.slot.id } : item)));
+            }
+          })
+          .catch((err) => console.warn('Failed to sync new slot to backend:', err));
       });
     }
 
@@ -852,9 +882,11 @@ function GDAppContent() {
     ]);
     setElapsedSeconds(0);
 
-    // Keep college admin in the admin dashboard so they can review their created slots
+    // Keep users in their respective dashboard or transition to room
     if (currentUser?.role === 'college_admin') {
       setCurrentTab('college_admin');
+    } else if (currentUser?.role === 'faculty') {
+      setCurrentTab('faculty');
     } else {
       setCurrentTab('room');
     }
@@ -1141,6 +1173,7 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onStartSession={handleStartSession}
+            onOpenCreateSession={() => setIsCreateModalOpen(true)}
             availableSlots={availableSlots}
             onSelectSlot={handleSelectSlot}
             facultyId={currentUser?.role === 'faculty' ? ((currentUser as any).facultyId || currentUser.id) : undefined}
@@ -1176,7 +1209,7 @@ function GDAppContent() {
         onClose={() => setIsCreateModalOpen(false)}
         onCreateSessions={handleCreateSessions}
         onCreateSession={handleCreateSession}
-        collegeCode={currentUser?.role === 'college_admin' ? currentUser.collegeCode : undefined}
+        collegeCode={(currentUser as any)?.collegeCode || ((currentUser as any)?.college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : undefined)}
       />
 
     </div>

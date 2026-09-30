@@ -191,8 +191,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* New Session (College Admin Only) */}
-          {isCollegeAdmin && (
+          {/* New Session (College Admin and Faculty) */}
+          {(isCollegeAdmin || isFaculty) && (
             <button
               id="tab-manager-btn"
               onClick={onOpenCreateSession}
