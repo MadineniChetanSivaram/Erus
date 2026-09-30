@@ -187,12 +187,12 @@ function GDAppContent() {
 
   // Keep live faculty observation notes synchronized into availableSlots
   useEffect(() => {
-    if (session.facultyLiveNotes && session.facultyLiveNotes.length > 0) {
+    if (session?.facultyLiveNotes && session.facultyLiveNotes.length > 0) {
       setAvailableSlots((prev) =>
-        prev.map((s) => (s.id === session.id ? { ...s, facultyLiveNotes: session.facultyLiveNotes } : s))
+        prev.map((s) => (s.id === session?.id ? { ...s, facultyLiveNotes: session.facultyLiveNotes } : s))
       );
     }
-  }, [session.id, session.facultyLiveNotes]);
+  }, [session?.id, session?.facultyLiveNotes]);
 
   // Authoritative slot synchronization: runs immediately on mount and periodically for all logged-in roles
   useEffect(() => {
@@ -217,7 +217,7 @@ function GDAppContent() {
             difficulty: s.difficulty || 'Intermediate',
             assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
             status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 0),
+            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, 8)),
             currentPhase: 'intro',
             facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
             facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
@@ -236,6 +236,7 @@ function GDAppContent() {
           }));
           setAvailableSlots(mappedSlots);
           setSession((prev) => {
+            if (!prev) return mappedSlots[0] || INITIAL_SESSION;
             const fresh = mappedSlots.find((s) => s.id === prev.id);
             if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
             return { ...prev, ...fresh };
@@ -328,52 +329,54 @@ function GDAppContent() {
 
       const bookedIds = Object.values(bookedTopics);
       if (bookedIds.length > 0) {
-        const targetBookedSlot = availableSlots.find((s) => bookedIds.includes(s.id)) || session;
-        const activeSlotId = targetBookedSlot.id;
-        const studentUserObj: Student = {
-          ...INITIAL_SESSION.students[0],
-          id: user.id || 'slot-stu-1',
-          name: user.name,
-          college: user.college,
-          course: user.course,
-          batch: user.batch,
-          isUser: true,
-          bookedSlotId: activeSlotId,
-        };
-        const initialStudentReport = generateStudentReport(studentUserObj, targetBookedSlot.topic, targetBookedSlot.durationMinutes);
-        setActiveReport(initialStudentReport);
-        addReportToStudentHistory(initialStudentReport);
+        const targetBookedSlot = (availableSlots || []).find((s) => bookedIds.includes(s.id)) || session;
+        if (targetBookedSlot && targetBookedSlot.id) {
+          const activeSlotId = targetBookedSlot.id;
+          const studentUserObj: Student = {
+            ...INITIAL_SESSION.students[0],
+            id: user.id || 'slot-stu-1',
+            name: user.name,
+            college: user.college,
+            course: user.course,
+            batch: user.batch,
+            isUser: true,
+            bookedSlotId: activeSlotId,
+          };
+          const initialStudentReport = generateStudentReport(studentUserObj, targetBookedSlot.topic, targetBookedSlot.durationMinutes);
+          setActiveReport(initialStudentReport);
+          addReportToStudentHistory(initialStudentReport);
 
-        setAvailableSlots((prevSlots) =>
-          prevSlots.map((slot) => {
-            const isUserInSlot = bookedIds.includes(slot.id);
-            return {
-              ...slot,
-              students: (slot.students || generateSlotParticipants(slot.enrolledCount || 8)).map((s, idx) => {
-                const shouldBeUser = isUserInSlot && (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber);
-                return {
-                  ...s,
-                  isUser: shouldBeUser,
-                  name: shouldBeUser ? user.name : s.name,
-                  college: shouldBeUser ? user.college : s.college,
-                  course: shouldBeUser ? user.course : s.course,
-                  batch: shouldBeUser ? user.batch : s.batch,
-                };
-              }),
-            };
-          })
-        );
-        setSession((prev) => ({
-          ...targetBookedSlot,
-          students: targetBookedSlot.students.map((s, idx) => ({
-            ...s,
-            isUser: idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber,
-            name: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.name : s.name,
-            college: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.college : s.college,
-            course: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.course : s.course,
-            batch: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.batch : s.batch,
-          })),
-        }));
+          setAvailableSlots((prevSlots) =>
+            prevSlots.map((slot) => {
+              const isUserInSlot = bookedIds.includes(slot.id);
+              return {
+                ...slot,
+                students: (slot.students || generateSlotParticipants(slot.enrolledCount || 8)).map((s, idx) => {
+                  const shouldBeUser = isUserInSlot && (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber);
+                  return {
+                    ...s,
+                    isUser: shouldBeUser,
+                    name: shouldBeUser ? user.name : s.name,
+                    college: shouldBeUser ? user.college : s.college,
+                    course: shouldBeUser ? user.course : s.course,
+                    batch: shouldBeUser ? user.batch : s.batch,
+                  };
+                }),
+              };
+            })
+          );
+          setSession((prev) => ({
+            ...targetBookedSlot,
+            students: (targetBookedSlot.students || generateSlotParticipants(targetBookedSlot.enrolledCount || 8)).map((s, idx) => ({
+              ...s,
+              isUser: idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber,
+              name: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.name : s.name,
+              college: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.college : s.college,
+              course: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.course : s.course,
+              batch: (idx === 0 || s.id === user.id || s.seatNumber === user.seatNumber) ? user.batch : s.batch,
+            })),
+          }));
+        }
       }
 
       // Candidate always lands on Topics & Slot Booking after logging in

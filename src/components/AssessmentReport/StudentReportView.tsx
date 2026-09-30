@@ -71,13 +71,32 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   const [activeReportTab, setActiveReportTab] = useState<'single' | 'comparison'>('single');
 
   // Find the active student for this user
-  const userStudent = session.students.find(
-    (s) => s.isUser || (currentUser && (s.id === currentUser.id || s.name === currentUser.name))
-  ) || session.students[0];
+  const userStudent = (session?.students && session.students.length > 0)
+    ? (session.students.find((s) => s.isUser || (currentUser && (s.id === currentUser.id || s.name === currentUser.name))) || session.students[0])
+    : {
+        id: currentUser?.id || 'slot-stu-1',
+        name: currentUser?.name || 'Student Candidate',
+        seatNumber: 1,
+        college: currentUser?.college || 'College of Engineering',
+        course: (currentUser as any)?.course || 'B.Tech CSE',
+        batch: (currentUser as any)?.batch || '2022-2026',
+        avatar: '',
+        isUser: true,
+        micActive: false,
+        isSpeaking: false,
+        hasRaisedHand: false,
+        cameraActive: false,
+        speakingDurationSeconds: 0,
+        speakingTurns: 0,
+        interruptionCount: 0,
+        questionsAnswered: 0,
+        questionsInitiated: 0,
+        sentiment: 'neutral' as const,
+      };
 
   const effectiveInitialStudentId = isStudent
     ? userStudent.id
-    : (targetStudentId || initialReport?.studentId || session.students[0]?.id || 's1');
+    : (targetStudentId || initialReport?.studentId || session?.students?.[0]?.id || userStudent.id || 's1');
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>(effectiveInitialStudentId);
 
@@ -90,7 +109,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       ) {
         return initialReport;
       }
-      return generateStudentReport(userStudent, session.topic, session.durationMinutes, initialReport);
+      return generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport);
     }
     return initialReport || SAMPLE_REPORT_RAHUL;
   });
@@ -132,7 +151,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(currentUser.id) + '&sessionId=' + encodeURIComponent(session.id));
+        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(currentUser.id) + '&sessionId=' + encodeURIComponent(session?.id || ''));
         const data = await res.json();
         const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
         if (!cancelled && persisted) {
@@ -143,20 +162,20 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [isStudent, currentUser?.id, session.id, session.status]);
+  }, [isStudent, currentUser?.id, session?.id, session?.status]);
 
   // Ensure student always stays strictly locked to their own report
   useEffect(() => {
-    if (isStudent) {
+    if (isStudent && userStudent) {
       setSelectedStudentId(userStudent.id);
       if (currentReport.studentName !== (currentUser?.name || userStudent.name)) {
-        setCurrentReport(generateStudentReport(userStudent, session.topic, session.durationMinutes, initialReport));
+        setCurrentReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
       }
     } else if (targetStudentId && targetStudentId !== selectedStudentId) {
       setSelectedStudentId(targetStudentId);
       handleSelectStudent(targetStudentId);
     }
-  }, [isStudent, userStudent.id, currentUser?.name, targetStudentId]);
+  }, [isStudent, userStudent?.id, currentUser?.name, targetStudentId]);
 
   // Persist current report to student's historical comparison archive
   useEffect(() => {
@@ -167,28 +186,28 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   // Faculty live observation notes for this candidate (Enhancement 4)
   const candidateLiveNotes = useMemo(() => {
-    const list = session.facultyLiveNotes || currentReport.facultyLiveNotes || [];
+    const list = session?.facultyLiveNotes || currentReport.facultyLiveNotes || [];
     return list.filter(
       (n) => n.studentId === selectedStudentId || n.studentName?.toLowerCase() === currentReport.studentName?.toLowerCase()
     );
-  }, [session.facultyLiveNotes, currentReport.facultyLiveNotes, selectedStudentId, currentReport.studentName]);
+  }, [session?.facultyLiveNotes, currentReport.facultyLiveNotes, selectedStudentId, currentReport.studentName]);
 
   // Handle student switch (Allowed only for faculty reviewers)
   const handleSelectStudent = async (studentId: string) => {
-    if (isStudent && studentId !== userStudent.id) {
+    if (isStudent && studentId !== userStudent?.id) {
       return;
     }
 
     setSelectedStudentId(studentId);
     setIsEditingScores(false);
-    const targetStudent = session.students.find((s) => s.id === studentId);
+    const targetStudent = (session?.students || []).find((s) => s.id === studentId) || userStudent;
     if (!targetStudent) return;
 
     setIsLoading(true);
     try {
       if (isFaculty) {
         const facultyId = (currentUser as any)?.facultyId || currentUser?.id || '';
-        const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(session.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
+        const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(session?.id || '') + '/reports?facultyId=' + encodeURIComponent(facultyId));
         const data = await res.json();
         const persisted = Array.isArray(data.reports)
           ? data.reports.find((r: any) => r.studentId === targetStudent.id || (r.studentName && String(r.studentName).toLowerCase() === String(targetStudent.name).toLowerCase()))
@@ -203,7 +222,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             studentId: persisted.studentId,
             studentName: targetStudent.name,
             college: targetStudent.college,
-            topic: session.topic,
+            topic: session?.topic || 'Group Discussion',
             overallScore: persisted.overallScore,
             grade: persisted.overallScore >= 90 ? 'Excellent' : persisted.overallScore >= 75 ? 'Very Good' : persisted.overallScore >= 60 ? 'Good' : persisted.overallScore >= 40 ? 'Average' : 'Needs Improvement',
             skills,
@@ -214,14 +233,14 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           } as StudentAssessmentReport);
         }
       } else {
-        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(userStudent.id) + '&sessionId=' + encodeURIComponent(session.id));
+        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(userStudent?.id || '') + '&sessionId=' + encodeURIComponent(session?.id || ''));
         const data = await res.json();
         const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
         if (persisted) setCurrentReport({ ...currentReport, ...persisted } as StudentAssessmentReport);
       }
     } catch (err) {
       console.error(err);
-      setCurrentReport(generateStudentReport(targetStudent, session.topic, session.durationMinutes));
+      setCurrentReport(generateStudentReport(targetStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15));
     } finally {
       setIsLoading(false);
     }
@@ -317,7 +336,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     }
   };
 
-  const currentStudentObj = session.students.find((s) => s.id === selectedStudentId);
+  const currentStudentObj = (session?.students || []).find((s) => s.id === selectedStudentId) || userStudent;
   const isEndorsed = currentReport.facultyEndorsement?.endorsed;
   const currentWpm = currentReport.wpm ?? 0;
   const currentWpmStatus = currentReport.wpmStatus || (currentWpm === 0 ? 'No Speech' : currentWpm >= 120 && currentWpm <= 150 ? 'Optimal' : currentWpm < 120 ? 'Too Slow' : 'Too Fast');

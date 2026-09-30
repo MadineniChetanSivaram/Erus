@@ -120,7 +120,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const isSessionActive = session.status === 'active';
   // Faculty Live Observation Notes State (Enhancement 4)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
-  const [noteTargetStudentId, setNoteTargetStudentId] = useState<string>(session.students[0]?.id || '');
+  const [noteTargetStudentId, setNoteTargetStudentId] = useState<string>(session?.students?.[0]?.id || '');
   const [noteTimestamp, setNoteTimestamp] = useState<string>('00:00');
   const [noteTag, setNoteTag] = useState<'strength' | 'improvement' | 'key_argument' | 'leadership' | 'general'>('general');
   const [noteContent, setNoteContent] = useState<string>('');
@@ -135,7 +135,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   };
 
   const handleOpenNoteModal = (studentId?: string) => {
-    const targetId = studentId || noteTargetStudentId || session.students[0]?.id || '';
+    const targetId = studentId || noteTargetStudentId || session?.students?.[0]?.id || '';
     setNoteTargetStudentId(targetId);
     setNoteTimestamp(formatElapsedClock(elapsedSeconds));
     setIsNotesModalOpen(true);
@@ -143,10 +143,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   const handleSaveObservationNote = () => {
     if (!noteContent.trim()) return;
-    const targetStudent = session.students.find((s) => s.id === noteTargetStudentId) || session.students[0];
+    const targetStudent = (session?.students || []).find((s) => s.id === noteTargetStudentId) || session?.students?.[0];
+    if (!targetStudent) return;
     const newNote: FacultyLiveNote = {
       id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      sessionId: session.id,
+      sessionId: session?.id || '',
       studentId: targetStudent.id,
       studentName: targetStudent.name,
       seatNumber: targetStudent.seatNumber,
@@ -814,18 +815,37 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       return;
     }
 
-    const userStudent = session.students.find((s) => s.isUser) || session.students[0];
+    const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0] || {
+      id: currentUser?.id || 'speaker-1',
+      name: currentUser?.name || 'Candidate',
+      seatNumber: 1,
+      college: '',
+      course: '',
+      batch: '',
+      avatar: '',
+      isUser: true,
+      micActive: false,
+      isSpeaking: false,
+      hasRaisedHand: false,
+      cameraActive: false,
+      speakingDurationSeconds: 0,
+      speakingTurns: 0,
+      interruptionCount: 0,
+      questionsAnswered: 0,
+      questionsInitiated: 0,
+      sentiment: 'neutral' as const,
+    };
 
     // Check if another speaker was currently active (interruption detection)
-    if (session.currentSpeakerId && session.currentSpeakerId !== userStudent.id) {
-      const interruptedStudent = session.students.find((s) => s.id === session.currentSpeakerId);
+    if (session?.currentSpeakerId && session.currentSpeakerId !== userStudent.id) {
+      const interruptedStudent = (session?.students || []).find((s) => s.id === session.currentSpeakerId);
       setInterruptionWarning(`Interruption detected: ${userStudent.name} spoke while ${interruptedStudent?.name || 'peer'} was presenting.`);
       setTimeout(() => setInterruptionWarning(null), 5000);
     }
 
     const newEntry: TranscriptEntry = {
       id: `t-user-${Date.now()}`,
-      sessionId: session.id,
+      sessionId: session?.id || '',
       speakerId: userStudent.id,
       speakerName: userStudent.name,
       seatNumber: userStudent.seatNumber,
@@ -1148,10 +1168,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   }, [session.status, session.startedAt]);
 
   const handleRaiseHandToggle = () => {
-    const userStudent = session.students.find((s) => s.isUser) || session.students[0];
+    const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0];
+    if (!userStudent) return;
     setSession((prev) => ({
       ...prev,
-      students: prev.students.map((s) =>
+      students: (prev.students || []).map((s) =>
         s.id === userStudent.id ? { ...s, hasRaisedHand: !s.hasRaisedHand } : s
       ),
     }));
