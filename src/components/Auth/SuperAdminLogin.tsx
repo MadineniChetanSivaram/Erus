@@ -6,7 +6,8 @@ import {
   ArrowRight, 
   AlertCircle, 
   Eye, 
-  EyeOff
+  EyeOff,
+  CheckCircle2
 } from 'lucide-react';
 import { SuperAdminUser } from '../../types/auth';
 import { loginUser } from '../../utils/authApi';
