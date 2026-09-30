@@ -36,11 +36,11 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 }) => {
   const [colleges, setColleges] = useState<CollegeInfo[]>([]);
   const [stats, setStats] = useState({
-    totalColleges: 3,
-    totalStudents: 215,
-    totalFaculty: 32,
-    totalSlots: 14,
-    activeLiveGDs: 1,
+    totalColleges: 0,
+    totalStudents: 0,
+    totalFaculty: 0,
+    totalSlots: 0,
+    activeLiveGDs: 0,
   });
   const [search, setSearch] = useState('');
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);

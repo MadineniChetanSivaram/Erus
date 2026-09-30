@@ -177,7 +177,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
               <GraduationCap className="w-3.5 h-3.5 text-indigo-300" />
               <span>Student GD Placement & Evaluation Portal</span>
               <span className="text-indigo-400">•</span>
-              <span>{currentUser?.college || 'Delhi Institute of Technology'}</span>
+              <span>{currentUser?.college || 'Academic Institution'}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Welcome, {currentUser?.name || 'Student Participant'}
@@ -521,14 +521,14 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                                 Allotted Faculty Evaluator
                               </span>
                               <span className="text-[10px] font-mono text-amber-700/80 dark:text-amber-300/80">
-                                {slot.assignedFacultyId || 'FAC-DIT'}
+                                {slot.assignedFacultyId || 'FAC'}
                               </span>
                             </div>
                             <div className="text-xs font-bold text-slate-900 dark:text-amber-100 truncate mt-0.5">
-                              {slot.assignedFacultyName || 'Dr. Sunita Rao'}
+                              {slot.assignedFacultyName || 'Assigned Faculty'}
                             </div>
                             <div className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                              {slot.assignedFacultyDept || 'Computer Science & Engineering'}
+                              {slot.assignedFacultyDept || 'Faculty Department'}
                             </div>
                           </div>
                         </div>
@@ -674,7 +674,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                 {reviveModalSlot.slotName} ({reviveModalSlot.slotTiming || '10:00 AM'})
               </p>
               <p className="text-[11px] text-amber-800 dark:text-amber-300 pl-5">
-                Evaluator: <strong>{reviveModalSlot.assignedFacultyName || 'Dr. Sunita Rao'}</strong>
+                Evaluator: <strong>{reviveModalSlot.assignedFacultyName || 'Assigned Faculty'}</strong>
               </p>
             </div>
 

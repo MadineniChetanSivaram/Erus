@@ -14,7 +14,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { FacultyUser } from '../../types/auth';
-import { loginUser, registerUser, fetchAdminColleges, fetchCollegeFaculty } from '../../utils/authApi';
+import { loginUser, registerUser, fetchAdminColleges } from '../../utils/authApi';
 
 interface FacultyLoginProps {
   onLogin: (user: FacultyUser) => void;
@@ -27,24 +27,10 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
 }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [availableColleges, setAvailableColleges] = useState<any[]>([]);
-  const [demoFaculty, setDemoFaculty] = useState<any[]>([]);
 
   React.useEffect(() => {
-    fetchAdminColleges().then(async (list) => {
+    fetchAdminColleges().then((list) => {
       if (list && list.length > 0) setAvailableColleges(list);
-      const codes = Array.from(new Set((list || []).map((c: any) => String(c.code || '').toUpperCase()).filter(Boolean)));
-      if (codes.length === 0) {
-        setDemoFaculty([]);
-        return;
-      }
-      const rosters = await Promise.all(codes.map((code) => fetchCollegeFaculty(code)));
-      const merged = rosters.flat();
-      const byId = new Map<string, any>();
-      merged.forEach((fac: any) => {
-        const key = fac.facultyId || fac.email;
-        if (key) byId.set(key, fac);
-      });
-      setDemoFaculty(Array.from(byId.values()));
     });
   }, []);
 
@@ -223,7 +209,7 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="e.g. sunita.rao@dit.edu.in or FAC-CSE-102"
+                  placeholder="e.g. faculty@college.edu or FAC-101"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
                   required
                 />
@@ -275,49 +261,6 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
               </div>
             </div>
 
-            {/* Demo faculty created by the College Admin */}
-          {demoFaculty.length > 0 && (
-            <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-xs font-extrabold text-slate-800 dark:text-white">Demo Faculty</p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Faculty added by the College Admin • click a name to fill the login
-                  </p>
-                </div>
-                <span className="text-[9px] px-2 py-1 rounded-full bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 font-bold">
-                  {demoFaculty.length} faculty
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto pr-1">
-                {demoFaculty.map((fac: any) => (
-                  <button
-                    key={fac.facultyId || fac.email}
-                    type="button"
-                    onClick={() => {
-                      setIdentifier(fac.facultyId || fac.email || '');
-                      setPassword('faculty123');
-                      setDepartment(fac.department || '');
-                      setError(null);
-                      setSuccessMsg(null);
-                    }}
-                    className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 hover:border-teal-400 hover:bg-teal-50/60 dark:hover:bg-teal-950/30 transition-all text-left cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{fac.name || 'Faculty'}</p>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                        {fac.facultyId || fac.email} • {fac.department || 'Faculty'}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[9px] font-bold text-teal-700 dark:text-teal-300 bg-white dark:bg-slate-900 border border-teal-200 dark:border-teal-800 rounded-lg px-2 py-1">
-                      Use Demo
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           <button
               type="submit"
               disabled={isLoading}
@@ -333,47 +276,6 @@ export const FacultyLogin: React.FC<FacultyLoginProps> = ({
               )}
             </button>
           </form>
-
-          {/* Demo faculty access — kept below the real login so production
-              faculty accounts still use normal authentication. */}
-          <div className="mt-5 rounded-2xl border border-teal-200/70 dark:border-teal-800/60 bg-teal-50/70 dark:bg-teal-950/30 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-extrabold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                  Demo Faculty
-                </p>
-                <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
-                  Use this for presentations without creating a faculty account.
-                </p>
-                <p className="mt-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                  Dr. Sunita Rao · FAC-CSE-102
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => {
-                  setError(null);
-                  setSuccessMsg('Opening Demo Faculty Portal...');
-                  onLogin({
-                    id: 'demo-faculty-sunita',
-                    name: 'Dr. Sunita Rao',
-                    email: 'sunita.rao@demo.erus',
-                    role: 'faculty',
-                    facultyId: 'FAC-CSE-102',
-                    college: 'Delhi Institute of Technology',
-                    collegeCode: 'DIT',
-                    department: 'Computer Science & Engineering',
-                    designation: 'Professor & Head of Department',
-                    avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-                  } as FacultyUser);
-                }}
-                className="shrink-0 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm transition-colors"
-              >
-                Use Demo
-              </button>
-            </div>
-          </div>
         </>
       ) : (
         /* 2. FACULTY REGISTRATION FORM */

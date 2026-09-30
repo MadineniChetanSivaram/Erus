@@ -1,16 +1,12 @@
 import React, { useState } from 'react';
 import { 
-  ShieldAlert, 
   Crown,
   Lock, 
   Mail, 
   ArrowRight, 
   AlertCircle, 
   Eye, 
-  EyeOff, 
-  CheckCircle2,
-  Sparkles,
-  KeyRound
+  EyeOff
 } from 'lucide-react';
 import { SuperAdminUser } from '../../types/auth';
 import { loginUser } from '../../utils/authApi';
@@ -22,8 +18,8 @@ interface SuperAdminLoginProps {
 export const SuperAdminLogin: React.FC<SuperAdminLoginProps> = ({
   onLogin,
 }) => {
-  const [identifier, setIdentifier] = useState('superadmin@erus.ai');
-  const [password, setPassword] = useState('admin123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -44,14 +40,8 @@ export const SuperAdminLogin: React.FC<SuperAdminLoginProps> = ({
     if (res.success && res.user && res.user.role === 'super_admin') {
       onLogin(res.user as SuperAdminUser);
     } else {
-      setError(res.error || 'Invalid Super Admin credentials. Try entering superadmin@erus.ai with admin123.');
+      setError(res.error || 'Invalid Super Admin credentials. Please verify your root email and password.');
     }
-  };
-
-  const handleQuickFill = () => {
-    setIdentifier('superadmin@erus.ai');
-    setPassword('admin123');
-    setError(null);
   };
 
   return (
@@ -79,23 +69,6 @@ export const SuperAdminLogin: React.FC<SuperAdminLoginProps> = ({
               Platform onboarding & institution credentials management
             </p>
           </div>
-        </div>
-
-        {/* Quick Fill Demo Pill */}
-        <div className="mb-5 p-3 rounded-2xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-            <span className="text-xs font-semibold text-purple-900 dark:text-purple-200">
-              Platform Root Admin
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleQuickFill}
-            className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs cursor-pointer"
-          >
-            Quick Fill
-          </button>
         </div>
 
         {/* Error Alert */}

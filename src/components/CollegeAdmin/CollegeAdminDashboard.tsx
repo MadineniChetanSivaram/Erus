@@ -56,13 +56,13 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
 
   // Stats state
   const [stats, setStats] = useState({
-    collegeName: currentUser.college || 'Delhi Institute of Technology',
-    collegeCode: currentUser.collegeCode || 'DIT',
-    totalStudents: 120,
-    totalFaculty: 18,
-    scheduledSlots: 4,
-    completedSlots: 12,
-    totalSlots: 16,
+    collegeName: currentUser.college || 'Academic Institution',
+    collegeCode: currentUser.collegeCode || 'COL',
+    totalStudents: 0,
+    totalFaculty: 0,
+    scheduledSlots: 0,
+    completedSlots: 0,
+    totalSlots: 0,
   });
 
   // Students Roster State
@@ -77,7 +77,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     email: '',
     studentId: '',
     course: 'B.Tech Computer Science & Engineering',
-    batch: '2022-2026',
+    batch: '2024-2028',
     seatNumber: 1,
   });
 
@@ -112,12 +112,12 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       slotName: s.slotName || s.topic,
       topic: s.topic,
       description: s.description || s.topic,
-      slotTiming: s.slotTiming || '10:30 AM - 10:45 AM',
+      slotTiming: s.slotTiming || '',
       status: s.status || 'scheduled',
       durationMinutes: s.durationMinutes || 15,
-      enrolledCount: s.enrolledCount ?? s.students?.length ?? 8,
+      enrolledCount: s.enrolledCount ?? s.students?.length ?? 0,
       maxCapacity: s.maxCapacity || 15,
-      assignedFacultyName: (s as any).assignedFacultyName || 'Dr. Sunita Rao',
+      assignedFacultyName: (s as any).assignedFacultyName || 'Unassigned',
       rawSession: s,
     }));
 
@@ -866,7 +866,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300 mb-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Assigned Evaluator:</span>
-                      <span className="font-bold text-teal-600 dark:text-teal-400">{sl.assignedFacultyName || 'Dr. Sunita Rao'}</span>
+                      <span className="font-bold text-teal-600 dark:text-teal-400">{sl.assignedFacultyName || 'Unassigned'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Duration:</span>

@@ -34,7 +34,7 @@ const ROLES: RoleConfig[] = [
     id: 'student',
     label: 'Student',
     badge: 'Participant',
-    desc: 'Instant Join, live voice audio mesh & AI assessment report',
+    desc: 'Live voice audio mesh, active group discussion & AI assessment report',
     icon: GraduationCap,
     gradient: 'from-blue-600 to-indigo-600',
     activeBorder: 'border-blue-500/80 dark:border-blue-400/80',

@@ -449,7 +449,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               const isSelected = sl.id === session.id;
               const isCompleted = sl.status === 'completed';
               const studentKey = currentUser?.id || currentUser?.email || 'student';
-              const effectiveBooked = bookedSlotId || (isStudent ? (localStorage.getItem(`erus_student_booked_slot_${studentKey}`) || 'slot-dit-001') : null);
+              const effectiveBooked = bookedSlotId || (isStudent ? (localStorage.getItem(`erus_student_booked_slot_${studentKey}`) || null) : null);
               const isLockedForStudent = isStudent && Boolean(effectiveBooked) && sl.id !== effectiveBooked;
               const bookedSlotObj = isLockedForStudent ? availableSlots.find((s) => s.id === effectiveBooked) : null;
 
@@ -574,7 +574,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               </div>
               <div>
                 <h1 className="font-heading font-bold text-sm sm:text-base text-slate-900 dark:text-white uppercase tracking-wide">
-                  {currentReport.college || 'Delhi Institute of Technology'}
+                  {currentReport.college || currentUser?.college || 'Academic Institution'}
                 </h1>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                   Autonomous Group Discussion Assessment & Rubrics Record

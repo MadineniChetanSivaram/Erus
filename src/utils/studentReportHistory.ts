@@ -58,11 +58,11 @@ export function createBaselinePreviousReport(currentReport: StudentAssessmentRep
       { word: 'um/uh', count: 3 },
     ],
     facultyEndorsement: {
-      endorsed: true,
-      facultyName: 'Dr. Sunita Rao',
-      facultyId: 'FAC-DIT-001',
-      designation: 'Professor & Head of Department, DIT',
-      remarks: 'Initial diagnostic assessment. Student exhibited fundamental logic but needs pacing regulation and filler reduction.',
+      endorsed: false,
+      facultyName: currentReport.facultyEndorsement?.facultyName || 'Faculty Evaluator',
+      facultyId: currentReport.facultyEndorsement?.facultyId || 'FAC-001',
+      designation: currentReport.facultyEndorsement?.designation || 'Faculty In-Charge',
+      remarks: 'Initial diagnostic assessment. Student exhibited structured reasoning and active dialogue.',
       endorsedAt: prevDateString,
     },
     skills: {

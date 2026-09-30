@@ -256,68 +256,7 @@ export interface PreviousPresentationData {
   keyInsight: string;
 }
 
-export const KNOWN_PREVIOUS_PRESENTATIONS: Record<string, PreviousPresentationData> = {
-  'rahul kumar': {
-    topic: 'Sustainable Cloud Computing and Green Datacenters',
-    keyInsight: 'balancing computational scalability with energy efficiency and algorithmic ethics',
-  },
-  'priya sharma': {
-    topic: 'Enterprise Data Privacy and Zero-Trust Distributed Systems',
-    keyInsight: 'safeguarding consumer confidentiality in cloud-native microservices',
-  },
-  'ramesh patel': {
-    topic: 'IoT Sensor Networks and Edge Hardware Acceleration',
-    keyInsight: 'practical hardware deployment constraints in semi-urban and industrial networks',
-  },
-  'sneha reddy': {
-    topic: 'Predictive Machine Learning and Algorithmic Bias Mitigation',
-    keyInsight: 'demographic parity and representation in automated training datasets',
-  },
-  'vikram joshi': {
-    topic: 'Industrial Robotics and Automated Operational Safety Standards',
-    keyInsight: 'risk-managed physical deployment and regulatory compliance in automated environments',
-  },
-  'ananya verma': {
-    topic: 'Large Language Models and Multilingual Natural Language Processing',
-    keyInsight: 'bridging vernacular linguistic divides through generative NLP',
-  },
-  'rohan gupta': {
-    topic: 'Next-Gen Cybersecurity and Autonomous Threat Detection',
-    keyInsight: 'adversarial robustness and proactive perimeter monitoring',
-  },
-  'meera iyer': {
-    topic: 'Bioinformatics and Ethical Governance in Healthcare Technology',
-    keyInsight: 'patient data sovereignty and clinical precision diagnostics',
-  },
-  'kavita nair': {
-    topic: 'Smart Urban Infrastructure and Sustainable Lifecycle Architecture',
-    keyInsight: 'environmental resiliency and civic technology adoption',
-  },
-  'divya balaji': {
-    topic: 'Decentralized Consensus Protocols and FinTech Trust Networks',
-    keyInsight: 'transactional integrity and automated audit transparency',
-  },
-  'tanmay kulkarni': {
-    topic: 'Thermodynamics Modeling and Computational Fluid Dynamics',
-    keyInsight: 'computational simulations versus physical empirical verification',
-  },
-  'ritu sengupta': {
-    topic: 'User Experience Optimization in Mission-Critical Systems',
-    keyInsight: 'intuitive interface ergonomics and error reduction in high-stress workflows',
-  },
-  'varun mehta': {
-    topic: 'Autonomous Drone Navigation and Sensor Fusion',
-    keyInsight: 'real-time edge decision making under adverse network latency',
-  },
-  'pooja chawla': {
-    topic: 'Automated CI/CD Pipelines and Enterprise Software Quality Assurance',
-    keyInsight: 'continuous automated validation without compromising deployment agility',
-  },
-  'siddharth menon': {
-    topic: 'Quantum Computing Foundations and Post-Quantum Cryptography',
-    keyInsight: 'future-proofing secure encryption against next-generation compute paradigms',
-  },
-};
+export const KNOWN_PREVIOUS_PRESENTATIONS: Record<string, PreviousPresentationData> = {};
 
 /**
  * Returns previous presentation data for any student, using known mapping or intelligent heuristic based on academic discipline
