@@ -30,32 +30,36 @@ function candidateMongoUris(raw: string): string[] {
   const trimmed = raw.trim();
   if (!trimmed) return ['mongodb://127.0.0.1:27017/erus'];
 
-  // 1. If URI has credentials (@) but no database name or authSource
-  // e.g. mongodb://mongo:pass@mongodb.railway.internal:27017
-  if (trimmed.includes('@')) {
+  // 1. Direct user-provided URI should always be attempted first
+  list.push(trimmed);
+
+  // 2. If it's a mongodb:// URI (like Railway internal or localhost) with credentials
+  if (trimmed.startsWith('mongodb://') && trimmed.includes('@')) {
     const withoutQuery = trimmed.split('?')[0].replace(/\/+$/, '');
     const queryPart = trimmed.split('?')[1] || '';
     const hasPath = /:\d+\/[^/?]+/.test(withoutQuery);
 
     if (!hasPath) {
-      // Add /erus with authSource=admin
       const q = queryPart
         ? (queryPart.includes('authSource=') ? queryPart : `${queryPart}&authSource=admin`)
         : 'authSource=admin';
       list.push(`${withoutQuery}/erus?${q}`);
-      // Also try with /railway default database
       list.push(`${withoutQuery}/railway?${q}`);
-    } else {
-      if (!trimmed.includes('authSource=')) {
-        const separator = trimmed.includes('?') ? '&' : '?';
-        list.push(`${trimmed}${separator}authSource=admin`);
-      }
+    } else if (!trimmed.includes('authSource=')) {
+      const separator = trimmed.includes('?') ? '&' : '?';
+      list.push(`${trimmed}${separator}authSource=admin`);
     }
   }
 
-  // 2. Direct user-provided URI
-  if (!list.includes(trimmed)) {
-    list.push(trimmed);
+  // 3. If it's a mongodb+srv:// URI with no path before ? (e.g. mongodb+srv://host/?)
+  if (trimmed.startsWith('mongodb+srv://')) {
+    const withoutQuery = trimmed.split('?')[0].replace(/\/+$/, '');
+    const queryPart = trimmed.split('?')[1] ? `?${trimmed.split('?')[1]}` : '';
+    // Check if path has a DB name (e.g. host.net/erus vs host.net)
+    const hostPart = withoutQuery.replace('mongodb+srv://', '');
+    if (!hostPart.includes('/')) {
+      list.unshift(`${withoutQuery}/erus${queryPart}`);
+    }
   }
 
   return list;
