@@ -582,15 +582,10 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
           </div>
 
           <div className="flex items-center gap-3">
-            {onEnterGDRoom && (
-              <button
-                onClick={() => onEnterGDRoom()}
-                className="px-4 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 border border-white/30 text-white font-bold text-xs sm:text-sm backdrop-blur-md flex items-center gap-2 transition-all cursor-pointer shadow-sm"
-              >
-                <Eye className="w-4 h-4 text-amber-200" />
-                <span>Observer Mode</span>
-              </button>
-            )}
+            <span className="text-xs px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white font-semibold flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-200" />
+              <span>Campus Governance Only</span>
+            </span>
           </div>
         </div>
       </div>
@@ -1016,25 +1011,22 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete</span>
                   </button>
-                  {onEnterGDRoom && (
-                    sl.status === 'completed' ? (
+                  {sl.status === 'completed' ? (
+                    onEnterGDRoom && (
                       <button
                         onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
                         className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
                         title="View overall session analytics, student scores, and cohort performance"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
-                        <span>View Overall Analytics & Report</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
-                        className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Launch / Join GD</span>
+                        <span>View Analytics & Report</span>
                       </button>
                     )
+                  ) : (
+                    <div className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 font-medium text-[11px] flex items-center justify-center gap-1.5 text-center">
+                      <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>Faculty Evaluator Session</span>
+                    </div>
                   )}
                 </div>
               </div>

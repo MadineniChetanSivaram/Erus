@@ -159,8 +159,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* GD Room Tab (Faculty & College Admin Observers Only; Students enter via Booked Slot) */}
-          {!isSuperAdmin && !isStudent && (
+          {/* GD Room Tab (Faculty Evaluators Only; Students enter via Booked Slot) */}
+          {isFaculty && (
             <button
               id="tab-room-btn"
               onClick={() => setCurrentTab('room')}
