@@ -22,6 +22,7 @@ import {
   AssessmentReportModel,
   GDBookingModel,
 } from './src/db/mongo.ts';
+import { sendCredentialsEmail, sendPasswordResetOtpEmail } from './src/services/mailer.ts';
 
 dotenv.config();
 
@@ -998,7 +999,10 @@ app.post('/api/college/students', async (req, res) => {
   }
 
   const addedStudents: BackendCollegeStudentItem[] = [];
+  const shouldSendEmail = Boolean(req.body.sendEmail);
+
   incoming.forEach((st, idx) => {
+    const studentPass = st.password || `Stud@${Date.now().toString().slice(-4)}!`;
     const newStu: BackendCollegeStudentItem = {
       id: st.id || `s-${Date.now()}-${idx}`,
       name: st.name || 'Candidate',
@@ -1017,7 +1021,7 @@ app.post('/api/college/students', async (req, res) => {
       id: newStu.id,
       name: newStu.name,
       email: newStu.email,
-      password: 'password123',
+      password: studentPass,
       role: 'student',
       college: newStu.college,
       collegeCode: code,
@@ -1026,18 +1030,34 @@ app.post('/api/college/students', async (req, res) => {
       batch: newStu.batch,
       seatNumber: newStu.seatNumber,
     });
+
+    if (shouldSendEmail || st.sendEmail) {
+      sendCredentialsEmail({
+        to: newStu.email,
+        name: newStu.name,
+        role: 'student',
+        username: newStu.studentId || newStu.email,
+        password: studentPass,
+        collegeName: newStu.college,
+        collegeCode: code,
+      }).catch((e) => console.warn('[Mailer] Student credential dispatch error:', e.message));
+    }
   });
 
   savePersistentState();
   for (const st of addedStudents) {
-    persistUserToMongoDB({ ...st, role: 'student', password: 'password123' });
+    const userMatch = persistentState.users.find((u) => u.email.toLowerCase() === st.email.toLowerCase());
+    const pass = userMatch?.password || 'password123';
+    persistUserToMongoDB({ ...st, role: 'student', password: pass });
   }
 
   if (isDbConnected && prisma) {
     try {
       const col = await prisma.college.findUnique({ where: { code } });
-      const defaultPassHash = await bcrypt.hash('password123', 10);
       for (const st of addedStudents) {
+        const userMatch = persistentState.users.find((u) => u.email.toLowerCase() === st.email.toLowerCase());
+        const pass = userMatch?.password || 'password123';
+        const defaultPassHash = await bcrypt.hash(pass, 10);
         await prisma.user.upsert({
           where: { email: st.email.toLowerCase() },
           update: {
@@ -1205,8 +1225,106 @@ app.post('/api/college/faculty', async (req, res) => {
     }
   }
 
+  if (payload.sendEmail !== false) {
+    sendCredentialsEmail({
+      to: newFac.email,
+      name: newFac.name,
+      role: 'faculty',
+      username: newFac.facultyId || newFac.email,
+      password: payload.password || 'faculty123',
+      collegeName: newFac.college,
+      collegeCode: code,
+    }).catch((e) => console.warn('[Mailer] Faculty credential dispatch error:', e.message));
+  }
+
   res.json({ success: true, faculty: newFac });
 });
+
+app.post('/api/college/dispatch-credentials', async (req, res) => {
+  const { collegeCode, targetType, recipientId, email, customPassword } = req.body;
+  const code = String(collegeCode || 'DIT').toUpperCase();
+
+  const collegeObj = persistentState.colleges.find((c) => c.code === code);
+  const collegeName = collegeObj?.name || `${code} Campus`;
+
+  let dispatchedCount = 0;
+
+  if (targetType === 'single') {
+    const user = persistentState.users.find(
+      (u) =>
+        (u.email.toLowerCase() === String(email || '').toLowerCase() || u.id === recipientId) &&
+        (u.collegeCode || 'DIT').toUpperCase() === code
+    );
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found in this institution roster.' });
+    }
+    const pwd = customPassword || user.password || (user.role === 'faculty' ? 'faculty123' : 'password123');
+    const mailRes = await sendCredentialsEmail({
+      to: user.email,
+      name: user.name,
+      role: (user.role as 'student' | 'faculty') || 'student',
+      username: (user as any).studentId || (user as any).facultyId || user.email,
+      password: pwd,
+      collegeName,
+      collegeCode: code,
+    });
+    return res.json({
+      success: true,
+      count: 1,
+      message: `Credentials dispatched to ${user.email} via email.`,
+      simulated: mailRes.simulated,
+    });
+  }
+
+  if (targetType === 'students') {
+    const stuList = persistentState.students[code] || [];
+    for (const st of stuList) {
+      const u = persistentState.users.find((usr) => usr.email.toLowerCase() === st.email.toLowerCase());
+      const pwd = customPassword || u?.password || 'password123';
+      sendCredentialsEmail({
+        to: st.email,
+        name: st.name,
+        role: 'student',
+        username: st.studentId || st.email,
+        password: pwd,
+        collegeName,
+        collegeCode: code,
+      }).catch((e) => console.warn('[Mailer] Bulk dispatch error for', st.email, e.message));
+      dispatchedCount++;
+    }
+    return res.json({
+      success: true,
+      count: dispatchedCount,
+      message: `Successfully dispatched login credentials to ${dispatchedCount} student email(s).`,
+    });
+  }
+
+  if (targetType === 'faculty') {
+    const facList = persistentState.faculty[code] || [];
+    for (const fac of facList) {
+      const u = persistentState.users.find((usr) => usr.email.toLowerCase() === fac.email.toLowerCase());
+      const pwd = customPassword || u?.password || 'faculty123';
+      sendCredentialsEmail({
+        to: fac.email,
+        name: fac.name,
+        role: 'faculty',
+        username: fac.facultyId || fac.email,
+        password: pwd,
+        collegeName,
+        collegeCode: code,
+      }).catch((e) => console.warn('[Mailer] Bulk dispatch error for faculty', fac.email, e.message));
+      dispatchedCount++;
+    }
+    return res.json({
+      success: true,
+      count: dispatchedCount,
+      message: `Successfully dispatched login credentials to ${dispatchedCount} faculty email(s).`,
+    });
+  }
+
+  res.status(400).json({ success: false, error: 'Invalid targetType. Must be students, faculty, or single.' });
+});
+
 
 app.get('/api/college/slots', async (req, res) => {
   const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
@@ -2031,6 +2149,122 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
+const passwordResetStore = new Map<string, { otp: string; expiresAt: number; email: string; name: string; role: string }>();
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const role = String(req.body.role || '').trim();
+
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email address is required.' });
+  }
+
+  let user = persistentState.users.find((u) => u.email.toLowerCase() === email);
+  if (!user && isMongoConnected()) {
+    try {
+      const dbUser = await UserModel.findOne({ email });
+      if (dbUser) user = dbUser as any;
+    } catch {}
+  }
+
+  if (!user) {
+    return res.status(404).json({ success: false, error: 'No account registered with this email address.' });
+  }
+
+  if (role && user.role !== role) {
+    return res.status(400).json({ success: false, error: `This account is registered as ${user.role}. Please switch to the ${user.role} portal.` });
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 mins
+
+  passwordResetStore.set(email, {
+    otp,
+    expiresAt,
+    email,
+    name: user.name || 'User',
+    role: user.role,
+  });
+
+  const mailRes = await sendPasswordResetOtpEmail({
+    to: email,
+    name: user.name || 'User',
+    otp,
+    role: user.role === 'faculty' ? 'Faculty Evaluator' : 'Student Participant',
+    expiresInMinutes: 15,
+  });
+
+  res.json({
+    success: true,
+    message: `A 6-digit verification code has been dispatched to ${email}.`,
+    simulated: mailRes.simulated,
+    ...(mailRes.simulated ? { debugOtp: otp } : {}),
+  });
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const otp = String(req.body.otp || '').trim();
+  const newPassword = String(req.body.newPassword || '').trim();
+
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ success: false, error: 'Email, verification code, and new password are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, error: 'New password must be at least 6 characters.' });
+  }
+
+  const tokenData = passwordResetStore.get(email);
+  if (!tokenData) {
+    return res.status(400).json({ success: false, error: 'Invalid or expired password reset session. Please request a new code.' });
+  }
+
+  if (Date.now() > tokenData.expiresAt) {
+    passwordResetStore.delete(email);
+    return res.status(400).json({ success: false, error: 'Verification code has expired. Please request a new code.' });
+  }
+
+  if (tokenData.otp !== otp) {
+    return res.status(400).json({ success: false, error: 'Incorrect verification code. Please check your email and try again.' });
+  }
+
+  const user = persistentState.users.find((u) => u.email.toLowerCase() === email);
+  if (user) {
+    user.password = newPassword;
+  }
+  savePersistentState();
+
+  if (isMongoConnected()) {
+    try {
+      await UserModel.findOneAndUpdate(
+        { email },
+        { password: newPassword },
+        { new: true }
+      );
+    } catch (e: any) {
+      console.warn('[MongoDB] Failed to update password on reset:', e.message);
+    }
+  }
+
+  if (isDbConnected && prisma) {
+    try {
+      const passHash = await bcrypt.hash(newPassword, 10);
+      await prisma.user.update({
+        where: { email },
+        data: { passwordHash: passHash },
+      }).catch(() => {});
+    } catch {}
+  }
+
+  passwordResetStore.delete(email);
+
+  res.json({
+    success: true,
+    message: 'Your password has been reset successfully! You can now log in.',
+  });
+});
+
 app.post('/api/auth/register', async (req, res) => {
   const userData = req.body;
   const userName = (userData?.name || userData?.fullName || '').trim();
@@ -2039,6 +2273,14 @@ app.post('/api/auth/register', async (req, res) => {
 
   if (!userData || !cleanEmail || !userName) {
     return res.status(400).json({ success: false, error: 'Name and email are required.' });
+  }
+
+  const role = userData.role || 'student';
+  if (role === 'student' || role === 'faculty') {
+    return res.status(403).json({
+      success: false,
+      error: 'Public registration for students and faculty is disabled. Your account credentials must be provisioned by your College Administrator.',
+    });
   }
 
   if (!password || password.length < 6) {
@@ -2050,7 +2292,6 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Email already registered.' });
   }
 
-  const role = userData.role || 'student';
   const collegeName = userData.college || userData.collegeName || 'General Campus';
   const collegeCode = userData.collegeCode || (collegeName.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'CAMPUS');
 

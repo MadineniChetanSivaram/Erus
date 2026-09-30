@@ -628,3 +628,56 @@ export async function fetchStudentBookings(studentId: string) {
   }
   return { success: false, topicBookings: {} };
 }
+
+// ==========================================
+// CREDENTIAL DISPATCH & PASSWORD RESET HELPERS
+// ==========================================
+
+export async function requestPasswordReset(email: string, role?: string) {
+  try {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    return await res.json();
+  } catch (e: any) {
+    console.warn('Error requesting password reset:', e);
+    return { success: false, error: 'Network error. Please try again.' };
+  }
+}
+
+export async function confirmPasswordReset(email: string, otp: string, newPassword: string) {
+  try {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp, newPassword }),
+    });
+    return await res.json();
+  } catch (e: any) {
+    console.warn('Error confirming password reset:', e);
+    return { success: false, error: 'Network error. Please try again.' };
+  }
+}
+
+export async function dispatchCredentials(payload: {
+  collegeCode: string;
+  targetType: 'students' | 'faculty' | 'single';
+  recipientId?: string;
+  email?: string;
+  customPassword?: string;
+}) {
+  try {
+    const res = await fetch('/api/college/dispatch-credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (e: any) {
+    console.warn('Error dispatching credentials:', e);
+    return { success: false, error: 'Failed to communicate with mail service.' };
+  }
+}
+

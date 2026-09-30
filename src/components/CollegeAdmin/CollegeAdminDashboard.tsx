@@ -19,9 +19,10 @@ import {
   FileSpreadsheet,
   ChevronRight,
   Sparkles,
-  Award,
   BarChart3,
-  Trash2
+  Trash2,
+  Mail,
+  Key
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
@@ -34,7 +35,8 @@ import {
   addCollegeFaculty, 
   fetchCollegeSlots, 
   createCollegeSlot,
-  deleteCollegeSlot
+  deleteCollegeSlot,
+  dispatchCredentials
 } from '../../utils/authApi';
 
 interface CollegeAdminDashboardProps {
@@ -72,6 +74,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvPreview, setCsvPreview] = useState<any[]>([]);
+  const [isDispatching, setIsDispatching] = useState(false);
+
   const [newStudent, setNewStudent] = useState({
     name: '',
     email: '',
@@ -79,6 +83,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     course: 'B.Tech Computer Science & Engineering',
     batch: '2024-2028',
     seatNumber: 1,
+    password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!`,
+    sendEmail: true,
   });
 
   // Faculty Roster State
@@ -91,6 +97,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     facultyId: '',
     department: 'Department of Computer Science & Engineering',
     designation: 'Assistant Professor',
+    password: `Fac@${Math.floor(1000 + Math.random() * 9000)}!`,
+    sendEmail: true,
   });
 
   // Slots State
@@ -175,6 +183,38 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   };
 
   // Student Actions
+  const handleDispatchAllStudentsEmail = async () => {
+    if (students.length === 0) return;
+    if (!window.confirm(`Dispatch login credentials via email to all ${students.length} students?`)) return;
+    setIsDispatching(true);
+    const res = await dispatchCredentials({
+      collegeCode,
+      targetType: 'students',
+    });
+    setIsDispatching(false);
+    if (res && res.success) {
+      setBannerMsg(res.message || `Dispatched credentials to ${students.length} students via email.`);
+    } else {
+      setBannerMsg(res?.error || 'Failed to dispatch student credentials.');
+    }
+  };
+
+  const handleDispatchSingleStudentEmail = async (st: any) => {
+    setIsDispatching(true);
+    const res = await dispatchCredentials({
+      collegeCode,
+      targetType: 'single',
+      recipientId: st.id,
+      email: st.email,
+    });
+    setIsDispatching(false);
+    if (res && res.success) {
+      setBannerMsg(`Credentials dispatched to ${st.name} (${st.email}).`);
+    } else {
+      setBannerMsg(res?.error || 'Failed to dispatch email.');
+    }
+  };
+
   const handleAddStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStudent.name || !newStudent.email) return;
@@ -189,6 +229,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       seatNumber: Number(newStudent.seatNumber) || students.length + 1,
       college: currentUser.college || 'Delhi Institute of Technology',
       collegeCode,
+      password: newStudent.password || 'password123',
+      sendEmail: newStudent.sendEmail,
     };
 
     // Immediately update local state so newly added student appears instantly
@@ -201,15 +243,17 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     });
 
     if (res && res.success) {
-      setBannerMsg(`Student ${studentToAdd.name} successfully registered.`);
+      setBannerMsg(`Student ${studentToAdd.name} registered.${newStudent.sendEmail ? ' Credentials dispatched to email.' : ''}`);
       setIsAddStudentOpen(false);
       setNewStudent({
         name: '',
         email: '',
         studentId: '',
         course: 'B.Tech Computer Science & Engineering',
-        batch: '2022-2026',
+        batch: '2024-2028',
         seatNumber: 1,
+        password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!`,
+        sendEmail: true,
       });
       loadAllData();
     }
@@ -296,6 +340,38 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
   };
 
   // Faculty Actions
+  const handleDispatchAllFacultyEmail = async () => {
+    if (faculty.length === 0) return;
+    if (!window.confirm(`Dispatch login credentials via email to all ${faculty.length} faculty members?`)) return;
+    setIsDispatching(true);
+    const res = await dispatchCredentials({
+      collegeCode,
+      targetType: 'faculty',
+    });
+    setIsDispatching(false);
+    if (res && res.success) {
+      setBannerMsg(res.message || `Dispatched credentials to ${faculty.length} faculty members via email.`);
+    } else {
+      setBannerMsg(res?.error || 'Failed to dispatch faculty credentials.');
+    }
+  };
+
+  const handleDispatchSingleFacultyEmail = async (fac: any) => {
+    setIsDispatching(true);
+    const res = await dispatchCredentials({
+      collegeCode,
+      targetType: 'single',
+      recipientId: fac.id,
+      email: fac.email,
+    });
+    setIsDispatching(false);
+    if (res && res.success) {
+      setBannerMsg(`Credentials dispatched to ${fac.name} (${fac.email}).`);
+    } else {
+      setBannerMsg(res?.error || 'Failed to dispatch email.');
+    }
+  };
+
   const handleAddFacultySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFaculty.name || !newFaculty.email) return;
@@ -305,6 +381,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       id: `fac-${Date.now()}`,
       college: currentUser.college || 'Delhi Institute of Technology',
       collegeCode,
+      password: newFaculty.password || 'faculty123',
+      sendEmail: newFaculty.sendEmail,
     };
 
     setFaculty((prev) => [facultyToAdd, ...prev]);
@@ -313,7 +391,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
     const res = await addCollegeFaculty(facultyToAdd);
 
     if (res && res.success) {
-      setBannerMsg(`Faculty member ${newFaculty.name} successfully registered.`);
+      setBannerMsg(`Faculty member ${newFaculty.name} registered.${newFaculty.sendEmail ? ' Credentials dispatched to email.' : ''}`);
       setIsAddFacultyOpen(false);
       setNewFaculty({
         name: '',
@@ -321,6 +399,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
         facultyId: '',
         department: 'Department of Computer Science & Engineering',
         designation: 'Assistant Professor',
+        password: `Fac@${Math.floor(1000 + Math.random() * 9000)}!`,
+        sendEmail: true,
       });
       loadAllData();
     }
@@ -651,6 +731,16 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
 
             <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
               <button
+                onClick={handleDispatchAllStudentsEmail}
+                disabled={isDispatching || students.length === 0}
+                title="Dispatch login credentials to all students via email"
+                className="px-3 py-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Dispatch All to Email</span>
+              </button>
+
+              <button
                 onClick={() => setIsCsvModalOpen(true)}
                 className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
               >
@@ -678,7 +768,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <th className="py-3 px-4">Course / Department</th>
                   <th className="py-3 px-4">Batch</th>
                   <th className="py-3 px-4">Default Seat</th>
-                  <th className="py-3 px-4 text-right">Status</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Credentials</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -703,16 +794,27 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                           Seat {st.seatNumber || 1}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4">
                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold text-[10px] border border-emerald-200 dark:border-emerald-800/50">
                           Enrolled
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          onClick={() => handleDispatchSingleStudentEmail(st)}
+                          disabled={isDispatching}
+                          title="Send credentials email to this student"
+                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-600 hover:text-blue-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="text-[11px] font-semibold">Send Email</span>
+                        </button>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No students found matching your criteria.
                     </td>
                   </tr>
@@ -740,13 +842,25 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
               />
             </div>
 
-            <button
-              onClick={() => setIsAddFacultyOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Faculty Member</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDispatchAllFacultyEmail}
+                disabled={isDispatching || faculty.length === 0}
+                title="Dispatch login credentials to all faculty members via email"
+                className="px-3 py-2 rounded-xl border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 hover:bg-teal-100 font-semibold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Mail className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span>Dispatch All to Email</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddFacultyOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Faculty Member</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -758,7 +872,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Designation</th>
                   <th className="py-3 px-4">Assigned Slots</th>
-                  <th className="py-3 px-4 text-right">Moderator Privileges</th>
+                  <th className="py-3 px-4">Privileges</th>
+                  <th className="py-3 px-4 text-right">Credentials</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -783,16 +898,27 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                           {fac.assignedSlotsCount || 1} GD Slots
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4">
                         <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold text-[10px] border border-emerald-200 dark:border-emerald-800/50">
                           Authorized Observer
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          onClick={() => handleDispatchSingleFacultyEmail(fac)}
+                          disabled={isDispatching}
+                          title="Send credentials email to this faculty member"
+                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-600 hover:text-teal-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-teal-600" />
+                          <span className="text-[11px] font-semibold">Send Email</span>
+                        </button>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No faculty members found.
                     </td>
                   </tr>
@@ -993,6 +1119,43 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 />
               </div>
 
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Assigned Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setNewStudent({ ...newStudent, password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!` })}
+                    className="text-[11px] text-amber-600 hover:underline cursor-pointer"
+                  >
+                    Auto-generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={newStudent.password}
+                    onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
+                    placeholder="e.g. Stud@1024!"
+                    required
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="send-student-email-checkbox"
+                  checked={newStudent.sendEmail}
+                  onChange={(e) => setNewStudent({ ...newStudent, sendEmail: e.target.checked })}
+                  className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                />
+                <label htmlFor="send-student-email-checkbox" className="text-[11px] text-slate-600 dark:text-slate-400 font-medium cursor-pointer">
+                  Dispatch login credentials to student's email immediately
+                </label>
+              </div>
+
               <div className="pt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -1179,6 +1342,43 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   placeholder="Computer Science & Engineering"
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Assigned Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setNewFaculty({ ...newFaculty, password: `Fac@${Math.floor(1000 + Math.random() * 9000)}!` })}
+                    className="text-[11px] text-teal-600 hover:underline cursor-pointer"
+                  >
+                    Auto-generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={newFaculty.password}
+                    onChange={(e) => setNewFaculty({ ...newFaculty, password: e.target.value })}
+                    placeholder="e.g. Fac@2026!"
+                    required
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="send-faculty-email-checkbox"
+                  checked={newFaculty.sendEmail}
+                  onChange={(e) => setNewFaculty({ ...newFaculty, sendEmail: e.target.checked })}
+                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                />
+                <label htmlFor="send-faculty-email-checkbox" className="text-[11px] text-slate-600 dark:text-slate-400 font-medium cursor-pointer">
+                  Dispatch login credentials to faculty's email immediately
+                </label>
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-2">
