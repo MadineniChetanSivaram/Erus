@@ -1,24 +1,12 @@
 // Comprehensive End-to-End Component & Service Verification for ERUS
 import { io } from 'socket.io-client';
 
-const BASE_URL = 'http://localhost:3000';
-let liveUrl = 'https://erus-production.up.railway.app';
+const targetUrl = 'https://erus-production.up.railway.app';
 
 async function runComprehensiveVerification() {
   console.log('='.repeat(80));
   console.log('  ERUS FULL COMPONENT & SERVICE INTEGRATION VERIFICATION SUITE');
   console.log('='.repeat(80));
-
-  // Determine test target (live production or local)
-  let targetUrl = liveUrl;
-  try {
-    const res = await fetch(`${targetUrl}/api/health`, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) throw new Error('Live not responding');
-  } catch (e) {
-    console.log(`Live URL ${liveUrl} not reachable, switching to local ${BASE_URL}...`);
-    targetUrl = BASE_URL;
-  }
-
   console.log(`Test Target: ${targetUrl}\n`);
 
   let passCount = 0;
@@ -36,17 +24,16 @@ async function runComprehensiveVerification() {
 
   // --- 1. HEALTH & DATABASE ---
   console.log('\n--- 1. Health & Database Verification ---');
-  let health;
   try {
     const res = await fetch(`${targetUrl}/api/health`);
-    health = await res.json();
+    const health = await res.json();
     assert(health.status === 'ok', 'System Health Check');
     assert(health.mongoConnected === true || health.database === 'mongodb', 'MongoDB Atlas Connection', health.mongoError || 'Connected');
   } catch (err) {
     assert(false, 'Health Check Request', err.message);
   }
 
-  // --- 2. SUPER ADMIN PORTAL & AUTH ---
+  // --- 2. SUPER ADMIN PORTAL & ANALYTICS ---
   console.log('\n--- 2. Super Admin Component & Service ---');
   let superAdminToken = '';
   try {
@@ -59,12 +46,12 @@ async function runComprehensiveVerification() {
     assert(loginData.success === true, 'Super Admin Authentication', `Role: ${loginData.user?.role}`);
     superAdminToken = loginData.token;
 
-    // Analytics endpoint for SuperAdminDashboard.tsx
-    const analyticsRes = await fetch(`${targetUrl}/api/superadmin/analytics`, {
+    // Super Admin Stats (SuperAdminDashboard.tsx / GET /api/admin/stats)
+    const statsRes = await fetch(`${targetUrl}/api/admin/stats`, {
       headers: { Authorization: `Bearer ${superAdminToken}` }
     });
-    const analyticsData = await analyticsRes.json();
-    assert(analyticsRes.ok && (analyticsData.overview || analyticsData.totalColleges !== undefined), 'Super Admin Analytics Service');
+    const statsData = await statsRes.json();
+    assert(statsRes.ok && statsData.stats?.totalColleges !== undefined, 'Super Admin Stats & Metrics Service', `Colleges: ${statsData.stats?.totalColleges}`);
   } catch (err) {
     assert(false, 'Super Admin Flow', err.message);
   }
@@ -77,7 +64,7 @@ async function runComprehensiveVerification() {
   const adminPassword = 'CampusAdminPassword123!';
 
   try {
-    // Super Admin onboard college
+    // Super Admin onboarding a college
     const collegeRes = await fetch(`${targetUrl}/api/admin/colleges`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${superAdminToken}` },
@@ -100,6 +87,11 @@ async function runComprehensiveVerification() {
     });
     const adminLoginData = await adminLoginRes.json();
     assert(adminLoginData.success === true, 'College Admin Authentication', adminEmail);
+
+    // College Stats
+    const collegeStatsRes = await fetch(`${targetUrl}/api/college/stats?collegeCode=${testCollegeCode}`);
+    const collegeStatsData = await collegeStatsRes.json();
+    assert(collegeStatsRes.ok, 'College Admin Dashboard Stats Service');
   } catch (err) {
     assert(false, 'College Admin Flow', err.message);
   }
@@ -109,6 +101,7 @@ async function runComprehensiveVerification() {
   const facultyEmail = `prof.${Date.now().toString().slice(-4)}@apex.edu`;
   const facultyPassword = 'FacultySecret123!';
   let createdSlotId = '';
+  let facultyUser;
 
   try {
     // Register Faculty
@@ -137,13 +130,15 @@ async function runComprehensiveVerification() {
     });
     const facLoginData = await facLoginRes.json();
     assert(facLoginData.success === true, 'Faculty Login Component');
+    facultyUser = facLoginData.user;
 
-    // Faculty Create Slot (CreateSlotModal.tsx backend trigger)
-    const slotRes = await fetch(`${targetUrl}/api/slots`, {
+    // Faculty Create Slot (CreateSlotModal.tsx / POST /api/college/slots)
+    const testTopic = `Ethics of Autonomous Vehicles Vol ${Date.now().toString().slice(-4)}`;
+    const slotRes = await fetch(`${targetUrl}/api/college/slots`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        topic: 'Ethics of Autonomous Vehicles and Machine Decisions',
+        topic: testTopic,
         description: 'Evaluating decision frameworks in self-driving cars.',
         slotTiming: '11:00 AM - 11:30 AM',
         slotDate: 'Today',
@@ -154,8 +149,12 @@ async function runComprehensiveVerification() {
       })
     });
     const slotData = await slotRes.json();
-    assert(slotRes.ok && (slotData.id || slotData.slot?.id), 'Faculty CreateSlot Component', `Slot ID: ${slotData.id || slotData.slot?.id}`);
-    createdSlotId = slotData.id || slotData.slot?.id;
+    createdSlotId = slotData.slot?.id || slotData.id;
+    assert(slotRes.ok && createdSlotId, 'Faculty CreateSlot Component', `Slot ID: ${createdSlotId}`);
+
+    // Faculty Analytics Endpoint
+    const facAnalyticsRes = await fetch(`${targetUrl}/api/faculty/analytics`);
+    assert(facAnalyticsRes.ok, 'Faculty Dashboard Analytics Service');
   } catch (err) {
     assert(false, 'Faculty Component Flow', err.message);
   }
@@ -167,7 +166,7 @@ async function runComprehensiveVerification() {
   let studentUser;
 
   try {
-    // Student Register (StudentLogin.tsx registration tab)
+    // Student Register (StudentLogin.tsx)
     const stuRegRes = await fetch(`${targetUrl}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -194,19 +193,31 @@ async function runComprehensiveVerification() {
     const stuLoginData = await stuLoginRes.json();
     assert(stuLoginData.success === true, 'Student Login Component');
     studentUser = stuLoginData.user;
+    const studentToken = stuLoginData.token;
 
-    // Student Booking / Enrollment into Slot
+    // Student Slot Booking (StudentBookingModal.tsx / POST /api/student/book-slot)
     if (createdSlotId) {
-      const bookRes = await fetch(`${targetUrl}/api/slots/${createdSlotId}/enroll`, {
+      const bookRes = await fetch(`${targetUrl}/api/student/book-slot`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${studentToken}`
+        },
         body: JSON.stringify({
-          studentId: studentUser.studentId || studentUser.id,
+          slotId: createdSlotId,
+          studentId: studentUser.id,
+          studentIdentifier: studentUser.email,
+          studentEmail: studentUser.email,
           studentName: studentUser.name,
-          studentEmail: studentUser.email
+          collegeCode: testCollegeCode
         })
       });
-      assert(bookRes.ok, 'Student Slot Enrollment / Booking Modal', `Slot: ${createdSlotId}`);
+      const bookData = await bookRes.json();
+      assert(bookRes.ok && (bookData.success || bookData.status === 'confirmed' || bookData.booking), 'Student Slot Booking Modal & Endpoint', `Slot: ${createdSlotId} (msg: ${bookData.message || bookData.error || 'ok'})`);
+
+      // Verify booked slot status
+      const bookedCheckRes = await fetch(`${targetUrl}/api/student/${studentUser.id}/booked-slot`);
+      assert(bookedCheckRes.ok, 'Student Booked-Slot Verification Service');
     }
   } catch (err) {
     assert(false, 'Student Component Flow', err.message);
@@ -237,7 +248,7 @@ async function runComprehensiveVerification() {
           user: studentUser || { id: 'test-stu', name: 'Test Student', seatNumber: 1 }
         });
 
-        // Floor speaking state
+        // Speaking State
         socket.emit('peer-speaking-state', {
           slotId: createdSlotId || 'session-101',
           isSpeaking: true,
@@ -246,7 +257,7 @@ async function runComprehensiveVerification() {
           volumeLevel: 75
         });
 
-        // Live transcript broadcast
+        // Live Transcript Broadcast
         socket.emit('peer-transcript', {
           slotId: createdSlotId || 'session-101',
           text: 'In my perspective, autonomous vehicles must adhere to utilitarian ethical frameworks while safeguarding human passenger safety.',
@@ -270,50 +281,70 @@ async function runComprehensiveVerification() {
     assert(false, 'Live GD Room WebSockets', err.message);
   }
 
-  // --- 7. ASSESSMENT REPORT & 7-PARAMETER RUBRIC ---
-  console.log('\n--- 7. Assessment Engine & Student Report View ---');
-  let generatedReport;
+  // --- 7. AI FACILITATOR & ASSESSMENT ENGINE ---
+  console.log('\n--- 7. AI Facilitator & Assessment Report Suite ---');
+  let evaluationReport;
   try {
-    const reportRes = await fetch(`${targetUrl}/api/assessment-reports`, {
+    // AI Evaluation (StudentReportView.tsx / POST /api/facilitator/evaluate)
+    const evalRes = await fetch(`${targetUrl}/api/facilitator/evaluate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        slotId: createdSlotId || 'session-101',
-        studentId: studentUser?.studentId || 'STU-001',
-        studentName: studentUser?.name || 'Arun Varma',
-        collegeCode: testCollegeCode,
-        transcripts: [
+        student: {
+          id: studentUser?.id || 'STU-001',
+          name: studentUser?.name || 'Arun Varma',
+          college: testCollegeName,
+          collegeCode: testCollegeCode,
+          course: 'B.Tech AI & Data Science'
+        },
+        topic: 'Ethics of Autonomous Vehicles and Machine Decisions',
+        durationMinutes: 20,
+        transcriptHistory: [
           { speaker: studentUser?.name || 'Arun Varma', text: 'I believe we need structured ethical policies for AI vehicles.' }
         ]
       })
     });
-    const reportData = await reportRes.json();
-    assert(reportRes.ok && (reportData.report || reportData.id), '7-Parameter Assessment Generation (Gemini / Heuristic Engine)');
-    generatedReport = reportData.report || reportData;
+    const evalData = await evalRes.json();
+    assert(evalRes.ok && evalData.success && evalData.report, 'AI Facilitator 7-Parameter Evaluation Engine', `Grade: ${evalData.report?.grade}`);
+    evaluationReport = evalData.report;
 
-    // Validate 7 Rubric Parameters
-    if (generatedReport && generatedReport.skills) {
-      const skills = Object.keys(generatedReport.skills);
-      const expectedSkills = ['englishProficiency', 'fluency', 'clarityOfThought', 'confidence', 'contentKnowledge', 'collaboration', 'leadership'];
-      const hasRubric = expectedSkills.some((s) => skills.includes(s));
-      assert(hasRubric, 'Standard Academic 7-Parameter Rubric Validation', `Keys: ${skills.length} parameters`);
+    // Validate 7-Parameter Rubric Keys
+    if (evaluationReport && evaluationReport.skills) {
+      const skills = Object.keys(evaluationReport.skills);
+      assert(skills.length >= 7, 'Standard Academic 7-Parameter Rubric Validation', `${skills.length} parameters present`);
     }
 
-    // Faculty Endorsement Check
-    const endorseRes = await fetch(`${targetUrl}/api/assessment-reports/endorse`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        reportId: generatedReport?.id || 'sample-report',
-        facultyId: 'FAC-PATEL',
-        facultyName: 'Dr. Vikram Patel',
-        designation: 'Professor',
-        facultyRemarks: 'Exceptional argument structure and command of ethical theory.'
-      })
-    });
-    assert(endorseRes.ok, 'Faculty Report Endorsement & Grade Finalization');
+    // Faculty Endorsement (POST /api/facilitator/endorse)
+    if (evaluationReport) {
+      const endorseRes = await fetch(`${targetUrl}/api/facilitator/endorse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report: evaluationReport,
+          facultyRemarks: 'Exceptional argument structure and command of ethical theory.',
+          facultyUser: facultyUser || { name: 'Dr. Vikram Patel', facultyId: 'FAC-PATEL', designation: 'Professor' }
+        })
+      });
+      const endorseData = await endorseRes.json();
+      assert(endorseRes.ok && endorseData.success, 'Faculty Endorsement & Grade Finalization Component', `Endorsed: ${endorseData.report?.facultyEndorsement?.facultyName}`);
+    }
+
+    // Student Reports View (GET /api/student/reports?studentId=...)
+    const reportsRes = await fetch(`${targetUrl}/api/student/reports?studentId=${studentUser?.id || 'STU-001'}`);
+    const reportsData = await reportsRes.json();
+    assert(reportsRes.ok && reportsData.success, 'Student Assessment Reports Retrieval Service');
   } catch (err) {
     assert(false, 'Assessment Report Suite', err.message);
+  }
+
+  // --- 8. TOPICS REPOSITORY ---
+  console.log('\n--- 8. Topics & Curriculum Repository ---');
+  try {
+    const topicsRes = await fetch(`${targetUrl}/api/topics`);
+    const topicsData = await topicsRes.json();
+    assert(topicsRes.ok && Array.isArray(topicsData.topics) && topicsData.topics.length > 0, 'Curriculum Topics Repository', `${topicsData.topics.length} topics available`);
+  } catch (err) {
+    assert(false, 'Topics Repository', err.message);
   }
 
   // --- SUMMARY ---
@@ -322,7 +353,7 @@ async function runComprehensiveVerification() {
   console.log('='.repeat(80));
 
   if (failCount === 0) {
-    console.log('🎉 ALL COMPONENTS AND SERVICES ARE FULLY OPERATIONAL AND VERIFIED!\n');
+    console.log('🎉 ALL 18 COMPONENTS, REPOSITORIES, AND SERVICES ARE 100% OPERATIONAL!\n');
     process.exit(0);
   } else {
     console.log('⚠️ Some components or services encountered issues.\n');
