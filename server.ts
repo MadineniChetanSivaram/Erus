@@ -947,105 +947,236 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
     return res.status(400).json({ success: false, error: 'College ID or code is required' });
   }
 
-  // Find college in persistentState
+  const queryCode = String(req.query.code || req.body?.code || '').trim().toUpperCase();
+  const queryName = String(req.query.name || req.body?.name || '').trim();
+
+  // 1. Identify college in persistentState
   const colIndex = persistentState.colleges.findIndex(
-    (c) => c.id === targetId || c.code.toUpperCase() === targetId.toUpperCase()
+    (c) =>
+      c.id === targetId ||
+      c.code.toUpperCase() === targetId.toUpperCase() ||
+      (queryCode && c.code.toUpperCase() === queryCode) ||
+      (queryName && c.name.toLowerCase() === queryName.toLowerCase())
   );
 
-  let cleanCode = targetId.toUpperCase();
-  let collegeName = '';
+  let cleanCode = queryCode;
+  let collegeName = queryName;
+  let collegeId = targetId;
 
   if (colIndex !== -1) {
     const col = persistentState.colleges[colIndex];
     cleanCode = col.code.toUpperCase();
     collegeName = col.name;
+    collegeId = col.id;
     persistentState.colleges.splice(colIndex, 1);
   }
 
-  // Clean in-memory rosters & sessions
-  delete persistentState.students[cleanCode];
-  delete persistentState.faculty[cleanCode];
-  delete persistentState.slots[cleanCode];
+  if (!cleanCode && targetId.length <= 15 && !targetId.toLowerCase().startsWith('col-')) {
+    cleanCode = targetId.toUpperCase();
+  }
 
-  // Remove users belonging to this college
-  persistentState.users = persistentState.users.filter(
-    (u) =>
-      u.collegeCode?.toUpperCase() !== cleanCode &&
-      (!collegeName || u.college?.toLowerCase() !== collegeName.toLowerCase())
+  // MongoDB lookup for college metadata if not yet found
+  if (isMongoConnected()) {
+    try {
+      const mongoLookupQueries: any[] = [{ id: targetId }, { id: collegeId }];
+      if (cleanCode) mongoLookupQueries.push({ code: cleanCode });
+      if (collegeName) mongoLookupQueries.push({ name: collegeName });
+
+      const mongoCol = await CollegeModel.findOne({ $or: mongoLookupQueries });
+      if (mongoCol) {
+        cleanCode = cleanCode || mongoCol.code.toUpperCase();
+        collegeName = collegeName || mongoCol.name;
+        collegeId = collegeId || mongoCol.id;
+      }
+    } catch (e) {
+      console.warn('[MongoDB] Lookup error during college delete:', e);
+    }
+  }
+
+  // PostgreSQL lookup for college metadata if not yet found
+  let dbColId: string | null = null;
+  if (isDbConnected && prisma) {
+    try {
+      const dbLookupQueries: any[] = [{ id: targetId }, { id: collegeId }];
+      if (cleanCode) dbLookupQueries.push({ code: cleanCode });
+      if (collegeName) dbLookupQueries.push({ name: collegeName });
+
+      const dbCol = await prisma.college.findFirst({
+        where: { OR: dbLookupQueries },
+      });
+      if (dbCol) {
+        cleanCode = cleanCode || dbCol.code.toUpperCase();
+        collegeName = collegeName || dbCol.name;
+        dbColId = dbCol.id;
+      }
+    } catch (e) {
+      console.warn('[Prisma] Lookup error during college delete:', e);
+    }
+  }
+
+  // Compile full set of candidate codes, names, and IDs for comprehensive purge
+  const allCodes = Array.from(
+    new Set([cleanCode, queryCode, targetId.toUpperCase()].filter((c) => c && c.length <= 15 && !c.startsWith('COL-')))
   );
+  if (cleanCode && !allCodes.includes(cleanCode)) allCodes.push(cleanCode);
+
+  const allNames = Array.from(new Set([collegeName, queryName].filter(Boolean)));
+  const allIds = Array.from(new Set([targetId, collegeId, dbColId].filter(Boolean) as string[]));
+
+  console.log(`[Admin Delete College] Purging college and all roster data - Codes:`, allCodes, `Names:`, allNames, `IDs:`, allIds);
+
+  // ----------------------------------------------------
+  // A. CLEAN IN-MEMORY PERSISTENT STATE
+  // ----------------------------------------------------
+  for (const c of allCodes) {
+    delete persistentState.students[c];
+    delete persistentState.faculty[c];
+    delete persistentState.slots[c];
+  }
+
+  // Clean any slots in other keys that reference this college
+  for (const [k, slotList] of Object.entries(persistentState.slots)) {
+    persistentState.slots[k] = slotList.filter(
+      (s) => !allCodes.includes(s.collegeCode?.toUpperCase())
+    );
+  }
+
+  // Collect IDs of deleted users for booking state cleanup
+  const deletedUserIds = new Set<string>();
+  persistentState.users = persistentState.users.filter((u) => {
+    const uCode = (u.collegeCode || '').trim().toUpperCase();
+    const uCollege = (u.college || '').trim().toLowerCase();
+    const isCodeMatch = allCodes.includes(uCode);
+    const isNameMatch = allNames.some((n) => n.toLowerCase() === uCollege);
+    const isIdMatch = allIds.includes((u as any).collegeId) || allIds.includes(u.id);
+
+    if (isCodeMatch || isNameMatch || isIdMatch) {
+      deletedUserIds.add(u.id);
+      if ((u as any).studentId) deletedUserIds.add((u as any).studentId);
+      return false;
+    }
+    return true;
+  });
+
+  // Clean student booking references
+  for (const uid of deletedUserIds) {
+    delete persistentState.studentBookings[uid];
+    delete persistentState.studentTopicBookings[uid];
+  }
 
   savePersistentState();
 
-  // MongoDB deletion
+  // ----------------------------------------------------
+  // B. CLEAN MONGODB
+  // ----------------------------------------------------
   if (isMongoConnected()) {
     try {
-      const sessions = await GDSessionModel.find({ collegeCode: cleanCode }, 'id');
+      const sessionOrQueries = allCodes.map((code) => ({ collegeCode: code }));
+      const sessions = sessionOrQueries.length > 0 ? await GDSessionModel.find({ $or: sessionOrQueries }, 'id') : [];
       const sessionIds = sessions.map((s) => s.id);
+
       if (sessionIds.length > 0) {
         await TranscriptEntryModel.deleteMany({ sessionId: { $in: sessionIds } });
         await AssessmentReportModel.deleteMany({ sessionId: { $in: sessionIds } });
         await GDBookingModel.deleteMany({ sessionId: { $in: sessionIds } });
         await GDSessionModel.deleteMany({ id: { $in: sessionIds } });
       }
-      await UserModel.deleteMany({
-        $or: [
-          { collegeCode: cleanCode },
-          { college: collegeName },
-        ],
-      });
-      await CollegeModel.deleteMany({
-        $or: [
-          { code: cleanCode },
-          { id: targetId },
-        ],
-      });
-      console.log(`[MongoDB] Deleted college ${cleanCode} and all related documents.`);
+
+      // Find matching users in MongoDB to get user IDs
+      const userConditions: any[] = [];
+      if (allCodes.length > 0) userConditions.push({ collegeCode: { $in: allCodes } });
+      if (allNames.length > 0) userConditions.push({ college: { $in: allNames.map((n) => new RegExp(`^${n}$`, 'i')) } });
+      if (allIds.length > 0) userConditions.push({ id: { $in: allIds } });
+
+      if (userConditions.length > 0) {
+        const matchingUsers = await UserModel.find({ $or: userConditions }, 'id studentProfile.studentId');
+        const mongoUserIds = matchingUsers.flatMap((u) => [u.id, u.studentProfile?.studentId].filter(Boolean));
+
+        if (mongoUserIds.length > 0) {
+          await AssessmentReportModel.deleteMany({ studentId: { $in: mongoUserIds } });
+          await GDBookingModel.deleteMany({ studentId: { $in: mongoUserIds } });
+        }
+
+        const deletedUsersResult = await UserModel.deleteMany({ $or: userConditions });
+        console.log(`[MongoDB] Deleted ${deletedUsersResult.deletedCount} users for college.`);
+      }
+
+      // Delete College documents
+      const collegeConditions: any[] = [];
+      if (allCodes.length > 0) collegeConditions.push({ code: { $in: allCodes } });
+      if (allIds.length > 0) collegeConditions.push({ id: { $in: allIds } });
+      if (allNames.length > 0) collegeConditions.push({ name: { $in: allNames } });
+
+      if (collegeConditions.length > 0) {
+        await CollegeModel.deleteMany({ $or: collegeConditions });
+      }
+      console.log(`[MongoDB] Purged college ${cleanCode} and all related records.`);
     } catch (mErr: any) {
       console.warn('[MongoDB] Error deleting college from MongoDB:', mErr.message);
     }
   }
 
-  // PostgreSQL / Prisma deletion
+  // ----------------------------------------------------
+  // C. CLEAN POSTGRESQL / PRISMA
+  // ----------------------------------------------------
   if (isDbConnected && prisma) {
     try {
-      const dbCol = await prisma.college.findFirst({
+      const dbColleges = await prisma.college.findMany({
         where: {
           OR: [
-            { id: targetId },
-            { code: cleanCode },
+            ...(allIds.length > 0 ? [{ id: { in: allIds } }] : []),
+            ...(allCodes.length > 0 ? [{ code: { in: allCodes } }] : []),
+            ...(allNames.length > 0 ? [{ name: { in: allNames } }] : []),
           ],
         },
       });
 
-      if (dbCol) {
-        const sessions = await prisma.gDSession.findMany({
-          where: { collegeId: dbCol.id },
-          select: { id: true },
-        });
-        const sessionIds = sessions.map((s) => s.id);
-        if (sessionIds.length > 0) {
-          await prisma.assessmentReport.deleteMany({ where: { sessionId: { in: sessionIds } } });
-          await prisma.transcriptEntry.deleteMany({ where: { sessionId: { in: sessionIds } } });
-          await prisma.gDBooking.deleteMany({ where: { sessionId: { in: sessionIds } } });
-          await prisma.gDSession.deleteMany({ where: { id: { in: sessionIds } } });
-        }
+      const matchedCollegeIds = Array.from(new Set([...allIds, ...dbColleges.map((c) => c.id)]));
 
-        const users = await prisma.user.findMany({
-          where: { collegeId: dbCol.id },
-          select: { id: true },
-        });
-        const userIds = users.map((u) => u.id);
-        if (userIds.length > 0) {
-          await prisma.studentProfile.deleteMany({ where: { userId: { in: userIds } } });
-          await prisma.facultyProfile.deleteMany({ where: { userId: { in: userIds } } });
-          await prisma.collegeAdminProfile.deleteMany({ where: { userId: { in: userIds } } });
-          await prisma.gDBooking.deleteMany({ where: { studentId: { in: userIds } } });
-          await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-        }
-
-        await prisma.college.delete({ where: { id: dbCol.id } });
-        console.log(`[Database] Deleted college ${cleanCode} (${dbCol.id}) from PostgreSQL.`);
+      // 1. Delete all sessions and child transcripts/reports/bookings
+      const sessions = await prisma.gDSession.findMany({
+        where: {
+          OR: [
+            { collegeId: { in: matchedCollegeIds } },
+            { college: { code: { in: allCodes } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const sessionIds = sessions.map((s) => s.id);
+      if (sessionIds.length > 0) {
+        await prisma.assessmentReport.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await prisma.transcriptEntry.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await prisma.gDBooking.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await prisma.gDSession.deleteMany({ where: { id: { in: sessionIds } } });
       }
+
+      // 2. Delete all users belonging to this college (students, faculty, college admins)
+      const users = await prisma.user.findMany({
+        where: {
+          OR: [
+            { collegeId: { in: matchedCollegeIds } },
+            { college: { in: [...allCodes, ...allNames] } },
+          ],
+        },
+        select: { id: true },
+      });
+      const userIds = users.map((u) => u.id);
+      if (userIds.length > 0) {
+        await prisma.assessmentReport.deleteMany({ where: { studentId: { in: userIds } } });
+        await prisma.studentProfile.deleteMany({ where: { userId: { in: userIds } } });
+        await prisma.facultyProfile.deleteMany({ where: { userId: { in: userIds } } });
+        await prisma.collegeAdminProfile.deleteMany({ where: { userId: { in: userIds } } });
+        await prisma.gDBooking.deleteMany({ where: { studentId: { in: userIds } } });
+        const deletedUserCount = await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+        console.log(`[Database] Deleted ${deletedUserCount.count} users in PostgreSQL.`);
+      }
+
+      // 3. Delete college record
+      if (matchedCollegeIds.length > 0) {
+        await prisma.college.deleteMany({ where: { id: { in: matchedCollegeIds } } });
+      }
+      console.log(`[Database] Deleted college records from PostgreSQL.`);
     } catch (dbErr: any) {
       console.warn('[Database] Failed to delete college from PostgreSQL:', dbErr.message);
     }
@@ -1053,7 +1184,7 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
 
   res.json({
     success: true,
-    message: `College ${cleanCode} and all associated rosters deleted successfully.`,
+    message: `College ${cleanCode || targetId} and all associated student profiles, faculty members, admin accounts, and slots have been deleted successfully.`,
   });
 });
 

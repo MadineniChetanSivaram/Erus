@@ -581,25 +581,73 @@ export async function sendCollegeCredentials(collegeId: string) {
   return { success: true, message: 'Credentials dispatched successfully via secure notification.' };
 }
 
-export async function deleteCollege(collegeIdOrCode: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteCollege(
+  collegeIdOrCode: string,
+  collegeCode?: string,
+  collegeName?: string
+): Promise<{ success: boolean; error?: string }> {
   const target = (collegeIdOrCode || '').trim();
   if (!target) return { success: false, error: 'No college ID or code provided' };
 
+  const code = (collegeCode || (target.length <= 8 && !target.startsWith('col-') ? target : '')).trim().toUpperCase();
+  const name = (collegeName || '').trim();
+
   try {
     const local = getLocalCustomColleges();
-    const updated = local.filter(
-      (c) => c.id !== target && c.code?.toUpperCase() !== target.toUpperCase()
+    const targetCol = local.find(
+      (c) => c.id === target || (code && c.code?.toUpperCase() === code) || c.code?.toUpperCase() === target.toUpperCase()
     );
+    const resolvedCode = (code || targetCol?.code || (target.length <= 8 && !target.startsWith('col-') ? target : '')).toUpperCase();
+    const resolvedName = name || targetCol?.name || '';
+
+    const updated = local.filter((c) => {
+      const matchId = target && c.id === target;
+      const matchCode = resolvedCode && c.code?.toUpperCase() === resolvedCode;
+      const matchTargetCode = target && c.code?.toUpperCase() === target.toUpperCase();
+      const matchName = resolvedName && c.name?.toLowerCase() === resolvedName.toLowerCase();
+      return !(matchId || matchCode || matchTargetCode || matchName);
+    });
     localStorage.setItem(CUSTOM_COLLEGES_KEY, JSON.stringify(updated));
-    localStorage.removeItem(`erus_college_students_${target.toUpperCase()}`);
-    localStorage.removeItem(`erus_college_slots_${target.toUpperCase()}`);
-    localStorage.removeItem(`erus_college_faculty_${target.toUpperCase()}`);
+
+    // Clear all student, faculty, and slot keys associated with this college
+    const codesToClear = Array.from(new Set([resolvedCode, code, target.toUpperCase()].filter(Boolean)));
+    for (const c of codesToClear) {
+      localStorage.removeItem(`erus_college_students_${c}`);
+      localStorage.removeItem(`erus_college_slots_${c}`);
+      localStorage.removeItem(`erus_college_faculty_${c}`);
+    }
+
+    // Purge registered users belonging to this college from `erus_registered_users_db`
+    try {
+      const usersRaw = localStorage.getItem('erus_registered_users_db');
+      if (usersRaw) {
+        const users = JSON.parse(usersRaw);
+        if (Array.isArray(users)) {
+          const filteredUsers = users.filter((u: any) => {
+            const uCode = (u.collegeCode || '').trim().toUpperCase();
+            const uCollege = (u.college || '').trim().toLowerCase();
+            const isMatchCode = resolvedCode && uCode === resolvedCode;
+            const isMatchTarget = target && (uCode === target.toUpperCase() || u.collegeId === target);
+            const isMatchName = resolvedName && uCollege === resolvedName.toLowerCase();
+            return !(isMatchCode || isMatchTarget || isMatchName);
+          });
+          localStorage.setItem('erus_registered_users_db', JSON.stringify(filteredUsers));
+        }
+      }
+    } catch (uErr) {
+      console.warn('Error clearing users from erus_registered_users_db:', uErr);
+    }
   } catch (e) {
     console.warn('Error clearing local college storage:', e);
   }
 
   try {
-    const res = await fetch(`/api/admin/colleges/${encodeURIComponent(target)}`, {
+    const params = new URLSearchParams();
+    if (code) params.set('code', code);
+    if (name) params.set('name', name);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+
+    const res = await fetch(`/api/admin/colleges/${encodeURIComponent(target)}${queryString}`, {
       method: 'DELETE',
     });
     const data = await res.json().catch(() => ({}));

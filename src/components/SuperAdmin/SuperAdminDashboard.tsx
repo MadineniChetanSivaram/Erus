@@ -126,17 +126,19 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     if (!collegeToDelete) return;
     setIsDeleting(true);
     const target = collegeToDelete.id || collegeToDelete.code;
-    const res = await deleteCollege(target);
+    const res = await deleteCollege(target, collegeToDelete.code, collegeToDelete.name);
     setIsDeleting(false);
 
     if (res && res.success) {
-      setBannerMsg(`Institution "${collegeToDelete.name}" (${collegeToDelete.code}) has been deleted successfully.`);
+      setBannerMsg(`Institution "${collegeToDelete.name}" (${collegeToDelete.code}) and all its student and faculty records have been deleted successfully.`);
       setColleges((prev) =>
         prev.filter((c) => c.id !== collegeToDelete.id && c.code?.toUpperCase() !== collegeToDelete.code?.toUpperCase())
       );
       setStats((prev) => ({
         ...prev,
         totalColleges: Math.max(0, (prev.totalColleges || 1) - 1),
+        totalStudents: Math.max(0, (prev.totalStudents || 0) - (collegeToDelete.studentCount || 0)),
+        totalFaculty: Math.max(0, (prev.totalFaculty || 0) - (collegeToDelete.facultyCount || 0)),
       }));
       setCollegeToDelete(null);
       loadData();
