@@ -2008,30 +2008,47 @@ app.post('/api/college/slots', async (req, res) => {
 app.delete('/api/college/slots/:id', async (req, res) => {
   const slotId = req.params.id;
   let target: any = null;
-  let code = '';
 
-  for (const [collegeCode, list] of Object.entries(persistentState.slots)) {
+  for (const list of Object.values(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
     if (found) {
       target = found;
-      code = collegeCode;
       break;
     }
   }
 
-  if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
-  if (target.status === 'active') {
+  if (target && target.status === 'active') {
     return res.status(409).json({ success: false, error: 'An active GD session cannot be deleted' });
   }
 
-  persistentState.slots[code] = (persistentState.slots[code] || []).filter((s) => s.id !== slotId);
+  // Remove from in-memory slots across all colleges
+  for (const c of Object.keys(persistentState.slots)) {
+    persistentState.slots[c] = (persistentState.slots[c] || []).filter((s) => s.id !== slotId);
+  }
+
+  // Remove associated student bookings
+  for (const [studentKey, bookedSlot] of Object.entries(persistentState.studentBookings)) {
+    if (bookedSlot === slotId) {
+      delete persistentState.studentBookings[studentKey];
+    }
+  }
+  for (const [, topicMap] of Object.entries(persistentState.studentTopicBookings)) {
+    if (topicMap && typeof topicMap === 'object') {
+      for (const [tKey, sId] of Object.entries(topicMap)) {
+        if (sId === slotId) {
+          delete topicMap[tKey];
+        }
+      }
+    }
+  }
+
   savePersistentState();
   deleteSlotFromMongoDB(slotId);
 
   if (isDbConnected && prisma) {
     try {
       await prisma.gDBooking.deleteMany({ where: { sessionId: slotId } });
-      await prisma.gDSession.delete({ where: { id: slotId } });
+      await prisma.gDSession.deleteMany({ where: { id: slotId } });
     } catch (dbErr: any) {
       console.warn('[Database] Failed to delete GD slot from PostgreSQL:', dbErr.message);
     }

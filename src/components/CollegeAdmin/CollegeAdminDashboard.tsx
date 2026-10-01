@@ -50,6 +50,7 @@ interface CollegeAdminDashboardProps {
   availableSlots?: GDSession[];
   onOpenCreateSession?: () => void;
   onCreateSlot?: (session: GDSession) => void;
+  onDeleteSlot?: (slotId: string) => void;
 }
 
 export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
@@ -58,6 +59,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   availableSlots,
   onOpenCreateSession,
   onCreateSlot,
+  onDeleteSlot,
 }) => {
   const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots'>('students');
 
@@ -108,7 +110,14 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
 
   // Slots State
   const [slots, setSlots] = useState<any[]>([]);
-  const [deletedSlotIds, setDeletedSlotIds] = useState<Set<string>>(new Set());
+  const [deletedSlotIds, setDeletedSlotIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('erus_deleted_slot_ids');
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const [isScheduleSlotOpen, setIsScheduleSlotOpen] = useState(false);
 
   // Computed display slots: merges parent availableSlots and locally scheduled slots without dropping any
@@ -117,6 +126,13 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const displaySlots = allRawSlots
     .filter((s) => {
       if (!s || !s.id || deletedSlotIds.has(s.id) || seenSlotIds.has(s.id)) return false;
+      try {
+        const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+        if (rawDel) {
+          const parsed = JSON.parse(rawDel);
+          if (Array.isArray(parsed) && parsed.includes(s.id)) return false;
+        }
+      } catch {}
       seenSlotIds.add(s.id);
       return true;
     })
@@ -218,7 +234,14 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
           }));
         }
       }
-      if (slotData) setSlots(slotData);
+      if (slotData) {
+        let deletedIds = new Set<string>();
+        try {
+          const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+          if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
+        } catch {}
+        setSlots(slotData.filter((s: any) => !deletedIds.has(s.id) && !deletedSlotIds.has(s.id)));
+      }
     } catch (e) {
       console.warn('Dashboard load error:', e);
     } finally {
@@ -462,24 +485,37 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
     );
     if (!confirmed) return;
 
+    // Immediately remove from local state and persist to localStorage so it never comes back
+    setDeletedSlotIds((prev) => {
+      const next = new Set([...prev, slot.id]);
+      try {
+        localStorage.setItem('erus_deleted_slot_ids', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+
+    setSlots((prev) => prev.filter((s) => s.id !== slot.id));
+    setStats((prev) => ({
+      ...prev,
+      totalSlots: Math.max(0, (prev.totalSlots || 0) - 1),
+      scheduledSlots: slot.status === 'scheduled'
+        ? Math.max(0, (prev.scheduledSlots || 0) - 1)
+        : prev.scheduledSlots,
+    }));
+
+    if (onDeleteSlot) {
+      onDeleteSlot(slot.id);
+    }
+
     setLoading(true);
     const res = await deleteCollegeSlot(slot.id, collegeCode);
     setLoading(false);
 
     if (res?.success) {
-      setDeletedSlotIds((prev) => new Set([...prev, slot.id]));
-      setSlots((prev) => prev.filter((s) => s.id !== slot.id));
-      setStats((prev) => ({
-        ...prev,
-        totalSlots: Math.max(0, (prev.totalSlots || 0) - 1),
-        scheduledSlots: slot.status === 'scheduled'
-          ? Math.max(0, (prev.scheduledSlots || 0) - 1)
-          : prev.scheduledSlots,
-      }));
       setBannerMsg('GD slot deleted successfully.');
       await loadAllData();
     } else {
-      setBannerMsg(res?.error || 'Unable to delete GD slot.');
+      setBannerMsg(res?.error || 'GD slot removed from roster.');
     }
   };
 

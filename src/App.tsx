@@ -63,14 +63,20 @@ function GDAppContent() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          let deletedIds = new Set<string>();
+          try {
+            const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+            if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
+          } catch {}
+          const notDeleted = parsed.filter((s: GDSession) => s && s.id && !deletedIds.has(s.id));
           // Check if every slot in storage is marked full (15/15) - if so, discard stale cache
-          const allFull = parsed.every((s: GDSession) => {
+          const allFull = notDeleted.every((s: GDSession) => {
             const maxCap = s.maxCapacity || 15;
             const enrolled = s.enrolledCount ?? s.students?.length ?? 15;
             return enrolled >= maxCap;
           });
-          if (!allFull) {
-            return parsed.map((s: GDSession) => ({
+          if (!allFull && notDeleted.length > 0) {
+            return notDeleted.map((s: GDSession) => ({
               ...s,
               status: s.status === 'completed' ? 'completed' : (s.status === 'active' ? 'active' : 'waiting'),
             }));
@@ -216,7 +222,13 @@ function GDAppContent() {
           : await fetchCollegeSlots(collegeCode);
 
         if (Array.isArray(rawSlots)) {
-          const mappedSlots: GDSession[] = rawSlots.map((s: any): GDSession => ({
+          let deletedIds = new Set<string>();
+          try {
+            const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+            if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
+          } catch {}
+          const filteredRaw = rawSlots.filter((s: any) => s && s.id && !deletedIds.has(s.id));
+          const mappedSlots: GDSession[] = filteredRaw.map((s: any): GDSession => ({
             ...INITIAL_SESSION,
             id: s.id,
             topic: s.topic || s.slotName || 'Group Discussion',
@@ -1010,6 +1022,23 @@ function GDAppContent() {
     handleCreateSessions([newSession]);
   };
 
+  const handleDeleteSession = (slotId: string) => {
+    setAvailableSlots((prev) => prev.filter((s) => s.id !== slotId));
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed.filter((s: any) => s.id !== slotId)));
+        }
+      }
+      const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+      const delSet = new Set(rawDel ? JSON.parse(rawDel) : []);
+      delSet.add(slotId);
+      localStorage.setItem('erus_deleted_slot_ids', JSON.stringify(Array.from(delSet)));
+    } catch {}
+  };
+
   const handleViewStudentReport = (studentId: string) => {
     setViewingStudentId(studentId);
     setCurrentTab('report');
@@ -1316,6 +1345,7 @@ function GDAppContent() {
             availableSlots={availableSlots}
             onOpenCreateSession={() => setIsCreateModalOpen(true)}
             onCreateSlot={handleCreateSession}
+            onDeleteSlot={handleDeleteSession}
             onEnterGDRoom={(slot) => {
               if (slot) {
                 handleSelectSlot(typeof slot === 'string' ? slot : (slot.id || ''));

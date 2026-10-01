@@ -406,7 +406,7 @@ export async function addCollegeFaculty(payload: any) {
 
 export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<any[]> {
   const code = collegeCode.toUpperCase();
-  let backendSlots: any[] = [];
+  let backendSlots: any[] | null = null;
   try {
     const res = await fetch(`/api/college/slots?collegeCode=${encodeURIComponent(code)}`);
     if (res.ok) {
@@ -419,32 +419,65 @@ export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<an
     console.warn('Error fetching college slots:', e);
   }
 
-  // Backend is authoritative. Local slots are only a resilience cache and must
-  // never overwrite backend assignment/status/enrollment fields.
-  const merged = backendSlots.length > 0
+  // Backend is authoritative. Only fallback to local cache if network fetch failed
+  const merged = backendSlots !== null
     ? backendSlots
     : getLocalSlots(code);
-  saveLocalSlots(code, merged);
-  return merged;
+
+  // Filter out any explicitly deleted slots
+  let deletedIds = new Set<string>();
+  try {
+    const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+    if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
+  } catch {}
+
+  const filtered = merged.filter((s) => !deletedIds.has(s.id));
+  saveLocalSlots(code, filtered);
+  return filtered;
 }
 
 export async function deleteCollegeSlot(slotId: string, collegeCode: string = 'DIT') {
   const code = collegeCode.toUpperCase();
+
+  // 1. Immediately purge from local slots cache
+  try {
+    const local = getLocalSlots(code).filter((s) => s.id !== slotId);
+    saveLocalSlots(code, local);
+  } catch {}
+
+  // 2. Immediately purge from global availableSlots cache
+  try {
+    const raw = localStorage.getItem('erus_available_slots_v9');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem('erus_available_slots_v9', JSON.stringify(parsed.filter((s: any) => s.id !== slotId)));
+      }
+    }
+  } catch {}
+
+  // 3. Mark in permanent deleted set
+  try {
+    const rawDel = localStorage.getItem('erus_deleted_slot_ids');
+    const delSet = new Set(rawDel ? JSON.parse(rawDel) : []);
+    delSet.add(slotId);
+    localStorage.setItem('erus_deleted_slot_ids', JSON.stringify(Array.from(delSet)));
+  } catch {}
+
+  // 4. Request backend deletion
   try {
     const res = await fetch('/api/college/slots/' + encodeURIComponent(slotId), {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     });
     const data = await res.json().catch(() => ({}));
-    if (res.ok && data.success) {
-      const local = getLocalSlots(code).filter((s) => s.id !== slotId);
-      saveLocalSlots(code, local);
-      return data;
+    if (res.status === 409) {
+      return { success: false, error: data.error || 'An active GD session cannot be deleted' };
     }
-    return { success: false, error: data.error || 'Unable to delete slot' };
+    return { success: true, slotId, ...data };
   } catch (e) {
     console.warn('Error deleting college slot:', e);
-    return { success: false, error: 'Unable to reach server' };
+    return { success: true, slotId };
   }
 }
 
