@@ -685,7 +685,76 @@ export async function fetchAdminStats() {
     totalFaculty: 0,
     totalSlots: 0,
     activeLiveGDs: 0,
+    activeUsersCount: 1,
+    activeUsersTodayCount: 1,
+    dailyUserLimit: 100,
+    enforceDailyLimit: true,
+    serverLoadPercent: 1,
   };
+}
+
+export interface ServerCapacityData {
+  activeUsersCount: number;
+  activeUsersTodayCount: number;
+  dailyUserLimit: number;
+  maxConcurrentUsers: number;
+  enforceDailyLimit: boolean;
+  lastResetDate: string;
+  serverLoadPercent: number;
+  activeUsers?: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+    college?: string;
+    lastActive: number;
+  }>;
+}
+
+export async function fetchServerCapacity(): Promise<ServerCapacityData | null> {
+  try {
+    const res = await fetch('/api/admin/capacity');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.capacity) return data.capacity;
+    }
+  } catch (e) {
+    console.warn('Error fetching server capacity:', e);
+  }
+  return null;
+}
+
+export async function updateServerCapacity(payload: {
+  dailyUserLimit: number;
+  enforceDailyLimit: boolean;
+  maxConcurrentUsers?: number;
+}): Promise<{ success: boolean; message?: string; capacity?: ServerCapacityData }> {
+  try {
+    const res = await fetch('/api/admin/capacity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (e) {
+    console.warn('Error updating server capacity:', e);
+  }
+  return { success: false, message: 'Failed to update capacity settings' };
+}
+
+export async function sendUserHeartbeat(user: any): Promise<void> {
+  if (!user || !user.id) return;
+  try {
+    await fetch('/api/user/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user }),
+    });
+  } catch (e) {
+    // Silent background heartbeat failure
+  }
 }
 
 

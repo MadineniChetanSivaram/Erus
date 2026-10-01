@@ -139,6 +139,37 @@ const DEFAULT_USERS: StoredAuthUser[] = [
 
 const PERSIST_FILE = path.join(process.cwd(), '.erus_backend_state.json');
 
+interface SystemSettings {
+  dailyUserLimit: number; // 0 = unlimited
+  maxConcurrentUsers: number;
+  enforceDailyLimit: boolean;
+  lastResetDate: string; // YYYY-MM-DD
+  activeUsersToday: string[];
+  updatedAt: string;
+}
+
+interface LiveActiveUser {
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  college?: string;
+  lastActive: number;
+  socketId?: string;
+}
+
+const liveActiveUsers = new Map<string, LiveActiveUser>();
+
+function pruneInactiveUsers() {
+  const cutoff = Date.now() - 20 * 60 * 1000; // 20 mins inactivity
+  for (const [userId, u] of liveActiveUsers.entries()) {
+    if (u.lastActive < cutoff) {
+      liveActiveUsers.delete(userId);
+    }
+  }
+}
+setInterval(pruneInactiveUsers, 60 * 1000);
+
 let persistentState = {
   colleges: [...DEFAULT_COLLEGES],
   students: { ...DEFAULT_COLLEGE_STUDENTS },
@@ -147,7 +178,53 @@ let persistentState = {
   users: [...DEFAULT_USERS],
   studentBookings: {} as Record<string, string>,
   studentTopicBookings: {} as Record<string, Record<string, string>>,
+  systemSettings: {
+    dailyUserLimit: 100,
+    maxConcurrentUsers: 50,
+    enforceDailyLimit: true,
+    lastResetDate: new Date().toISOString().slice(0, 10),
+    activeUsersToday: [] as string[],
+    updatedAt: new Date().toISOString(),
+  } as SystemSettings,
 };
+
+function checkAndResetDailyStats() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!persistentState.systemSettings) {
+    persistentState.systemSettings = {
+      dailyUserLimit: 100,
+      maxConcurrentUsers: 50,
+      enforceDailyLimit: true,
+      lastResetDate: today,
+      activeUsersToday: [],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  if (persistentState.systemSettings.lastResetDate !== today) {
+    persistentState.systemSettings.lastResetDate = today;
+    persistentState.systemSettings.activeUsersToday = [];
+    savePersistentState();
+  }
+}
+
+function recordUserActivity(user: { id: string; name?: string; email?: string; role?: string; college?: string }) {
+  if (!user || !user.id) return;
+  checkAndResetDailyStats();
+
+  if (!persistentState.systemSettings.activeUsersToday.includes(user.id)) {
+    persistentState.systemSettings.activeUsersToday.push(user.id);
+    savePersistentState();
+  }
+
+  liveActiveUsers.set(user.id, {
+    userId: user.id,
+    name: user.name || 'User',
+    email: user.email || '',
+    role: user.role || 'student',
+    college: user.college || '',
+    lastActive: Date.now(),
+  });
+}
 
 function loadPersistentState() {
   try {
@@ -216,6 +293,17 @@ function loadPersistentState() {
         }
         if (data.studentTopicBookings && typeof data.studentTopicBookings === 'object') {
           persistentState.studentTopicBookings = data.studentTopicBookings;
+        }
+        if (data.systemSettings && typeof data.systemSettings === 'object') {
+          persistentState.systemSettings = {
+            dailyUserLimit: typeof data.systemSettings.dailyUserLimit === 'number' ? data.systemSettings.dailyUserLimit : 100,
+            maxConcurrentUsers: typeof data.systemSettings.maxConcurrentUsers === 'number' ? data.systemSettings.maxConcurrentUsers : 50,
+            enforceDailyLimit: typeof data.systemSettings.enforceDailyLimit === 'boolean' ? data.systemSettings.enforceDailyLimit : true,
+            lastResetDate: data.systemSettings.lastResetDate || new Date().toISOString().slice(0, 10),
+            activeUsersToday: Array.isArray(data.systemSettings.activeUsersToday) ? data.systemSettings.activeUsersToday : [],
+            updatedAt: data.systemSettings.updatedAt || new Date().toISOString(),
+          };
+          checkAndResetDailyStats();
         }
       }
     }
@@ -1233,12 +1321,20 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
 });
 
 app.get('/api/admin/stats', (req, res) => {
+  checkAndResetDailyStats();
+  pruneInactiveUsers();
+
   let totalStu = 0;
   Object.values(persistentState.students).forEach((list) => { totalStu += list.length; });
   let totalFac = 0;
   Object.values(persistentState.faculty).forEach((list) => { totalFac += list.length; });
   let totalSl = 0;
   Object.values(persistentState.slots).forEach((list) => { totalSl += list.length; });
+
+  const activeCount = Math.max(1, liveActiveUsers.size);
+  const todayCount = persistentState.systemSettings.activeUsersToday.length || activeCount;
+  const limit = persistentState.systemSettings.dailyUserLimit;
+  const loadPercent = limit > 0 ? Math.min(100, Math.round((todayCount / limit) * 100)) : Math.min(100, Math.round((activeCount / 50) * 100));
 
   res.json({
     success: true,
@@ -1248,7 +1344,98 @@ app.get('/api/admin/stats', (req, res) => {
       totalFaculty: totalFac || 32,
       totalSlots: totalSl || 14,
       activeLiveGDs: (typeof LIVE_ROOMS !== 'undefined' ? LIVE_ROOMS.size : 0) || 1,
+      activeUsersCount: activeCount,
+      activeUsersTodayCount: todayCount,
+      dailyUserLimit: limit,
+      maxConcurrentUsers: persistentState.systemSettings.maxConcurrentUsers || 50,
+      enforceDailyLimit: persistentState.systemSettings.enforceDailyLimit,
+      serverLoadPercent: loadPercent,
     },
+  });
+});
+
+// --- SUPER ADMIN CAPACITY & LOAD MANAGEMENT ---
+app.get('/api/admin/capacity', (req, res) => {
+  checkAndResetDailyStats();
+  pruneInactiveUsers();
+
+  const activeCount = Math.max(1, liveActiveUsers.size);
+  const todayCount = persistentState.systemSettings.activeUsersToday.length || activeCount;
+  const limit = persistentState.systemSettings.dailyUserLimit;
+  const loadPercent = limit > 0 ? Math.min(100, Math.round((todayCount / limit) * 100)) : Math.min(100, Math.round((activeCount / 50) * 100));
+
+  res.json({
+    success: true,
+    capacity: {
+      activeUsersCount: activeCount,
+      activeUsersTodayCount: todayCount,
+      dailyUserLimit: limit,
+      maxConcurrentUsers: persistentState.systemSettings.maxConcurrentUsers || 50,
+      enforceDailyLimit: persistentState.systemSettings.enforceDailyLimit,
+      lastResetDate: persistentState.systemSettings.lastResetDate,
+      serverLoadPercent: loadPercent,
+      activeUsers: Array.from(liveActiveUsers.values()),
+    },
+  });
+});
+
+app.post('/api/admin/capacity', (req, res) => {
+  const { dailyUserLimit, maxConcurrentUsers, enforceDailyLimit } = req.body;
+  checkAndResetDailyStats();
+
+  if (typeof dailyUserLimit === 'number' && dailyUserLimit >= 0) {
+    persistentState.systemSettings.dailyUserLimit = Math.floor(dailyUserLimit);
+  }
+  if (typeof maxConcurrentUsers === 'number' && maxConcurrentUsers >= 0) {
+    persistentState.systemSettings.maxConcurrentUsers = Math.floor(maxConcurrentUsers);
+  }
+  if (typeof enforceDailyLimit === 'boolean') {
+    persistentState.systemSettings.enforceDailyLimit = enforceDailyLimit;
+  }
+  persistentState.systemSettings.updatedAt = new Date().toISOString();
+  savePersistentState();
+
+  const activeCount = Math.max(1, liveActiveUsers.size);
+  const todayCount = persistentState.systemSettings.activeUsersToday.length || activeCount;
+  const limit = persistentState.systemSettings.dailyUserLimit;
+  const loadPercent = limit > 0 ? Math.min(100, Math.round((todayCount / limit) * 100)) : Math.min(100, Math.round((activeCount / 50) * 100));
+
+  try {
+    io.emit('capacity-settings-changed', {
+      dailyUserLimit: limit,
+      enforceDailyLimit: persistentState.systemSettings.enforceDailyLimit,
+    });
+  } catch {}
+
+  res.json({
+    success: true,
+    message: 'Server capacity and daily active user limits updated successfully.',
+    capacity: {
+      activeUsersCount: activeCount,
+      activeUsersTodayCount: todayCount,
+      dailyUserLimit: limit,
+      maxConcurrentUsers: persistentState.systemSettings.maxConcurrentUsers,
+      enforceDailyLimit: persistentState.systemSettings.enforceDailyLimit,
+      lastResetDate: persistentState.systemSettings.lastResetDate,
+      serverLoadPercent: loadPercent,
+    },
+  });
+});
+
+app.post('/api/user/heartbeat', (req, res) => {
+  const { user } = req.body;
+  if (user?.id) {
+    recordUserActivity(user);
+  }
+  checkAndResetDailyStats();
+  const currentCount = Math.max(1, liveActiveUsers.size);
+  const todayCount = persistentState.systemSettings.activeUsersToday.length || currentCount;
+  const limit = persistentState.systemSettings.dailyUserLimit;
+  res.json({
+    success: true,
+    activeUsersCount: currentCount,
+    activeUsersTodayCount: todayCount,
+    dailyUserLimit: limit,
   });
 });
 
@@ -2430,6 +2617,27 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Incorrect password.' });
     }
   }
+
+  // --- CAPACITY / ACTIVE USER DAILY LIMIT CHECK ---
+  checkAndResetDailyStats();
+  const settings = persistentState.systemSettings;
+  const isSuperAdmin = user.role === 'super_admin';
+
+  if (!isSuperAdmin && settings.enforceDailyLimit && settings.dailyUserLimit > 0) {
+    const isAlreadyActiveToday = settings.activeUsersToday.includes(user.id);
+    if (!isAlreadyActiveToday && settings.activeUsersToday.length >= settings.dailyUserLimit) {
+      return res.status(429).json({
+        success: false,
+        error: `Daily user capacity limit (${settings.dailyUserLimit} users) reached for today. Server access has been temporarily restricted by the Super Admin to maintain server stability. Please try again tomorrow or contact your administrator.`,
+        isCapacityLimitReached: true,
+        limit: settings.dailyUserLimit,
+        current: settings.activeUsersToday.length,
+      });
+    }
+  }
+
+  // Record user activity upon successful verification
+  recordUserActivity(user);
 
   const { password: _, ...cleanUser } = user;
   const token = jwt.sign({ id: cleanUser.id, email: cleanUser.email, role: cleanUser.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -4420,6 +4628,10 @@ io.on('connection', (socket) => {
     const safeSlotId = slotId || 'session-101';
     const room = getOrCreateLiveRoom(safeSlotId);
     socket.join(`room-${safeSlotId}`);
+
+    if (user?.id) {
+      recordUserActivity(user);
+    }
 
     // Seat allotment (PDF Page 14)
     let seatNumber = user?.seatNumber;

@@ -27,7 +27,7 @@ import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, sendUserHeartbeat } from './utils/authApi';
 import { 
   getStudentBookedSlotsByTopic,
   setStudentBookedSlotForTopic,
@@ -177,6 +177,16 @@ function GDAppContent() {
       localStorage.setItem('erus_current_tab', currentTab);
     } catch {}
   }, [currentTab]);
+
+  // User Presence & Heartbeat Tracking for Server Capacity & Active User Monitoring
+  useEffect(() => {
+    if (!currentUser) return;
+    sendUserHeartbeat(currentUser);
+    const interval = setInterval(() => {
+      sendUserHeartbeat(currentUser);
+    }, 45 * 1000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // Keep availableSlots persisted to localStorage
   useEffect(() => {

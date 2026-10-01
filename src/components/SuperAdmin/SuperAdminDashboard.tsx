@@ -19,7 +19,12 @@ import {
   KeyRound,
   Eye,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Activity,
+  Server,
+  RefreshCw,
+  Sliders,
+  Gauge
 } from 'lucide-react';
 import { SuperAdminUser, CollegeInfo } from '../../types/auth';
 import { 
@@ -27,7 +32,10 @@ import {
   registerNewCollege, 
   sendCollegeCredentials, 
   deleteCollege,
-  fetchAdminStats 
+  fetchAdminStats,
+  fetchServerCapacity,
+  updateServerCapacity,
+  ServerCapacityData
 } from '../../utils/authApi';
 
 interface SuperAdminDashboardProps {
@@ -44,7 +52,15 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     totalFaculty: 0,
     totalSlots: 0,
     activeLiveGDs: 0,
+    activeUsersCount: 0,
+    activeUsersTodayCount: 0,
   });
+  const [capacityData, setCapacityData] = useState<ServerCapacityData | null>(null);
+  const [editingLimit, setEditingLimit] = useState<number>(100);
+  const [editingEnforce, setEditingEnforce] = useState<boolean>(true);
+  const [isSavingCapacity, setIsSavingCapacity] = useState<boolean>(false);
+  const [capacitySuccessMsg, setCapacitySuccessMsg] = useState<string | null>(null);
+
   const [search, setSearch] = useState('');
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [credentialsModal, setCredentialsModal] = useState<any | null>(null);
@@ -66,21 +82,59 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
   useEffect(() => {
     loadData();
+
+    // Auto-refresh live active user counts and server capacity stats every 15 seconds
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const [colData, statsData] = await Promise.all([
+      const [colData, statsData, capData] = await Promise.all([
         fetchAdminColleges(),
         fetchAdminStats(),
+        fetchServerCapacity(),
       ]);
       if (colData && colData.length > 0) setColleges(colData);
       if (statsData) setStats(statsData);
+      if (capData) {
+        setCapacityData(capData);
+        setEditingLimit(capData.dailyUserLimit);
+        setEditingEnforce(capData.enforceDailyLimit);
+      }
     } catch (e) {
       console.warn('Super Admin load error:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const handleSaveCapacity = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingCapacity(true);
+    setCapacitySuccessMsg(null);
+    try {
+      const res = await updateServerCapacity({
+        dailyUserLimit: Math.max(0, Number(editingLimit) || 0),
+        enforceDailyLimit: Boolean(editingEnforce),
+        maxConcurrentUsers: capacityData?.maxConcurrentUsers || 50,
+      });
+      if (res.success && res.capacity) {
+        setCapacityData(res.capacity);
+        setEditingLimit(res.capacity.dailyUserLimit);
+        setEditingEnforce(res.capacity.enforceDailyLimit);
+        setCapacitySuccessMsg(res.message || 'Server capacity and daily active user limits updated successfully!');
+        setTimeout(() => setCapacitySuccessMsg(null), 5000);
+      } else {
+        alert(res.message || 'Failed to update capacity settings');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error updating server capacity settings');
+    } finally {
+      setIsSavingCapacity(false);
     }
   };
 
@@ -213,8 +267,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Top 4 Global Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* Top 5 Global Metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Institutions</span>
@@ -226,7 +280,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             {colleges.length || stats.totalColleges}
           </div>
           <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1 mt-1">
-            <span>●</span> Partner Colleges & Campuses
+            <span>●</span> Partner Colleges
           </span>
         </div>
 
@@ -241,7 +295,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             {stats.totalStudents}
           </div>
           <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 mt-1">
-            <span>●</span> Registered Student Profiles
+            <span>●</span> Registered Students
           </span>
         </div>
 
@@ -256,13 +310,13 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             {stats.totalFaculty}
           </div>
           <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold flex items-center gap-1 mt-1">
-            <span>●</span> Active Faculty Observers
+            <span>●</span> Active Observers
           </span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">College Administrators</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">College Admins</span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
               <Users className="w-4 h-4" />
             </div>
@@ -271,9 +325,289 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             {colleges.length || stats.totalColleges}
           </div>
           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
-            <span>●</span> Active Institutional Admins
+            <span>●</span> Institutional Admins
           </span>
         </div>
+
+        {/* 5th Card: Active Users Online (Live) */}
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60 shadow-xs relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Users (Live)</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center relative">
+              <Activity className="w-4 h-4" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping opacity-75" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            </div>
+          </div>
+          <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-emerald-600 dark:text-emerald-400 flex items-baseline gap-2">
+            <span>{capacityData?.activeUsersCount ?? stats.activeUsersCount ?? 0}</span>
+            <span className="text-xs font-semibold text-slate-400">online</span>
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between mt-1">
+            <span>Today: <strong className="text-slate-800 dark:text-slate-200">{capacityData?.activeUsersTodayCount ?? stats.activeUsersTodayCount ?? 0}</strong> unique</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+              {capacityData?.serverLoadPercent ?? 0}% Load
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Server Load & Daily Active User Limit Control Center */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 shadow-xs border border-indigo-100 dark:border-indigo-900/50">
+              <Server className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-heading font-extrabold text-slate-900 dark:text-white">
+                  Server Load & Daily Active User Restriction
+                </h2>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Sync (15s)
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Monitor real-time concurrent system load and configure daily active user thresholds to prevent server degradation.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => loadData(false)}
+            className="self-start md:self-auto px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Refresh active users and server metrics"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-purple-600' : ''}`} />
+            <span>Refresh Metrics</span>
+          </button>
+        </div>
+
+        {capacitySuccessMsg && (
+          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{capacitySuccessMsg}</span>
+          </div>
+        )}
+
+        {/* Load Status & Capacity Gauges */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Server Load Bar */}
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+            <div className="flex items-center justify-between text-xs font-semibold mb-2">
+              <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                <Gauge className="w-4 h-4 text-indigo-500" />
+                Live Server Load
+              </span>
+              <span className={`font-bold font-mono text-sm ${
+                (capacityData?.serverLoadPercent ?? 0) > 85 ? 'text-rose-600' :
+                (capacityData?.serverLoadPercent ?? 0) > 60 ? 'text-amber-600' : 'text-emerald-600 dark:text-emerald-400'
+              }`}>
+                {capacityData?.serverLoadPercent ?? 0}%
+              </span>
+            </div>
+            {/* Progress track */}
+            <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  (capacityData?.serverLoadPercent ?? 0) > 85
+                    ? 'bg-rose-500'
+                    : (capacityData?.serverLoadPercent ?? 0) > 60
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(4, capacityData?.serverLoadPercent ?? 0))}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 font-medium">
+              {(capacityData?.serverLoadPercent ?? 0) > 85 ? 'High system strain detected — throttling recommended.' :
+               (capacityData?.serverLoadPercent ?? 0) > 60 ? 'Moderate load — normal operations.' :
+               'Nominal performance — server latency optimal.'}
+            </p>
+          </div>
+
+          {/* Active Users Online Right Now */}
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+            <div className="flex items-center justify-between text-xs font-semibold mb-1">
+              <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-emerald-500" />
+                Live Active Users
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                Online Now
+              </span>
+            </div>
+            <div className="text-2xl font-heading font-extrabold text-slate-900 dark:text-white mt-1">
+              {capacityData?.activeUsersCount ?? 0}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Heartbeats transmitted in the last 20 minutes across student and faculty sessions.
+            </p>
+          </div>
+
+          {/* Daily Quota Utilization */}
+          <div className="bg-slate-50 dark:bg-slate-950/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+            <div className="flex items-center justify-between text-xs font-semibold mb-1">
+              <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-purple-500" />
+                Daily Logins Today
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                capacityData?.enforceDailyLimit
+                  ? (capacityData.dailyUserLimit > 0 && capacityData.activeUsersTodayCount >= capacityData.dailyUserLimit)
+                    ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300'
+                    : 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300'
+                  : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+              }`}>
+                {capacityData?.enforceDailyLimit ? 'Enforcement Active' : 'Enforcement Off'}
+              </span>
+            </div>
+            <div className="text-2xl font-heading font-extrabold text-slate-900 dark:text-white mt-1">
+              {capacityData?.activeUsersTodayCount ?? 0}{' '}
+              <span className="text-sm font-semibold text-slate-400">
+                / {capacityData?.dailyUserLimit && capacityData.dailyUserLimit > 0 ? `${capacityData.dailyUserLimit} limit` : 'No Cap'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              {capacityData?.enforceDailyLimit && capacityData.dailyUserLimit > 0 && (capacityData.activeUsersTodayCount >= capacityData.dailyUserLimit)
+                ? '⚠️ Daily cap is reached! New student/faculty logins are paused until 00:00 UTC rollover.'
+                : 'Resets daily at 00:00 UTC. Super Admin always retains unrestricted bypass access.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Configuration Controls */}
+        <form onSubmit={handleSaveCapacity} className="bg-purple-50/50 dark:bg-purple-950/20 p-4 sm:p-5 rounded-2xl border border-purple-100 dark:border-purple-900/40">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div className="space-y-3 flex-1">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <h3 className="text-sm font-heading font-bold text-slate-900 dark:text-white">
+                  Configure Active User Quota For The Day
+                </h3>
+              </div>
+
+              {/* Input & Quick Presets */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="dailyLimitInput" className="text-xs font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                    Max Daily Users:
+                  </label>
+                  <input
+                    id="dailyLimitInput"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    value={editingLimit}
+                    onChange={(e) => setEditingLimit(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-24 px-3 py-1.5 text-xs font-mono font-bold rounded-xl border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">(0 = unlimited)</span>
+                </div>
+
+                {/* Preset Shortcut Buttons */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-slate-400 mr-1">Presets:</span>
+                  {[25, 50, 100, 250, 500, 0].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setEditingLimit(val)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+                        editingLimit === val
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-purple-300'
+                      }`}
+                    >
+                      {val === 0 ? 'No Cap' : `${val}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enforcement Toggle Checkbox */}
+              <div className="flex items-start gap-2 pt-1">
+                <input
+                  id="enforceLimitToggle"
+                  type="checkbox"
+                  checked={editingEnforce}
+                  onChange={(e) => setEditingEnforce(e.target.checked)}
+                  className="mt-0.5 rounded border-purple-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                />
+                <label htmlFor="enforceLimitToggle" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  <span className="font-semibold text-slate-900 dark:text-white">Strictly enforce daily cap</span> — Reject new student and faculty logins with HTTP 429 when quota is reached. <span className="text-slate-500 dark:text-slate-400">(Super Admins can always sign in regardless of load)</span>.
+                </label>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="shrink-0 flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={isSavingCapacity}
+                className="px-5 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-800 disabled:opacity-60 text-white font-bold text-xs shadow-md shadow-purple-900/20 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                {isSavingCapacity ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Apply Server Restriction</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {/* Live Active Users Presence Feed (if any users are active) */}
+        {capacityData?.activeUsers && capacityData.activeUsers.length > 0 && (
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Live Active Sessions ({capacityData.activeUsers.length})
+              </span>
+              <span className="text-[11px] text-slate-400">Prunes automatically after 20m of idle inactivity</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {capacityData.activeUsers.map((u) => {
+                const minutesAgo = Math.max(0, Math.floor((Date.now() - u.lastActive) / 60000));
+                return (
+                  <div key={u.userId} className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        {u.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        {u.email} {u.college ? `• ${u.college}` : ''}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                        u.role === 'super_admin' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                        u.role === 'faculty' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
+                        u.role === 'college_admin' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                        'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                      }`}>
+                        {u.role.replace('_', ' ')}
+                      </span>
+                      <div className="text-[9px] text-slate-400 mt-0.5">
+                        {minutesAgo === 0 ? 'Active now' : `${minutesAgo}m ago`}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Colleges Management Section */}
