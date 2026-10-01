@@ -1,7 +1,15 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import dotenv from 'dotenv';
+import dns from 'dns';
 
 dotenv.config();
+
+// Ensure Node uses reliable public DNS resolvers (Google & Cloudflare) for MongoDB SRV record resolution
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (dnsErr: any) {
+  console.warn('[MongoDB] Could not set custom DNS servers:', dnsErr.message);
+}
 
 // Disable automatic index building globally to prevent WiredTiger disk space threshold errors (code 14031) on limited-volume deployments
 mongoose.set('autoIndex', false);
