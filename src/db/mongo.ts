@@ -266,6 +266,7 @@ export interface IGDSession extends Document {
   silenceTimerSeconds?: number;
   currentSpeakerId?: string | null;
   startedAt?: number;
+  students?: any[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -304,6 +305,7 @@ const GDSessionSchema = new Schema<IGDSession>(
     silenceTimerSeconds: { type: Number, default: 0 },
     currentSpeakerId: { type: String, default: null },
     startedAt: { type: Number, default: Date.now },
+    students: { type: [Schema.Types.Mixed], default: [] },
   },
   { timestamps: true, collection: 'gd_sessions', autoIndex: false }
 );

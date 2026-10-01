@@ -240,7 +240,7 @@ function GDAppContent() {
             difficulty: s.difficulty || 'Intermediate',
             assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
             status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, 8)),
+            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, s.maxCapacity || 8)),
             currentPhase: 'intro',
             facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
             facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
@@ -262,7 +262,11 @@ function GDAppContent() {
             if (!prev) return mappedSlots[0] || INITIAL_SESSION;
             const fresh = mappedSlots.find((s) => s.id === prev.id);
             if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
-            return { ...prev, ...fresh };
+            return {
+              ...prev,
+              ...fresh,
+              students: (prev.students && prev.students.length > 0) ? prev.students : fresh.students,
+            };
           });
         }
       } catch (err) {
@@ -320,7 +324,7 @@ function GDAppContent() {
           difficulty: s.difficulty || 'Intermediate',
           assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
           status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-          students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(s.enrolledCount || 8),
+          students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, s.maxCapacity || 8)),
           currentPhase: 'intro',
           facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
           facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
@@ -845,7 +849,7 @@ function GDAppContent() {
       return;
     }
 
-    if (slotId === session.id) return; // already in this slot
+    if (slotId === session.id && session.students && session.students.length > 0) return; // already in this slot with active participants
 
     const targetMaxCap = targetSlot.maxCapacity || 15;
     const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 15;
@@ -885,7 +889,11 @@ function GDAppContent() {
         }));
       }
     } else {
-      updatedTargetStudents = targetStudents.map((s) => ({ ...s, isUser: false }));
+      if (targetStudents.length > 0) {
+        updatedTargetStudents = targetStudents.map((s) => ({ ...s, isUser: false }));
+      } else {
+        updatedTargetStudents = generateSlotParticipants(targetMaxCap).map((s) => ({ ...s, isUser: false }));
+      }
     }
 
     const isStudentUser = currentUser && currentUser.role === 'student';

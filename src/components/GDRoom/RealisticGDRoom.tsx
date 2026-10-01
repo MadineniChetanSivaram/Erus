@@ -315,20 +315,48 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Local auto-simulation is retained only for the single-user demo mode.
   const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
 
-  // Clean GD room seating: real participants occupy seats, unused desks are empty candidate seats
+  // Clean GD room seating: keep enrolled participants in their seats, assign the user their seat, and open remaining desks
   useEffect(() => {
     setSession((prev) => {
       const capacity = Math.max(2, Math.min(15, prev.maxCapacity || 8));
-      const existingReal = prev.students.filter((s) => s.isUser || s.isRealPeer);
-      const usedSeats = new Set(existingReal.map((s) => s.seatNumber));
-      const seats: Student[] = [...existingReal];
+      let currentStudents = Array.isArray(prev.students) ? [...prev.students] : [];
 
-      // Ensure the logged-in student user is firmly assigned a seat if not already in seats
+      // If session currently has no enrolled students or only empty desks, generate participants matching capacity
+      if (currentStudents.length === 0 || currentStudents.every((s) => s.isEmptySeat)) {
+        currentStudents = generateSlotParticipants(capacity);
+      }
+
+      // Ensure every enrolled/existing student has a valid unique seatNumber (1..capacity)
+      const usedSeats = new Set<number>();
+      const validStudents: Student[] = [];
+
+      currentStudents.forEach((s, idx) => {
+        if (!s.isEmptySeat && s.name && !s.name.startsWith('Seat ')) {
+          let seat = s.seatNumber || (idx + 1);
+          if (seat > capacity || usedSeats.has(seat)) {
+            for (let sn = 1; sn <= capacity; sn++) {
+              if (!usedSeats.has(sn)) {
+                seat = sn;
+                break;
+              }
+            }
+          }
+          usedSeats.add(seat);
+          validStudents.push({ ...s, seatNumber: seat, isEmptySeat: false });
+        }
+      });
+
+      // Ensure the logged-in student user is assigned their seat
       if (!isFaculty && currentUser?.role === 'student') {
-        const alreadyHasUser = seats.some((s) => s.isUser || s.id === currentUser.id);
-        if (!alreadyHasUser) {
-          const userSeatNum = rtcAssignedSeat || 1;
-          const userObj: Student = {
+        const userSeatNum = rtcAssignedSeat || 1;
+        const userIdx = validStudents.findIndex((s) => s.isUser || s.id === currentUser.id);
+        if (userIdx >= 0) {
+          validStudents[userIdx].isUser = true;
+          validStudents[userIdx].name = currentUser.name || validStudents[userIdx].name;
+          validStudents[userIdx].college = currentUser.college || validStudents[userIdx].college;
+        } else {
+          usedSeats.add(userSeatNum);
+          validStudents.push({
             id: currentUser.id || 'speaker-user',
             name: currentUser.name || 'Candidate',
             seatNumber: userSeatNum,
@@ -350,15 +378,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             isEmptySeat: false,
             isRealPeer: false,
             isDemoAI: false,
-          };
-          seats.push(userObj);
-          usedSeats.add(userSeatNum);
+          });
         }
       }
 
+      // Fill remaining empty desks up to capacity so round table is complete
+      const finalSeats: Student[] = [...validStudents];
       for (let seatNum = 1; seatNum <= capacity; seatNum++) {
         if (!usedSeats.has(seatNum)) {
-          seats.push({
+          finalSeats.push({
             id: `seat-${seatNum}-empty`,
             name: `Seat ${seatNum}`,
             seatNumber: seatNum,
@@ -384,8 +412,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }
       }
 
-      seats.sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
-      return { ...prev, students: seats };
+      finalSeats.sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
+
+      const isSame = prev.students && prev.students.length === finalSeats.length &&
+        prev.students.every((s, i) => s.id === finalSeats[i].id && s.name === finalSeats[i].name && s.isEmptySeat === finalSeats[i].isEmptySeat);
+      if (isSame) return prev;
+
+      return { ...prev, students: finalSeats };
     });
   }, [session.id, session.maxCapacity, setSession, isFaculty, currentUser, rtcAssignedSeat, isListeningMic, isCameraOn]);
 
@@ -1684,7 +1717,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     {/* Center Topic on Table */}
                     <div className="text-center p-2 z-10">
                       <span className="text-[10px] uppercase font-mono tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
-                        Round Table Conference ({session.students.length} Participants)
+                        Round Table Conference ({activeDisplayStudents.filter(s => !s.isEmptySeat).length || session.students.filter(s => !s.isEmptySeat).length || session.students.length} Participants)
                       </span>
                       <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 mt-0.5 line-clamp-2 max-w-md">
                         {session.topic}
