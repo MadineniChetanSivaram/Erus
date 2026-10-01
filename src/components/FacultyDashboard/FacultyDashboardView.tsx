@@ -16,7 +16,6 @@ import {
   ExternalLink,
   ChevronRight,
   Bookmark,
-  PlusCircle,
   Calendar
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
@@ -38,7 +37,7 @@ interface FacultyDashboardViewProps {
   onViewStudentReport: (studentId: string) => void;
   onBackToRoom: () => void;
   onStartSession?: (slotId?: string) => void;
-  onOpenCreateSession?: () => void;
+  onEnterGDRoom?: (slotId: string) => void;
   availableSlots?: GDSession[];
   onSelectSlot?: (slotId: string) => void;
   facultyId?: string;
@@ -50,7 +49,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   onViewStudentReport,
   onBackToRoom,
   onStartSession,
-  onOpenCreateSession,
+  onEnterGDRoom,
   availableSlots,
   onSelectSlot,
   facultyId,
@@ -148,6 +147,17 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     a.click();
   };
 
+  const handleOpenSlotRoom = (slotId: string) => {
+    if (onSelectSlot) {
+      onSelectSlot(slotId);
+    }
+    if (onEnterGDRoom) {
+      onEnterGDRoom(slotId);
+    } else if (onBackToRoom) {
+      onBackToRoom();
+    }
+  };
+
   const filteredStudents = studentStats.filter((s) =>
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.college.toLowerCase().includes(searchTerm.toLowerCase())
@@ -207,17 +217,6 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <Download className="w-3.5 h-3.5" />
             <span>Download Transcript</span>
           </button>
-
-          {onOpenCreateSession && (
-            <button
-              onClick={onOpenCreateSession}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all shadow-xs cursor-pointer"
-              title="Create New Discussion Session & Schedule Slots"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Create Slot</span>
-            </button>
-          )}
 
           <button
             onClick={onBackToRoom}
@@ -279,7 +278,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                         }`}
                       >
                         <button
-                          onClick={() => onSelectSlot(sl.id)}
+                          onClick={() => handleOpenSlotRoom(sl.id)}
                           className="flex-1 text-left cursor-pointer"
                         >
                           <div className="flex items-center gap-2 flex-wrap">
@@ -315,7 +314,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
 
                         <div className="flex items-center gap-2 shrink-0">
                           <button
-                            onClick={() => onSelectSlot(sl.id)}
+                            onClick={() => handleOpenSlotRoom(sl.id)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                               isSelected
                                 ? 'bg-indigo-600 text-white shadow-sm'
@@ -330,6 +329,11 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                               onClick={() => {
                                 onSelectSlot(sl.id);
                                 onStartSession(sl.id);
+                                if (onEnterGDRoom) {
+                                  onEnterGDRoom(sl.id);
+                                } else if (onBackToRoom) {
+                                  onBackToRoom();
+                                }
                               }}
                               className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                               title="Start this assigned GD slot"
@@ -354,17 +358,8 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           <Layers className="w-8 h-8 text-slate-400 mx-auto mb-2" />
           <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Discussion Slots Scheduled Yet</h4>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-            Schedule a discussion slot with your topic, student capacity, and time window so students can book and participate.
+            Discussion slots will appear here once scheduled by your College Administrator.
           </p>
-          {onOpenCreateSession && (
-            <button
-              onClick={onOpenCreateSession}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Create Discussion Slot</span>
-            </button>
-          )}
         </div>
       )}
 

@@ -1325,8 +1325,11 @@ function GDAppContent() {
               }
               setCurrentTab('room');
             }}
+            onEnterGDRoom={(slotId) => {
+              handleSelectSlot(slotId);
+              setCurrentTab('room');
+            }}
             onStartSession={handleStartSession}
-            onOpenCreateSession={() => setIsCreateModalOpen(true)}
             availableSlots={availableSlots}
             onSelectSlot={handleSelectSlot}
             facultyId={currentUser?.role === 'faculty' ? ((currentUser as any).facultyId || currentUser.id) : undefined}
@@ -1356,14 +1359,16 @@ function GDAppContent() {
         )}
       </main>
 
-      {/* Session Creation Modal */}
-      <SessionCreationModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onCreateSessions={handleCreateSessions}
-        onCreateSession={handleCreateSession}
-        collegeCode={(currentUser as any)?.collegeCode || ((currentUser as any)?.college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : undefined)}
-      />
+      {/* Session Creation Modal - College Admin Only */}
+      {currentUser?.role === 'college_admin' && (
+        <SessionCreationModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onCreateSessions={handleCreateSessions}
+          onCreateSession={handleCreateSession}
+          collegeCode={(currentUser as any)?.collegeCode || ((currentUser as any)?.college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : undefined)}
+        />
+      )}
 
     </div>
   );

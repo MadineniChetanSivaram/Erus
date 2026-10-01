@@ -7,7 +7,6 @@ import {
   Sparkles, 
   Clock, 
   PlusCircle,
-  Radio,
   Sun,
   Moon,
   LogOut,
@@ -159,22 +158,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* GD Room Tab (Faculty Evaluators Only; Students enter via Booked Slot) */}
-          {isFaculty && (
-            <button
-              id="tab-room-btn"
-              onClick={() => setCurrentTab('room')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                currentTab === 'room'
-                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/20'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
-              }`}
-            >
-              <Radio className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 animate-pulse shrink-0" />
-              <span>GD Room (Observer)</span>
-            </button>
-          )}
-
           {/* Student Assessment Reports Tab */}
           {(isStudent || isFaculty || isCollegeAdmin) && (
             <button
@@ -191,8 +174,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* New Session (College Admin and Faculty) */}
-          {(isCollegeAdmin || isFaculty) && (
+          {/* New Session (College Admin Only) */}
+          {isCollegeAdmin && (
             <button
               id="tab-manager-btn"
               onClick={onOpenCreateSession}
