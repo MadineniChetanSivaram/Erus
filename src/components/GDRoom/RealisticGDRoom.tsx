@@ -321,29 +321,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const capacity = Math.max(2, Math.min(15, prev.maxCapacity || 8));
       let currentStudents = Array.isArray(prev.students) ? [...prev.students] : [];
 
-      // If session currently has no enrolled students or only empty desks, generate participants matching capacity
-      if (currentStudents.length === 0 || currentStudents.every((s) => s.isEmptySeat)) {
-        currentStudents = generateSlotParticipants(capacity);
-      }
+      // Filter out any mock/demo AI students or placeholder desks
+      currentStudents = currentStudents.filter(
+        (s) => !s.isEmptySeat && !s.id?.startsWith('slot-stu-') && !s.id?.startsWith('seat-') && !s.name?.startsWith('Seat ')
+      );
 
       // Ensure every enrolled/existing student has a valid unique seatNumber (1..capacity)
       const usedSeats = new Set<number>();
       const validStudents: Student[] = [];
 
       currentStudents.forEach((s, idx) => {
-        if (!s.isEmptySeat && s.name && !s.name.startsWith('Seat ')) {
-          let seat = s.seatNumber || (idx + 1);
-          if (seat > capacity || usedSeats.has(seat)) {
-            for (let sn = 1; sn <= capacity; sn++) {
-              if (!usedSeats.has(sn)) {
-                seat = sn;
-                break;
-              }
+        let seat = s.seatNumber || (idx + 1);
+        if (seat > capacity || usedSeats.has(seat)) {
+          for (let sn = 1; sn <= capacity; sn++) {
+            if (!usedSeats.has(sn)) {
+              seat = sn;
+              break;
             }
           }
-          usedSeats.add(seat);
-          validStudents.push({ ...s, seatNumber: seat, isEmptySeat: false });
         }
+        usedSeats.add(seat);
+        validStudents.push({ ...s, seatNumber: seat, isEmptySeat: false });
       });
 
       // Ensure the logged-in student user is assigned their seat
@@ -1717,7 +1715,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     {/* Center Topic on Table */}
                     <div className="text-center p-2 z-10">
                       <span className="text-[10px] uppercase font-mono tracking-widest text-slate-500 dark:text-slate-400 font-semibold">
-                        Round Table Conference ({activeDisplayStudents.filter(s => !s.isEmptySeat).length || session.students.filter(s => !s.isEmptySeat).length || session.students.length} Participants)
+                        Round Table Conference ({activeDisplayStudents.filter(s => !s.isEmptySeat).length} Participants)
                       </span>
                       <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 mt-0.5 line-clamp-2 max-w-md">
                         {session.topic}
@@ -2078,27 +2076,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 shadow-xs">
                       <GraduationCap className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      Faculty Observer: {currentUser?.name || 'Dr. Sunita Rao'}
+                      Faculty: {currentUser?.name || 'Evaluator'}
                     </span>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] border border-emerald-500/20 flex items-center gap-1 font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Observer & Evaluation Mode
+                    <span className="text-[11px] font-mono text-slate-500">
+                      • {activeDisplayStudents.filter(s => !s.isEmptySeat).length} Enrolled Candidates
                     </span>
-                    <span className="hidden sm:inline-block text-[11px] font-mono text-slate-500">
-                      • {session.students.length} Student Participants
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-400 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={autoSimulatePeers} 
-                        onChange={(e) => setAutoSimulatePeers(e.target.checked)}
-                        className="rounded bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-indigo-600 focus:ring-0"
-                      />
-                      <span>Auto-Simulate Student Turns</span>
-                    </label>
                   </div>
                 </div>
               ) : (

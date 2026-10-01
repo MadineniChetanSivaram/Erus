@@ -239,8 +239,7 @@ function GDAppContent() {
             durationMinutes: s.durationMinutes || 15,
             difficulty: s.difficulty || 'Intermediate',
             assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
-            status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-            students: s.students && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, s.maxCapacity || 8)),
+            students: Array.isArray(s.students) ? s.students : [],
             currentPhase: 'intro',
             facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
             facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
@@ -819,14 +818,29 @@ function GDAppContent() {
             batch: (idx === 0 || s.id === currentUser.id) ? currentUser.batch : s.batch,
           }));
         } else {
-          updatedTargetStudents = generateSlotParticipants(15).map((s, idx) => ({
-            ...s,
-            isUser: idx === 0,
-            name: idx === 0 ? currentUser.name : s.name,
-            college: idx === 0 ? currentUser.college : s.college,
-            course: idx === 0 ? currentUser.course : s.course,
-            batch: idx === 0 ? currentUser.batch : s.batch,
-          }));
+          updatedTargetStudents = [
+            {
+              id: currentUser.id || 'speaker-user',
+              name: currentUser.name,
+              college: currentUser.college,
+              course: currentUser.course,
+              batch: currentUser.batch,
+              seatNumber: 1,
+              avatar: '',
+              isUser: true,
+              micActive: false,
+              isSpeaking: false,
+              hasRaisedHand: false,
+              cameraActive: false,
+              speakingDurationSeconds: 0,
+              speakingTurns: 0,
+              interruptionCount: 0,
+              questionsAnswered: 0,
+              questionsInitiated: 0,
+              sentiment: 'neutral',
+              isEmptySeat: false,
+            },
+          ];
         }
         slotForState = { ...targetSlot, students: updatedTargetStudents };
         setSession(slotForState);
@@ -841,7 +855,7 @@ function GDAppContent() {
         const facultyStudents = (targetSlot.students || []).map((s) => ({ ...s, isUser: false }));
         slotForState = {
           ...targetSlot,
-          students: facultyStudents.length > 0 ? facultyStudents : generateSlotParticipants(15).map((s) => ({ ...s, isUser: false })),
+          students: facultyStudents,
         };
         setSession(slotForState);
         setCurrentTab('faculty');
@@ -852,7 +866,7 @@ function GDAppContent() {
     if (slotId === session.id && session.students && session.students.length > 0) return; // already in this slot with active participants
 
     const targetMaxCap = targetSlot.maxCapacity || 15;
-    const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 15;
+    const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 0;
 
     // Check if slot is already full
     if (currentUser?.role === 'student' && targetCurrentEnrolled >= targetMaxCap) {
@@ -879,21 +893,32 @@ function GDAppContent() {
           batch: (idx === 0 || s.id === currentUser.id) ? currentUser.batch : s.batch,
         }));
       } else {
-        updatedTargetStudents = generateSlotParticipants(targetCurrentEnrolled + 1).map((s, idx) => ({
-          ...s,
-          isUser: idx === 0,
-          name: idx === 0 ? currentUser.name : s.name,
-          college: idx === 0 ? currentUser.college : s.college,
-          course: idx === 0 ? currentUser.course : s.course,
-          batch: idx === 0 ? currentUser.batch : s.batch,
-        }));
+        updatedTargetStudents = [
+          {
+            id: currentUser.id || 'speaker-user',
+            name: currentUser.name,
+            college: currentUser.college,
+            course: currentUser.course,
+            batch: currentUser.batch,
+            seatNumber: 1,
+            avatar: '',
+            isUser: true,
+            micActive: false,
+            isSpeaking: false,
+            hasRaisedHand: false,
+            cameraActive: false,
+            speakingDurationSeconds: 0,
+            speakingTurns: 0,
+            interruptionCount: 0,
+            questionsAnswered: 0,
+            questionsInitiated: 0,
+            sentiment: 'neutral',
+            isEmptySeat: false,
+          },
+        ];
       }
     } else {
-      if (targetStudents.length > 0) {
-        updatedTargetStudents = targetStudents.map((s) => ({ ...s, isUser: false }));
-      } else {
-        updatedTargetStudents = generateSlotParticipants(targetMaxCap).map((s) => ({ ...s, isUser: false }));
-      }
+      updatedTargetStudents = targetStudents.map((s) => ({ ...s, isUser: false }));
     }
 
     const isStudentUser = currentUser && currentUser.role === 'student';

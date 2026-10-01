@@ -554,80 +554,56 @@ async function persistUserToMongoDB(u: StoredAuthUser) {
 }
 
 function ensureSlotParticipants(slot: BackendCollegeSlotItem, code: string): BackendCollegeSlotItem {
+  const colStudents = persistentState.students[code] || [];
+  const colStudentIds = new Set(colStudents.map((s) => s.id));
+  const colStudentEmails = new Set(colStudents.map((s) => s.email.toLowerCase()));
+
+  // If slot already has enrolled students, filter out any demo/mock AI participants
   if (Array.isArray(slot.students) && slot.students.length > 0) {
-    slot.enrolledCount = Math.max(slot.enrolledCount || 0, slot.students.filter((s: any) => !s.isEmptySeat).length);
+    const realStudentsOnly = slot.students.filter(
+      (s: any) =>
+        !s.isEmptySeat &&
+        !s.id?.startsWith('slot-stu-') &&
+        !s.email?.includes('.edu') &&
+        (colStudentIds.has(s.id) || colStudentEmails.has(String(s.email || '').toLowerCase()))
+    );
+    slot.students = realStudentsOnly.map((s, idx) => ({ ...s, seatNumber: idx + 1 }));
+    slot.enrolledCount = slot.students.length;
     return slot;
   }
-  const colStudents = persistentState.students[code] || [];
-  const targetCount = Math.max(slot.enrolledCount || 0, slot.maxCapacity || 8);
-  const fallbackStudents: any[] = [];
-  const defaultNames = [
-    { name: 'Vikram Joshi', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80', course: 'B.Tech Mechanical' },
-    { name: 'Priya Sharma', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80', course: 'B.Tech IT' },
-    { name: 'Sneha Patel', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80', course: 'B.Tech ECE' },
-    { name: 'Aarav Mehta', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=256&q=80', course: 'B.Tech CSE' },
-    { name: 'Ananya Verma', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=256&q=80', course: 'B.Tech AI & ML' },
-    { name: 'Rohan Gupta', avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=256&q=80', course: 'B.Tech CSE' },
-    { name: 'Meera Nair', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80', course: 'B.Tech Data Science' },
-    { name: 'Arjun Reddy', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80', course: 'B.Tech CSE' },
-  ];
 
-  for (let i = 0; i < targetCount; i++) {
-    if (i < colStudents.length) {
-      const cs = colStudents[i];
-      fallbackStudents.push({
-        id: cs.id,
-        name: cs.name,
-        email: cs.email,
-        studentId: cs.studentId,
-        course: cs.course,
-        batch: cs.batch,
-        seatNumber: i + 1,
-        college: cs.college,
-        collegeCode: cs.collegeCode,
-        avatar: '',
-        isUser: false,
-        micActive: false,
-        isSpeaking: false,
-        hasRaisedHand: false,
-        cameraActive: true,
-        speakingDurationSeconds: 120 + (i * 10),
-        speakingTurns: 3,
-        interruptionCount: 0,
-        questionsAnswered: 2,
-        questionsInitiated: 1,
-        sentiment: 'positive',
-      });
-    } else {
-      const def = defaultNames[(i - colStudents.length) % defaultNames.length];
-      fallbackStudents.push({
-        id: `slot-stu-${slot.id}-${i + 1}`,
-        name: def.name,
-        email: `${def.name.toLowerCase().replace(/\s+/g, '.')}@${code.toLowerCase()}.edu`,
-        studentId: `STU-2026-${String(i + 1).padStart(2, '0')}`,
-        course: def.course,
-        batch: '2024-2028',
-        seatNumber: i + 1,
-        college: persistentState.colleges.find(c => c.code === code)?.name || code,
-        collegeCode: code,
-        avatar: def.avatar,
-        isUser: false,
-        micActive: false,
-        isSpeaking: false,
-        hasRaisedHand: false,
-        cameraActive: true,
-        speakingDurationSeconds: 110 + (i * 12),
-        speakingTurns: 3,
-        interruptionCount: 0,
-        questionsAnswered: 2,
-        questionsInitiated: 1,
-        sentiment: 'neutral',
-      });
-    }
+  // If slot has no students list yet, attach real college enrolled students who registered
+  if (colStudents.length > 0) {
+    slot.students = colStudents.map((cs, i) => ({
+      id: cs.id,
+      name: cs.name,
+      email: cs.email,
+      studentId: cs.studentId,
+      course: cs.course,
+      batch: cs.batch,
+      seatNumber: i + 1,
+      college: cs.college,
+      collegeCode: cs.collegeCode,
+      avatar: '',
+      isUser: false,
+      micActive: false,
+      isSpeaking: false,
+      hasRaisedHand: false,
+      cameraActive: false,
+      speakingDurationSeconds: 0,
+      speakingTurns: 0,
+      interruptionCount: 0,
+      questionsAnswered: 0,
+      questionsInitiated: 0,
+      sentiment: 'neutral',
+      isEmptySeat: false,
+    }));
+    slot.enrolledCount = slot.students.length;
+  } else {
+    slot.students = [];
+    slot.enrolledCount = 0;
   }
 
-  slot.students = fallbackStudents;
-  slot.enrolledCount = fallbackStudents.length;
   return slot;
 }
 
