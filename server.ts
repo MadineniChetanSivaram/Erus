@@ -4779,30 +4779,34 @@ io.on('connection', (socket) => {
       recordUserActivity(user);
     }
 
-    // Seat allotment (PDF Page 14)
-    let seatNumber = user?.seatNumber;
-    if (!seatNumber || room.assignedSeats.has(seatNumber)) {
-      for (let s = 1; s <= 15; s++) {
-        if (!room.assignedSeats.has(s)) {
-          seatNumber = s;
-          break;
-        }
-      }
-      if (!seatNumber) seatNumber = (room.peers.size % 15) + 1;
-    }
+    const isObserver = user?.role === 'faculty' || user?.role === 'college_admin';
 
-    room.assignedSeats.set(seatNumber, socket.id);
+    // Seat allotment (PDF Page 14) - Faculty and Admin are observers and NEVER take a student seat!
+    let seatNumber: number | undefined = undefined;
+    if (!isObserver) {
+      seatNumber = user?.seatNumber;
+      if (!seatNumber || room.assignedSeats.has(seatNumber)) {
+        for (let s = 1; s <= 15; s++) {
+          if (!room.assignedSeats.has(s)) {
+            seatNumber = s;
+            break;
+          }
+        }
+        if (!seatNumber) seatNumber = (room.peers.size % 15) + 1;
+      }
+      room.assignedSeats.set(seatNumber, socket.id);
+    }
 
     const peer: LiveRoomPeer = {
       socketId: socket.id,
       userId: user?.id || socket.id,
-      name: user?.name || `Student ${seatNumber}`,
+      name: user?.name || (isObserver ? 'Faculty Evaluator' : `Student ${seatNumber}`),
       avatar: user?.avatar || '',
       role: user?.role || 'student',
       college: user?.college || 'Campus Participant',
       seatNumber,
       isSpeaking: false,
-      micActive: true,
+      micActive: !isObserver,
       cameraActive: false,
       speakingDurationSeconds: 0,
       speakingTurns: 0,
@@ -4814,11 +4818,14 @@ io.on('connection', (socket) => {
 
     syncAiParticipants(room);
 
-    // Real peer connectivity: send all connected peers in the room to enable WebRTC mesh
-    const otherPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
+    // Real peer connectivity:
+    // Students only ever see real student peers. Faculty is NEVER sent to students as a peer!
+    const studentPeers = Array.from(room.peers.values()).filter(
+      p => p.socketId !== socket.id && p.role !== 'faculty' && p.role !== 'college_admin'
+    );
     socket.emit('gd-room-joined', {
       assignedSeat: seatNumber,
-      peers: otherPeers,
+      peers: studentPeers,
       aiParticipants: Array.from(room.aiParticipants.values()),
       simulationMode: false,
       transcripts: room.transcripts,
@@ -4828,10 +4835,13 @@ io.on('connection', (socket) => {
       status: room.status,
     });
 
-    // Notify all other peers in the room
-    socket.to(`room-${safeSlotId}`).emit('peer-joined', {
-      peer,
-    });
+    // Notify other peers in the room ONLY if this is a real student!
+    // Students must never see the faculty in the GD room.
+    if (!isObserver) {
+      socket.to(`room-${safeSlotId}`).emit('peer-joined', {
+        peer,
+      });
+    }
 
     if (room.simulationMode && room.status === 'waiting') {
       room.status = 'active';
@@ -4884,6 +4894,11 @@ io.on('connection', (socket) => {
 
     const peer = room.peers.get(socket.id);
     if (!peer) return;
+
+    // Faculty or college_admin are observers; do not claim floor or broadcast speaking updates to round table
+    if (peer.role === 'faculty' || peer.role === 'college_admin') {
+      return;
+    }
 
     peer.isSpeaking = !!isSpeaking;
     if (micActive !== undefined) peer.micActive = micActive;
@@ -4938,6 +4953,11 @@ io.on('connection', (socket) => {
 
     const peer = room.peers.get(socket.id);
     if (!peer) return;
+
+    // Faculty or college_admin are observers and do not generate candidate transcripts
+    if (peer.role === 'faculty' || peer.role === 'college_admin') {
+      return;
+    }
 
     if (room.currentSpeakerId !== peer.userId) {
       room.currentSpeakerId = peer.userId;

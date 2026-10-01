@@ -369,7 +369,11 @@ export function useWebRTCRoom({
     socket.on('gd-room-joined', async ({ assignedSeat: mySeat, peers: existingPeers, silenceTimerSeconds: initialSilence, aiParticipants: initialAiParticipants, simulationMode: initialSimulationMode }) => {
       if (!active) return;
       setAssignedSeat(mySeat);
-      setPeers(existingPeers || []);
+      // Students need not see faculty in GD: filter out any faculty or admin peers
+      const visiblePeers = (existingPeers || []).filter(
+        (p) => !(currentUser?.role === 'student' && (p.role === 'faculty' || p.role === 'college_admin'))
+      );
+      setPeers(visiblePeers);
       setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
       setSimulationMode(Boolean(initialSimulationMode));
       setSilenceTimerSeconds(initialSilence || 0);
@@ -395,6 +399,10 @@ export function useWebRTCRoom({
     // A new peer joined the room
     socket.on('peer-joined', ({ peer }) => {
       if (!active) return;
+      // Students need not see faculty in GD
+      if (currentUser?.role === 'student' && (peer.role === 'faculty' || peer.role === 'college_admin')) {
+        return;
+      }
       setPeers((prev) => {
         const filtered = prev.filter((p) => p.socketId !== peer.socketId);
         return [...filtered, peer];

@@ -313,7 +313,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
-  const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student');
+  const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin');
 
   // Clean GD room seating: keep enrolled participants in their seats, assign the user their seat, and open remaining desks
   useEffect(() => {
@@ -321,9 +321,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const capacity = Math.max(2, Math.min(15, prev.maxCapacity || 8));
       let currentStudents = Array.isArray(prev.students) ? [...prev.students] : [];
 
-      // Filter out any mock/demo AI students or placeholder desks
+      // Filter out any mock/demo AI students or placeholder desks, or any faculty/admin entries
       currentStudents = currentStudents.filter(
-        (s) => !s.isEmptySeat && !s.id?.startsWith('slot-stu-') && !s.id?.startsWith('seat-') && !s.name?.startsWith('Seat ')
+        (s) =>
+          !s.isEmptySeat &&
+          !s.id?.startsWith('slot-stu-') &&
+          !s.id?.startsWith('seat-') &&
+          !s.name?.startsWith('Seat ') &&
+          (s as any).role !== 'faculty' &&
+          (s as any).role !== 'college_admin' &&
+          !(isFaculty && (s.id === currentUser?.id || s.name === currentUser?.name))
       );
 
       // Ensure every enrolled/existing student has a valid unique seatNumber (1..capacity)
@@ -433,6 +440,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const fixedSeatNumber = st.seatNumber || (idx + 1);
       const isThisSeatUser = targetUserSeat !== null && (fixedSeatNumber === targetUserSeat || (!rtcAssignedSeat && st.isUser));
 
+      // Faculty and Admins are observers and NEVER occupy a student seat at the round table
+      if ((st as any).role === 'faculty' || (st as any).role === 'college_admin' || (isFaculty && (st.id === currentUser?.id || st.name === currentUser?.name))) {
+        return {
+          ...st,
+          id: `seat-${fixedSeatNumber}-empty`,
+          seatNumber: fixedSeatNumber,
+          name: `Seat ${fixedSeatNumber}`,
+          college: 'Available Desk',
+          avatar: '',
+          isUser: false,
+          isRealPeer: false,
+          isEmptySeat: true,
+          isSpeaking: false,
+          micActive: false,
+          cameraActive: false,
+          speakingTurns: 0,
+          speakingDurationSeconds: 0,
+          videoStream: null,
+        };
+      }
+
       // Check if current user is sitting in this seat
       if (isThisSeatUser) {
         return {
@@ -451,8 +479,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
-      // Check if another real peer is connected in this seat
-      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber);
+      // Check if another real peer is connected in this seat (Strictly students only! Never faculty or admin)
+      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber && p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin');
       if (realPeer) {
         const remoteStream = rtcPeerStreams.get(realPeer.socketId) || null;
         return {
