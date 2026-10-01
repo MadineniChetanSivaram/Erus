@@ -39,6 +39,7 @@ import {
   deleteCollegeSlot,
   dispatchCredentials
 } from '../../utils/authApi';
+import { formatSlotDate } from '../../utils/studentBooking';
 
 interface CollegeAdminDashboardProps {
   currentUser: CollegeAdminUser;
@@ -122,6 +123,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       topic: s.topic,
       description: s.description || s.topic,
       slotTiming: s.slotTiming || '',
+      slotDate: s.slotDate || (s as any).scheduledTime || (s as any).rawSession?.slotDate || 'Today',
       status: s.status || 'scheduled',
       durationMinutes: s.durationMinutes || 15,
       enrolledCount: s.enrolledCount ?? s.students?.length ?? 0,
@@ -136,6 +138,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
     durationMinutes: 15,
     difficulty: 'Intermediate',
+    slotDate: new Date().toISOString().split('T')[0],
     slotTiming: '10:30 AM - 10:45 AM',
     participantCount: 8,
     maxCapacity: 15,
@@ -493,6 +496,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       status: 'scheduled',
       slotName: newSlot.slotName,
       slotTiming: newSlot.slotTiming,
+      slotDate: newSlot.slotDate || new Date().toISOString().split('T')[0],
       maxCapacity: requestedCount,
       enrolledCount: 0,
       assignedFacultyId: newSlot.assignedFacultyId,
@@ -516,6 +520,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       ...newSlot,
       id: newSessionId,
       collegeCode,
+      slotDate: newSlot.slotDate || new Date().toISOString().split('T')[0],
       studentIds: [],
       enrolledCount: 0,
       rawSession: sessionObj,
@@ -961,10 +966,17 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between hover:border-amber-500/50 transition-all"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                      {sl.slotTiming || '10:30 AM - 10:45 AM'}
-                    </span>
+                  <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        <span>{formatSlotDate(sl.slotDate)}</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{sl.slotTiming || '10:30 AM - 10:45 AM'}</span>
+                      </span>
+                    </div>
                     <span
                       className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
                         sl.status === 'completed'
@@ -1437,15 +1449,31 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Scheduled Timing</label>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Scheduled Date</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newSlot.slotDate}
+                    onChange={(e) => setNewSlot({ ...newSlot, slotDate: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Scheduled Timing</span>
+                  </label>
                   <input
                     type="text"
                     value={newSlot.slotTiming}
                     onChange={(e) => setNewSlot({ ...newSlot, slotTiming: e.target.value })}
                     placeholder="11:30 AM - 11:45 AM"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs"
                   />
                 </div>
                 <div>
@@ -1454,7 +1482,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                     type="number"
                     value={newSlot.durationMinutes}
                     onChange={(e) => setNewSlot({ ...newSlot, durationMinutes: parseInt(e.target.value, 10) || 15 })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs"
                   />
                 </div>
               </div>

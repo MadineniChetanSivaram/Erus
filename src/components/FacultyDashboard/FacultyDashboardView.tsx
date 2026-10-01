@@ -16,11 +16,12 @@ import {
   ExternalLink,
   ChevronRight,
   Bookmark,
-  Tag,
-  PlusCircle
+  PlusCircle,
+  Calendar
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { INITIAL_SESSION } from '../../data/mockGDData';
+import { formatSlotDate } from '../../utils/studentBooking';
 import { 
   BarChart, 
   Bar, 
@@ -295,11 +296,21 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                               {isCompleted ? 'Completed' : sl.status}
                             </span>
                           </div>
-                          {sl.slotTiming && (
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1">
-                              {sl.slotTiming}
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
+                            <span className="flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400">
+                              <Calendar className="w-3 h-3" />
+                              <span>{formatSlotDate(sl.slotDate)}</span>
                             </span>
-                          )}
+                            {sl.slotTiming && (
+                              <>
+                                <span>•</span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{sl.slotTiming}</span>
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </button>
 
                         <div className="flex items-center gap-2 shrink-0">
@@ -364,7 +375,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           <span className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1" title={safeSession.topic}>
             {safeSession.topic}
           </span>
-          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono block mt-1 font-semibold">Intermediate GD</span>
+          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono block mt-1 font-semibold flex items-center gap-1 truncate">
+            <Calendar className="w-3 h-3 shrink-0" />
+            <span>{formatSlotDate(safeSession.slotDate)}{safeSession.slotTiming ? ` • ${safeSession.slotTiming}` : ''}</span>
+          </span>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs transition-colors">

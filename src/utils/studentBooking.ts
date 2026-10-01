@@ -236,3 +236,34 @@ export function isSlotSelectableForStudent(
     reason: 'You have already booked a slot on this topic.',
   };
 }
+
+/**
+ * Format a slot date string for user-friendly display.
+ * If 'Today' or matches current date, displays 'Today'. Otherwise formats as 'Oct 1, 2026' or 'YYYY-MM-DD'.
+ */
+export function formatSlotDate(dateStr?: string): string {
+  if (!dateStr) return 'Today';
+  const trimmed = dateStr.trim();
+  if (trimmed.toLowerCase() === 'today') return 'Today';
+  try {
+    const parts = trimmed.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+        const d = new Date(year, month, day);
+        const now = new Date();
+        if (d.toDateString() === now.toDateString()) return 'Today';
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) return 'Today';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  } catch {}
+  return trimmed;
+}

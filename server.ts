@@ -87,6 +87,7 @@ interface BackendCollegeSlotItem {
   topic: string;
   description: string;
   slotTiming: string;
+  slotDate?: string;
   status: string;
   durationMinutes: number;
   enrolledCount: number;
@@ -431,6 +432,7 @@ async function syncMongoDBWithPersistentState() {
             topic: s.topic,
             description: s.description || '',
             slotTiming: s.slotTiming || '10:00 AM - 10:30 AM',
+            slotDate: s.slotDate || 'Today',
             status: s.status,
             durationMinutes: s.durationMinutes,
             enrolledCount: s.enrolledCount,
@@ -551,6 +553,7 @@ async function persistSlotToMongoDB(slot: BackendCollegeSlotItem) {
         topic: slot.topic,
         description: slot.description || '',
         slotTiming: slot.slotTiming || '10:00 AM - 10:30 AM',
+        slotDate: slot.slotDate || 'Today',
         status: (slot.status as any) || 'scheduled',
         durationMinutes: slot.durationMinutes || 25,
         enrolledCount: slot.enrolledCount || 0,
@@ -1835,6 +1838,7 @@ app.get('/api/college/slots', async (req, res) => {
           status: s.status,
           scheduledTime: s.scheduledTime || undefined,
           slotTiming: s.slotTiming || '',
+          slotDate: (existing as any).slotDate || s.scheduledTime || undefined,
           slotName: s.slotName || s.topic,
           maxCapacity: s.maxCapacity,
           enrolledCount: s.enrolledCount,
@@ -1899,6 +1903,7 @@ app.post('/api/college/slots', async (req, res) => {
     topic: payload.topic,
     description: payload.description || `Autonomous AI evaluation of ${payload.topic}`,
     slotTiming: payload.slotTiming || '10:30 AM - 10:45 AM',
+    slotDate: payload.slotDate || payload.date || payload.rawSession?.slotDate || 'Today',
     status: payload.status || 'scheduled',
     durationMinutes: Number(payload.durationMinutes) || 15,
     enrolledCount: Number(payload.enrolledCount) || 0,
@@ -1924,6 +1929,7 @@ app.post('/api/college/slots', async (req, res) => {
           topic: newSlot.topic,
           description: newSlot.description,
           slotTiming: newSlot.slotTiming,
+          scheduledTime: newSlot.slotDate,
           slotName: newSlot.slotName,
           durationMinutes: newSlot.durationMinutes,
           maxCapacity: newSlot.maxCapacity,
@@ -1937,6 +1943,7 @@ app.post('/api/college/slots', async (req, res) => {
           topic: newSlot.topic,
           description: newSlot.description,
           slotTiming: newSlot.slotTiming,
+          scheduledTime: newSlot.slotDate,
           slotName: newSlot.slotName,
           durationMinutes: newSlot.durationMinutes,
           maxCapacity: newSlot.maxCapacity,
@@ -2170,6 +2177,7 @@ app.get('/api/faculty/sessions', async (req, res) => {
           topic: s.topic,
           description: s.description || '',
           slotTiming: s.slotTiming || '',
+          slotDate: (merged.get(s.id) as any)?.slotDate || s.scheduledTime || undefined,
           status: s.status,
           durationMinutes: s.durationMinutes,
           enrolledCount: s.enrolledCount,

@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
-import { checkCanReviveSlot } from '../../utils/studentBooking';
+import { checkCanReviveSlot, formatSlotDate } from '../../utils/studentBooking';
 
 interface StudentTopicPortalProps {
   availableSlots: GDSession[];
@@ -232,7 +232,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                         <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300 flex-wrap pt-0.5">
                           <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
                             <Clock className="w-3.5 h-3.5" />
-                            <span>{bSlot.slotTiming || '10:00 AM - 10:30 AM'} ({bSlot.slotDate || 'Today'})</span>
+                            <span>{bSlot.slotTiming || '10:00 AM - 10:30 AM'} ({formatSlotDate(bSlot.slotDate)})</span>
                           </span>
                           {bSlot.assignedFacultyName && (
                             <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
@@ -549,9 +549,9 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                             <span className="font-mono text-[11px]">{slot.slotTiming || '10:00 AM - 10:30 AM'}</span>
                           </div>
                           <span className="text-slate-400">•</span>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{slot.slotDate || 'Today'}</span>
+                          <div className="flex items-center gap-1 font-medium">
+                            <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>{formatSlotDate(slot.slotDate)}</span>
                           </div>
                         </div>
 
@@ -680,7 +680,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                 <span>You are currently registered for:</span>
               </div>
               <p className="font-semibold pl-5">
-                {reviveModalSlot.slotName} ({reviveModalSlot.slotTiming || '10:00 AM'})
+                {reviveModalSlot.slotName} ({formatSlotDate(reviveModalSlot.slotDate)} • {reviveModalSlot.slotTiming || '10:00 AM'})
               </p>
               <p className="text-[11px] text-amber-800 dark:text-amber-300 pl-5">
                 Evaluator: <strong>{reviveModalSlot.assignedFacultyName || 'Assigned Faculty'}</strong>

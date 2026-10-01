@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { GDSession } from '../../types/gd';
 import { INSTITUTIONAL_FACULTY, FacultyMemberInfo } from '../../data/mockGDData';
-import { getStudentBookedSlotId } from '../../utils/studentBooking';
+import { getStudentBookedSlotId, formatSlotDate } from '../../utils/studentBooking';
 
 interface SlotSelectionModalProps {
   isOpen: boolean;
@@ -196,7 +196,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
-                You are confirmed for <strong>{bookedSlotDetails?.slotName || effectiveBookedSlotId}</strong> ({bookedSlotDetails?.slotTiming || 'Scheduled Time'}, {bookedSlotDetails?.slotDate || 'Today'}). Under institutional academic policy, each student may only book and participate in a single discussion slot. All other slots are locked.
+                You are confirmed for <strong>{bookedSlotDetails?.slotName || effectiveBookedSlotId}</strong> ({bookedSlotDetails?.slotTiming || 'Scheduled Time'}, {formatSlotDate(bookedSlotDetails?.slotDate)}). Under institutional academic policy, each student may only book and participate in a single discussion slot. All other slots are locked.
               </p>
             </div>
           </div>
@@ -471,9 +471,9 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                           </span>
                         </div>
                         <span className="text-slate-400">•</span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 font-medium">
                           <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>{slot.slotDate || 'Today'}</span>
+                          <span>{formatSlotDate(slot.slotDate)}</span>
                         </div>
                       </div>
 

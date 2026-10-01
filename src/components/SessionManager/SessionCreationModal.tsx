@@ -110,7 +110,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       slotName: 'Slot 1 - Morning Batch',
       startTime: '09:30 AM',
       endTime: '10:00 AM',
-      slotDate: 'Today',
+      slotDate: new Date().toISOString().split('T')[0],
       participantCount: 8,
     },
     {
@@ -118,7 +118,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       slotName: 'Slot 2 - Afternoon Batch',
       startTime: '02:30 PM',
       endTime: '03:00 PM',
-      slotDate: 'Today',
+      slotDate: new Date().toISOString().split('T')[0],
       participantCount: 8,
     },
   ]);
@@ -132,7 +132,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
       slotName: preset ? `Slot ${nextIdx} - ${preset.label} Batch` : `Slot ${nextIdx} - Batch ${String.fromCharCode(64 + nextIdx)}`,
       startTime: preset ? preset.start : '04:30 PM',
       endTime: preset ? preset.end : '05:00 PM',
-      slotDate: 'Today',
+      slotDate: new Date().toISOString().split('T')[0],
       participantCount: 8,
     };
     setSlots((prev) => [...prev, newSlot]);
@@ -194,7 +194,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
           id: `slot-${baseTimestamp.toString().slice(-4)}-${index + 1}`,
           slotName: slotNameStr,
           slotTiming: slotTimingStr,
-          slotDate: slot.slotDate || 'Today',
+          slotDate: slot.slotDate || new Date().toISOString().split('T')[0],
           maxCapacity: studentCount,
           enrolledCount: 0,
           roomLayout: roomLayout,
@@ -538,80 +538,114 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-                    {/* Slot Name */}
-                    <div className="sm:col-span-5 space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                        Slot Name / Batch:
-                      </label>
-                      <input
-                        type="text"
-                        value={slot.slotName}
-                        onChange={(e) => handleUpdateSlot(slot.id, 'slotName', e.target.value)}
-                        placeholder="e.g. Slot 1 - Morning Batch"
-                        required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500"
-                      />
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                      {/* Slot Name */}
+                      <div className="sm:col-span-7 space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          Slot Name / Batch:
+                        </label>
+                        <input
+                          type="text"
+                          value={slot.slotName}
+                          onChange={(e) => handleUpdateSlot(slot.id, 'slotName', e.target.value)}
+                          placeholder="e.g. Slot 1 - Morning Batch"
+                          required
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      {/* Custom Capacity Option */}
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3 text-amber-500" />
+                            <span>No. of Students:</span>
+                          </span>
+                          <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-mono">
+                            {slot.participantCount} seats
+                          </span>
+                        </label>
+                        <select
+                          value={slot.participantCount}
+                          onChange={(e) => handleUpdateSlot(slot.id, 'participantCount', e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500 font-medium"
+                        >
+                          <option value={4}>4 Students (Mini GD)</option>
+                          <option value={6}>6 Students (Focused)</option>
+                          <option value={8}>8 Students (Standard GD)</option>
+                          <option value={10}>10 Students</option>
+                          <option value={12}>12 Students</option>
+                          <option value={15}>15 Students</option>
+                          <option value={18}>18 Students</option>
+                          <option value={20}>20 Students</option>
+                          <option value={24}>24 Students</option>
+                          <option value={30}>30 Students (Max)</option>
+                        </select>
+                      </div>
                     </div>
 
-                    {/* Start Time */}
-                    <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-amber-500" />
-                        <span>Start Time:</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={slot.startTime}
-                        onChange={(e) => handleUpdateSlot(slot.id, 'startTime', e.target.value)}
-                        placeholder="09:30 AM"
-                        required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-0.5">
+                      {/* Scheduled Date */}
+                      <div className="sm:col-span-6 space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-indigo-500" />
+                            <span>Slot Date <span className="text-rose-500">*</span>:</span>
+                          </span>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                            Visible on student slot
+                          </span>
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="date"
+                            value={slot.slotDate && slot.slotDate !== 'Today' ? slot.slotDate : new Date().toISOString().split('T')[0]}
+                            onChange={(e) => handleUpdateSlot(slot.id, 'slotDate', e.target.value)}
+                            required
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSlot(slot.id, 'slotDate', new Date().toISOString().split('T')[0])}
+                            className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer"
+                            title="Reset to today"
+                          >
+                            Today
+                          </button>
+                        </div>
+                      </div>
 
-                    {/* End Time */}
-                    <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                        End Time:
-                      </label>
-                      <input
-                        type="text"
-                        value={slot.endTime}
-                        onChange={(e) => handleUpdateSlot(slot.id, 'endTime', e.target.value)}
-                        placeholder="10:00 AM"
-                        required
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
+                      {/* Start Time */}
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-500" />
+                          <span>Start Time:</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={slot.startTime}
+                          onChange={(e) => handleUpdateSlot(slot.id, 'startTime', e.target.value)}
+                          placeholder="09:30 AM"
+                          required
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
 
-                    {/* Custom Capacity Option */}
-                    <div className="sm:col-span-3 space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3 text-amber-500" />
-                          <span>No. of Students:</span>
-                        </span>
-                        <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-mono">
-                          {slot.participantCount} seats
-                        </span>
-                      </label>
-                      <select
-                        value={slot.participantCount}
-                        onChange={(e) => handleUpdateSlot(slot.id, 'participantCount', e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500 font-medium"
-                      >
-                        <option value={4}>4 Students (Mini GD)</option>
-                        <option value={6}>6 Students (Focused)</option>
-                        <option value={8}>8 Students (Standard GD)</option>
-                        <option value={10}>10 Students</option>
-                        <option value={12}>12 Students</option>
-                        <option value={15}>15 Students</option>
-                        <option value={18}>18 Students</option>
-                        <option value={20}>20 Students</option>
-                        <option value={24}>24 Students</option>
-                        <option value={30}>30 Students (Max)</option>
-                      </select>
+                      {/* End Time */}
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          End Time:
+                        </label>
+                        <input
+                          type="text"
+                          value={slot.endTime}
+                          onChange={(e) => handleUpdateSlot(slot.id, 'endTime', e.target.value)}
+                          placeholder="10:00 AM"
+                          required
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
