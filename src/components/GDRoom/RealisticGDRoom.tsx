@@ -96,6 +96,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'rules' | 'analytics' | 'breakout'>('transcript');
   const [liveSpeechTranscript, setLiveSpeechTranscript] = useState('');
+  const [typedStatement, setTypedStatement] = useState('');
   const liveTranscriptRef = useRef<string>('');
   const speechPauseTimerRef = useRef<any>(null);
   const isListeningMicRef = useRef<boolean>(false);
@@ -322,6 +323,39 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const usedSeats = new Set(existingReal.map((s) => s.seatNumber));
       const seats: Student[] = [...existingReal];
 
+      // Ensure the logged-in student user is firmly assigned a seat if not already in seats
+      if (!isFaculty && currentUser?.role === 'student') {
+        const alreadyHasUser = seats.some((s) => s.isUser || s.id === currentUser.id);
+        if (!alreadyHasUser) {
+          const userSeatNum = rtcAssignedSeat || 1;
+          const userObj: Student = {
+            id: currentUser.id || 'speaker-user',
+            name: currentUser.name || 'Candidate',
+            seatNumber: userSeatNum,
+            college: currentUser.college || 'Institution',
+            course: (currentUser as any).course || 'Engineering',
+            batch: (currentUser as any).batch || '2024-2028',
+            avatar: currentUser.avatar || '',
+            isUser: true,
+            micActive: isListeningMic,
+            isSpeaking: false,
+            hasRaisedHand: false,
+            cameraActive: isCameraOn,
+            speakingDurationSeconds: 0,
+            speakingTurns: 0,
+            interruptionCount: 0,
+            questionsAnswered: 0,
+            questionsInitiated: 0,
+            sentiment: 'neutral',
+            isEmptySeat: false,
+            isRealPeer: false,
+            isDemoAI: false,
+          };
+          seats.push(userObj);
+          usedSeats.add(userSeatNum);
+        }
+      }
+
       for (let seatNum = 1; seatNum <= capacity; seatNum++) {
         if (!usedSeats.has(seatNum)) {
           seats.push({
@@ -353,7 +387,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       seats.sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
       return { ...prev, students: seats };
     });
-  }, [session.id, session.maxCapacity, setSession]);
+  }, [session.id, session.maxCapacity, setSession, isFaculty, currentUser, rtcAssignedSeat, isListeningMic, isCameraOn]);
 
   // Active display students: merge connected user with live connected WebRTC peers & available desks
   const activeDisplayStudents = useMemo(() => {
@@ -454,13 +488,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const aiVoicePausedMicRef = useRef(false);
   const aiVoiceResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // AI voices are played through the user's speakers. Web Speech Recognition can
-  // still hear that speaker output even when WebRTC echo cancellation is enabled.
-  // Temporarily stop recognition and the outgoing mic track while AI is speaking,
-  // then resume the user's mic automatically after a short acoustic settle time.
+  // AI voices are played through the user's speakers. While AI speaks,
+  // ignore speech recognition results to prevent speaker audio feedback,
+  // then resume capturing user speech after AI completes.
   useEffect(() => {
     const handleAiVoiceStart = () => {
-      if (!isListeningMicRef.current) return;
       aiVoicePausedMicRef.current = true;
       if (speechPauseTimerRef.current) {
         clearTimeout(speechPauseTimerRef.current);
@@ -470,26 +502,22 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         clearTimeout(aiVoiceResumeTimerRef.current);
         aiVoiceResumeTimerRef.current = null;
       }
-      try {
-        recognitionRef.current?.stop();
-      } catch {}
-      rtcSetMicEnabled(false);
+      // Safety watchdog: clear AI voice pause automatically after 6 seconds max
+      // in case the browser cancels or misses the end event
+      aiVoiceResumeTimerRef.current = setTimeout(() => {
+        aiVoicePausedMicRef.current = false;
+        aiVoiceResumeTimerRef.current = null;
+      }, 6000);
     };
 
     const handleAiVoiceEnd = () => {
-      if (!aiVoicePausedMicRef.current) return;
+      if (aiVoiceResumeTimerRef.current) {
+        clearTimeout(aiVoiceResumeTimerRef.current);
+      }
       aiVoiceResumeTimerRef.current = setTimeout(() => {
-        aiVoiceResumeTimerRef.current = null;
-        if (!isListeningMicRef.current) {
-          aiVoicePausedMicRef.current = false;
-          return;
-        }
         aiVoicePausedMicRef.current = false;
-        try {
-          recognitionRef.current?.start();
-        } catch {}
-        rtcSetMicEnabled(true);
-      }, 500);
+        aiVoiceResumeTimerRef.current = null;
+      }, 300);
     };
 
     window.addEventListener('erus-ai-voice-start', handleAiVoiceStart);
@@ -499,7 +527,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       window.removeEventListener('erus-ai-voice-end', handleAiVoiceEnd);
       if (aiVoiceResumeTimerRef.current) clearTimeout(aiVoiceResumeTimerRef.current);
     };
-  }, [rtcSetMicEnabled]);
+  }, []);
 
   // Auto scroll transcript
   useEffect(() => {
@@ -582,25 +610,34 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
 
         recognition.onerror = (event: any) => {
-          console.warn('Speech recognition error:', event.error);
-          if (event.error === 'no-speech') {
+          console.warn('Speech recognition event:', event.error);
+          // Do not kill microphone on benign / transient browser events
+          if (
+            event.error === 'no-speech' ||
+            event.error === 'aborted' ||
+            event.error === 'audio-capture' ||
+            aiVoicePausedMicRef.current
+          ) {
             return;
           }
-          setIsListeningMic(false);
-          isListeningMicRef.current = false;
-          stopAudioAnalyser();
-          rtcSetMicEnabled(false);
-          if (!isFaculty) {
-            setSession((prev) => ({
-              ...prev,
-              students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
-            }));
+          // Only true fatal permission blocks should toggle off mic state
+          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            setIsListeningMic(false);
+            isListeningMicRef.current = false;
+            stopAudioAnalyser();
+            rtcSetMicEnabled(false);
+            if (!isFaculty) {
+              setSession((prev) => ({
+                ...prev,
+                students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
+              }));
+            }
           }
         };
 
         recognition.onend = () => {
           // If mic is supposed to remain on (user didn't mute), restart recognition like Google Meet
-          if (isListeningMicRef.current && !aiVoicePausedMicRef.current) {
+          if (isListeningMicRef.current) {
             try {
               recognition.start();
               return;
@@ -608,15 +645,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               // ignore
             }
           }
-          setIsListeningMic(false);
-          isListeningMicRef.current = false;
-          stopAudioAnalyser();
-          rtcSetMicEnabled(false);
-          if (!isFaculty) {
-            setSession((prev) => ({
-              ...prev,
-              students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
-            }));
+          if (!isListeningMicRef.current) {
+            setIsListeningMic(false);
+            stopAudioAnalyser();
+            rtcSetMicEnabled(false);
+            if (!isFaculty) {
+              setSession((prev) => ({
+                ...prev,
+                students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
+              }));
+            }
           }
         };
 
@@ -625,7 +663,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [isFaculty, stopAudioAnalyser, rtcSetMicEnabled]);
 
-  const toggleMicRecognition = () => {
+  const toggleMicRecognition = async () => {
     if (isListeningMic) {
       // User muting: auto-commit any pending speech immediately so words are not lost
       if (speechPauseTimerRef.current) {
@@ -638,6 +676,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
 
       isListeningMicRef.current = false;
+      aiVoicePausedMicRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -657,15 +696,34 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     } else {
       liveTranscriptRef.current = '';
       setLiveSpeechTranscript('');
+      aiVoicePausedMicRef.current = false;
+      if (aiVoiceResumeTimerRef.current) {
+        clearTimeout(aiVoiceResumeTimerRef.current);
+        aiVoiceResumeTimerRef.current = null;
+      }
+
+      // Explicitly prompt/verify microphone access
+      try {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+      } catch (micErr) {
+        console.warn('Microphone permission request:', micErr);
+      }
+
       isListeningMicRef.current = true;
+      setIsListeningMic(true);
+
       if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
         try {
           recognitionRef.current.start();
         } catch (e) {
           console.warn('Speech recognition start error (WebRTC audio will still stream):', e);
         }
       }
-      setIsListeningMic(true);
       startAudioAnalyser();
       rtcSetMicEnabled(true);
       if (!isFaculty) {
@@ -770,7 +828,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // User or Faculty submits a spoken statement / guidance
   const handleSendUserStatement = async (textToSend?: string) => {
-    if (!isSessionActive && !isFaculty) return;
+    // If not active, auto-activate session so student speech is never discarded
+    if (!isSessionActive && !isFaculty) {
+      setSession((prev) => ({
+        ...prev,
+        status: 'active',
+        startedAt: prev.startedAt || Date.now(),
+      }));
+    }
     const text = (textToSend || liveSpeechTranscript).trim();
     if (!text) return;
 
@@ -815,14 +880,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       return;
     }
 
-    const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0] || {
+    const userStudent = (session?.students || []).find((s) => s.isUser) ||
+      (session?.students || []).find((s) => !s.isEmptySeat && (s.id === currentUser?.id || s.name === currentUser?.name)) ||
+      (session?.students || []).find((s) => !s.isEmptySeat) || {
       id: currentUser?.id || 'speaker-1',
       name: currentUser?.name || 'Candidate',
       seatNumber: 1,
-      college: '',
-      course: '',
-      batch: '',
-      avatar: '',
+      college: currentUser?.college || 'Institution',
+      course: (currentUser as any)?.course || 'Engineering',
+      batch: (currentUser as any)?.batch || '2024-2028',
+      avatar: currentUser?.avatar || '',
       isUser: true,
       micActive: false,
       isSpeaking: false,
@@ -2255,21 +2322,32 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     </div>
 
                     {/* Real-time Streaming Caption Preview */}
-                    <div className="bg-slate-950/70 border border-emerald-500/30 rounded-xl px-3.5 py-2 min-h-[40px] flex items-center">
+                    <div className="bg-slate-950/70 border border-emerald-500/30 rounded-xl px-3.5 py-2 min-h-[40px] flex items-center justify-between gap-2">
                       {liveSpeechTranscript ? (
-                        <div className="w-full flex items-center justify-between">
-                          <p className="text-xs sm:text-sm text-emerald-100 font-medium leading-relaxed">
+                        <div className="w-full flex items-center justify-between gap-3">
+                          <p className="text-xs sm:text-sm text-emerald-100 font-medium leading-relaxed flex-1">
                             <span className="text-emerald-400 font-semibold mr-1.5">Speaking:</span>
                             "{liveSpeechTranscript}"
                           </p>
-                          <span className="text-[10px] text-emerald-400/80 font-mono hidden md:inline ml-2 whitespace-nowrap">
-                            (Auto-broadcasting on pause...)
-                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-emerald-400/80 font-mono hidden md:inline whitespace-nowrap">
+                              (Auto-commits on pause)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => commitLiveSpeechToRoom()}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow transition-all cursor-pointer flex items-center gap-1"
+                              title="Commit words to discussion now"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>Commit</span>
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-xs text-slate-400 italic flex items-center gap-2">
                           <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                          <span>Speak into your microphone — your voice is broadcast live to all participants. Natural pause auto-commits.</span>
+                          <span>Speak into your microphone — your voice converts to text live. Pausing or clicking Commit posts your points.</span>
                         </p>
                       )}
                     </div>
@@ -2430,35 +2508,64 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
             {/* TAB 1: Live Timestamped Transcript Stream */}
             {activeTab === 'transcript' && (
-              <div className="flex-1 overflow-y-auto pr-1 space-y-3">
-                {transcripts.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`p-3 rounded-xl border text-xs leading-relaxed transition-all ${
-                      entry.isFacilitator
-                        ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800/50 text-indigo-950 dark:text-indigo-100'
-                        : entry.speakerId === 's1'
-                        ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/50 text-blue-950 dark:text-slate-100'
-                        : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-mono-code">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`font-bold ${entry.isFacilitator ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'}`}>
-                          {entry.speakerName}
-                        </span>
-                        {entry.seatNumber && (
-                          <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 font-semibold">
-                            Seat {entry.seatNumber}
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto pr-1 space-y-3">
+                  {transcripts.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className={`p-3 rounded-xl border text-xs leading-relaxed transition-all ${
+                        entry.isFacilitator
+                          ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800/50 text-indigo-950 dark:text-indigo-100'
+                          : entry.speakerId === 's1'
+                          ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/50 text-blue-950 dark:text-slate-100'
+                          : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-mono-code">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-bold ${entry.isFacilitator ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                            {entry.speakerName}
                           </span>
-                        )}
+                          {entry.seatNumber && (
+                            <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 font-semibold">
+                              Seat {entry.seatNumber}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-slate-400 dark:text-slate-500">{entry.timestamp}</span>
                       </div>
-                      <span className="text-slate-400 dark:text-slate-500">{entry.timestamp}</span>
+                      <p className="font-normal">{entry.text}</p>
                     </div>
-                    <p className="font-normal">{entry.text}</p>
-                  </div>
-                ))}
-                <div ref={transcriptEndRef} />
+                  ))}
+                  <div ref={transcriptEndRef} />
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!typedStatement.trim()) return;
+                    handleSendUserStatement(typedStatement.trim());
+                    setTypedStatement('');
+                  }}
+                  className="pt-2 mt-1 border-t border-slate-200 dark:border-slate-800 flex items-center gap-1.5"
+                >
+                  <input
+                    type="text"
+                    value={typedStatement}
+                    onChange={(e) => setTypedStatement(e.target.value)}
+                    placeholder="Type argument or speaking point..."
+                    className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!typedStatement.trim()}
+                    className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs disabled:opacity-40 cursor-pointer transition-all flex items-center gap-1 shadow-xs"
+                    title="Send statement"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Send</span>
+                  </button>
+                </form>
               </div>
             )}
 

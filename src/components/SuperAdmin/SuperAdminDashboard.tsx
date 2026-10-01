@@ -340,8 +340,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                       <button
                         onClick={() =>
                           setCredentialsModal({
-                            email: c.adminEmail,
-                            password: `Erus@${c.code}2026`,
+                            email: c.adminEmail || c.contactEmail,
+                            password: c.adminPassword || `Erus@${c.code}2026`,
                             role: 'college_admin',
                             collegeName: c.name,
                             collegeCode: c.code,

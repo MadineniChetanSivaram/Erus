@@ -133,6 +133,7 @@ export interface ICollege extends Document {
   slotCount: number;
   adminEmail?: string;
   adminName?: string;
+  adminPassword?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -151,6 +152,7 @@ const CollegeSchema = new Schema<ICollege>(
     slotCount: { type: Number, default: 0 },
     adminEmail: { type: String, default: '' },
     adminName: { type: String, default: '' },
+    adminPassword: { type: String, default: '' },
   },
   { timestamps: true, collection: 'colleges', autoIndex: false }
 );

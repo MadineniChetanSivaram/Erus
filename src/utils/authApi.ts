@@ -512,10 +512,12 @@ export async function fetchAdminColleges(): Promise<any[]> {
 
 export async function registerNewCollege(payload: any) {
   const cleanCode = (payload.code || '').trim().toUpperCase();
+  const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
   const newCollegeObj = {
     id: `col-${Date.now()}`,
     ...payload,
     code: cleanCode,
+    adminPassword: adminPass,
     status: 'active',
     studentCount: 0,
     facultyCount: 0,
@@ -529,7 +531,7 @@ export async function registerNewCollege(payload: any) {
 
   const creds = {
     email: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
-    password: payload.adminPassword || `Erus@${cleanCode}2026`,
+    password: adminPass,
     role: 'college_admin' as const,
     collegeName: payload.name,
     collegeCode: cleanCode,
@@ -551,10 +553,14 @@ export async function registerNewCollege(payload: any) {
     const res = await fetch('/api/admin/colleges', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, code: cleanCode }),
+      body: JSON.stringify({ ...payload, code: cleanCode, adminPassword: adminPass }),
     });
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      if (data && data.college) {
+        data.college.adminPassword = adminPass;
+      }
+      return data;
     }
   } catch (e) {
     console.warn('Error registering new college with backend:', e);

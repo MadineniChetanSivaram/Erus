@@ -53,6 +53,7 @@ interface BackendCollege {
   slotCount: number;
   adminEmail?: string;
   adminName?: string;
+  adminPassword?: string;
   createdAt: string;
 }
 
@@ -260,6 +261,7 @@ async function syncMongoDBWithPersistentState() {
           slotCount: c.slotCount || 0,
           adminEmail: c.adminEmail || c.contactEmail,
           adminName: c.adminName || `${c.code} Administrator`,
+          adminPassword: c.adminPassword || '',
           createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
         }));
       }
@@ -395,6 +397,7 @@ async function persistCollegeToMongoDB(col: BackendCollege) {
         slotCount: col.slotCount || 0,
         adminEmail: col.adminEmail || '',
         adminName: col.adminName || '',
+        adminPassword: col.adminPassword || '',
       },
       { upsert: true, new: true }
     );
@@ -822,8 +825,20 @@ app.get('/api/admin/colleges', (req, res) => {
     const sCount = (persistentState.students[c.code] || []).length;
     const fCount = (persistentState.faculty[c.code] || []).length;
     const slCount = (persistentState.slots[c.code] || []).length;
+    
+    // Find the college admin user for this institution to get their actual password
+    const adminUser = persistentState.users.find(
+      (u) =>
+        u.role === 'college_admin' &&
+        (u.collegeCode === c.code ||
+          (u.email && c.contactEmail && u.email.toLowerCase() === c.contactEmail.toLowerCase()) ||
+          (u.email && c.adminEmail && u.email.toLowerCase() === c.adminEmail.toLowerCase()))
+    );
+    const resolvedAdminPassword = adminUser?.password || c.adminPassword || `Erus@${c.code}2026`;
+
     return {
       ...c,
+      adminPassword: resolvedAdminPassword,
       studentCount: sCount || c.studentCount || 0,
       facultyCount: fCount || c.facultyCount || 0,
       slotCount: slCount || c.slotCount || 0,
@@ -838,6 +853,8 @@ app.post('/api/admin/colleges', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Name and code are required' });
   }
   const cleanCode = payload.code.trim().toUpperCase();
+  const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
+
   const newCol: BackendCollege = {
     id: `col-${Date.now()}`,
     name: payload.name.trim(),
@@ -851,10 +868,9 @@ app.post('/api/admin/colleges', async (req, res) => {
     slotCount: 0,
     adminEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     adminName: payload.adminName || `${cleanCode} Administrator`,
+    adminPassword: adminPass,
     createdAt: new Date().toISOString(),
   };
-
-  const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
   const adminUser: StoredAuthUser = {
     id: `ca-${Date.now()}`,
     name: payload.adminName || `${cleanCode} College Administrator`,
@@ -937,7 +953,35 @@ app.post('/api/admin/colleges', async (req, res) => {
   });
 });
 
-app.post('/api/admin/colleges/:id/send-credentials', (req, res) => {
+app.post('/api/admin/colleges/:id/send-credentials', async (req, res) => {
+  const targetId = req.params.id;
+  const col = persistentState.colleges.find(
+    (c) => c.id === targetId || c.code.toUpperCase() === targetId.toUpperCase()
+  );
+  if (col) {
+    const adminUser = persistentState.users.find(
+      (u) =>
+        u.role === 'college_admin' &&
+        (u.collegeCode === col.code ||
+          (u.email && col.contactEmail && u.email.toLowerCase() === col.contactEmail.toLowerCase()) ||
+          (u.email && col.adminEmail && u.email.toLowerCase() === col.adminEmail.toLowerCase()))
+    );
+    const pass = adminUser?.password || col.adminPassword || `Erus@${col.code}2026`;
+    const email = col.adminEmail || col.contactEmail;
+    try {
+      await sendCredentialsEmail({
+        to: email,
+        name: col.adminName || `${col.name} Administrator`,
+        role: 'college_admin',
+        loginId: email,
+        password: pass,
+        collegeName: col.name,
+      });
+      console.log(`[Credentials Mailer] Sent credentials to ${email}`);
+    } catch (e: any) {
+      console.warn('[Credentials Mailer] Warning while sending credentials email:', e.message);
+    }
+  }
   res.json({ success: true, message: 'Credentials dispatched successfully via secure notification.' });
 });
 
