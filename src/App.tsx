@@ -54,8 +54,8 @@ function GDAppContent() {
   // Safely load and validate slots, purging stale legacy storage where all slots were full or active
   const loadInitialSlots = (): GDSession[] => {
     try {
-      // Purge older legacy cache keys
-      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6', 'erus_available_slots_v7', 'erus_available_slots_v8'].forEach((k) => {
+      // Purge legacy cache keys and ghost deletion sets
+      ['erus_available_slots', 'erus_available_slots_v1', 'erus_available_slots_v2', 'erus_available_slots_v3', 'erus_available_slots_v4', 'erus_available_slots_v5', 'erus_available_slots_v6', 'erus_available_slots_v7', 'erus_available_slots_v8', 'erus_deleted_slot_ids'].forEach((k) => {
         localStorage.removeItem(k);
       });
 
@@ -63,19 +63,8 @@ function GDAppContent() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          let deletedIds = new Set<string>();
-          try {
-            const rawDel = localStorage.getItem('erus_deleted_slot_ids');
-            if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
-          } catch {}
-          const notDeleted = parsed.filter((s: GDSession) => s && s.id && !deletedIds.has(s.id));
-          // Check if every slot in storage is marked full (15/15) - if so, discard stale cache
-          const allFull = notDeleted.every((s: GDSession) => {
-            const maxCap = s.maxCapacity || 15;
-            const enrolled = s.enrolledCount ?? s.students?.length ?? 15;
-            return enrolled >= maxCap;
-          });
-          if (!allFull && notDeleted.length > 0) {
+          const notDeleted = parsed.filter((s: GDSession) => s && s.id);
+          if (notDeleted.length > 0) {
             return notDeleted.map((s: GDSession) => ({
               ...s,
               status: s.status === 'completed' ? 'completed' : (s.status === 'active' ? 'active' : 'waiting'),
@@ -213,7 +202,9 @@ function GDAppContent() {
   // Authoritative slot synchronization: runs immediately on mount and periodically for all logged-in roles
   useEffect(() => {
     if (!currentUser) return;
-    const collegeCode = (currentUser as any).collegeCode || ((currentUser as any).college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
+    const rawCode = (currentUser as any).collegeCode || (currentUser as any).college || 'DIT';
+    const rawUpper = String(rawCode).trim().toUpperCase();
+    const collegeCode = rawUpper === 'BMSIT2002' || rawUpper === 'BMSI' || rawUpper === 'BMS' || rawUpper.includes('BMS') ? 'BMSIT' : rawUpper;
 
     const syncSlots = async () => {
       try {
@@ -222,12 +213,7 @@ function GDAppContent() {
           : await fetchCollegeSlots(collegeCode);
 
         if (Array.isArray(rawSlots)) {
-          let deletedIds = new Set<string>();
-          try {
-            const rawDel = localStorage.getItem('erus_deleted_slot_ids');
-            if (rawDel) deletedIds = new Set(JSON.parse(rawDel));
-          } catch {}
-          const filteredRaw = rawSlots.filter((s: any) => s && s.id && !deletedIds.has(s.id));
+          const filteredRaw = rawSlots.filter((s: any) => s && s.id);
           const mappedSlots: GDSession[] = filteredRaw.map((s: any): GDSession => ({
             ...INITIAL_SESSION,
             id: s.id,
@@ -304,7 +290,9 @@ function GDAppContent() {
     } catch {}
 
     // Fetch real slots from backend. Faculty portals are restricted to their assigned sessions.
-    const collegeCode = (user as any).collegeCode || ((user as any).college ? (user as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
+    const rawCode = (user as any).collegeCode || (user as any).college || 'DIT';
+    const rawUpper = String(rawCode).trim().toUpperCase();
+    const collegeCode = rawUpper === 'BMSIT2002' || rawUpper === 'BMSI' || rawUpper === 'BMS' || rawUpper.includes('BMS') ? 'BMSIT' : rawUpper;
     const slotSource = user.role === 'faculty'
       ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
       : fetchCollegeSlots(collegeCode);

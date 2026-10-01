@@ -107,6 +107,15 @@ interface BackendCollegeSlotItem {
   students?: any[];
 }
 
+function normalizeCollegeCode(rawCode?: string): string {
+  if (!rawCode) return 'DIT';
+  const c = String(rawCode).trim().toUpperCase();
+  if (c === 'BMSIT2002' || c === 'BMSI' || c === 'BMS' || c.includes('BMSIT') || c.includes('BMS')) {
+    return 'BMSIT';
+  }
+  return c;
+}
+
 interface StoredAuthUser {
   id: string;
   name: string;
@@ -342,11 +351,12 @@ async function syncMongoDBWithPersistentState() {
     const dbColleges = await CollegeModel.find();
     if (dbColleges.length > 0) {
       for (const c of dbColleges) {
-        const existingIdx = persistentState.colleges.findIndex((col) => col.code === c.code);
+        const normCode = normalizeCollegeCode(c.code);
+        const existingIdx = persistentState.colleges.findIndex((col) => normalizeCollegeCode(col.code) === normCode);
         const mappedCol: BackendCollege = {
           id: c.id,
-          name: c.name,
-          code: c.code,
+          name: normCode === 'BMSIT' ? 'BMS Institute of Technology' : c.name,
+          code: normCode,
           contactEmail: c.contactEmail,
           phone: c.phone || '',
           address: c.address || '',
@@ -355,7 +365,7 @@ async function syncMongoDBWithPersistentState() {
           facultyCount: c.facultyCount || 0,
           slotCount: c.slotCount || 0,
           adminEmail: c.adminEmail || c.contactEmail,
-          adminName: c.adminName || `${c.code} Administrator`,
+          adminName: c.adminName || `${normCode} Administrator`,
           adminPassword: c.adminPassword || '',
           createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
         };
@@ -366,12 +376,14 @@ async function syncMongoDBWithPersistentState() {
         }
       }
     }
-    // Upsert any local colleges not yet in MongoDB into MongoDB
+    // Clean up duplicate BMSIT2002 colleges in persistentState.colleges
+    persistentState.colleges = persistentState.colleges.filter(
+      (c, idx, self) => idx === self.findIndex((o) => normalizeCollegeCode(o.code) === normalizeCollegeCode(c.code))
+    ).map(c => ({ ...c, code: normalizeCollegeCode(c.code) }));
+
+    // Upsert local colleges into MongoDB
     for (const col of persistentState.colleges) {
-      const inDb = dbColleges.find((c) => c.code === col.code);
-      if (!inDb) {
-        await persistCollegeToMongoDB(col);
-      }
+      await persistCollegeToMongoDB(col);
     }
 
     // 2. Users Sync: Read all users from MongoDB
@@ -387,8 +399,8 @@ async function syncMongoDBWithPersistentState() {
           email: u.email,
           role: u.role as any,
           password: u.password,
-          college: u.college,
-          collegeCode: u.collegeCode,
+          college: normalizeCollegeCode(u.collegeCode) === 'BMSIT' ? 'BMS Institute of Technology' : u.college,
+          collegeCode: normalizeCollegeCode(u.collegeCode),
           avatar: u.avatar,
           studentId: u.studentProfile?.studentId,
           course: u.studentProfile?.course,
@@ -409,57 +421,64 @@ async function syncMongoDBWithPersistentState() {
 
     // Ensure any students or faculty from persistentState.students & persistentState.faculty exist in persistentState.users
     for (const [colCode, stuList] of Object.entries(persistentState.students || {})) {
+      const normCode = normalizeCollegeCode(colCode);
       for (const s of (stuList as any[])) {
         const uIdx = persistentState.users.findIndex((u) => u.email.toLowerCase() === s.email.toLowerCase());
+        const userObj: StoredAuthUser = {
+          id: s.id || `stu-${Date.now()}`,
+          name: s.name,
+          email: s.email,
+          role: 'student',
+          password: s.password || s.defaultPassword || 'password123',
+          college: normCode === 'BMSIT' ? 'BMS Institute of Technology' : (s.college || normCode),
+          collegeCode: normCode,
+          course: s.course,
+          batch: s.batch,
+          seatNumber: s.seatNumber,
+          studentId: s.studentId,
+        };
         if (uIdx < 0) {
-          persistentState.users.push({
-            id: s.id || `stu-${Date.now()}`,
-            name: s.name,
-            email: s.email,
-            role: 'student',
-            password: s.password || s.defaultPassword || 'password123',
-            college: s.college || colCode,
-            collegeCode: colCode,
-            course: s.course,
-            batch: s.batch,
-            seatNumber: s.seatNumber,
-            studentId: s.studentId,
-          });
+          persistentState.users.push(userObj);
+        } else {
+          persistentState.users[uIdx].collegeCode = normCode;
         }
       }
     }
     for (const [colCode, facList] of Object.entries(persistentState.faculty || {})) {
+      const normCode = normalizeCollegeCode(colCode);
       for (const f of (facList as any[])) {
         const uIdx = persistentState.users.findIndex((u) => u.email.toLowerCase() === f.email.toLowerCase());
+        const userObj: StoredAuthUser = {
+          id: f.id || `fac-${Date.now()}`,
+          name: f.name,
+          email: f.email,
+          role: 'faculty',
+          password: f.password || f.defaultPassword || 'password123',
+          college: normCode === 'BMSIT' ? 'BMS Institute of Technology' : (f.college || normCode),
+          collegeCode: normCode,
+          department: f.department,
+          designation: f.designation,
+          facultyId: f.facultyId,
+        };
         if (uIdx < 0) {
-          persistentState.users.push({
-            id: f.id || `fac-${Date.now()}`,
-            name: f.name,
-            email: f.email,
-            role: 'faculty',
-            password: f.password || f.defaultPassword || 'password123',
-            college: f.college || colCode,
-            collegeCode: colCode,
-            department: f.department,
-            designation: f.designation,
-            facultyId: f.facultyId,
-          });
+          persistentState.users.push(userObj);
+        } else {
+          persistentState.users[uIdx].collegeCode = normCode;
         }
       }
     }
 
-    // Upsert any user from persistentState.users not yet in MongoDB to MongoDB UserModel
+    // Normalize all user college codes
     for (const u of persistentState.users) {
-      const inDb = dbUsers.find((du) => du.email.toLowerCase() === u.email.toLowerCase());
-      if (!inDb) {
-        await persistUserToMongoDB(u);
-      }
+      if (u.collegeCode) u.collegeCode = normalizeCollegeCode(u.collegeCode);
+      await persistUserToMongoDB(u);
     }
 
     // Hydrate students and faculty lists per college
     for (const col of persistentState.colleges) {
+      const normCode = normalizeCollegeCode(col.code);
       const colStudents = persistentState.users
-        .filter((u) => u.role === 'student' && (u.collegeCode === col.code || u.college === col.name))
+        .filter((u) => u.role === 'student' && normalizeCollegeCode(u.collegeCode) === normCode)
         .map((u) => ({
           id: u.id,
           name: u.name,
@@ -469,11 +488,11 @@ async function syncMongoDBWithPersistentState() {
           batch: u.batch || '2022-2026',
           seatNumber: u.seatNumber || 1,
           college: col.name,
-          collegeCode: col.code,
+          collegeCode: normCode,
           password: u.password,
         }));
       if (colStudents.length > 0) {
-        const existing = persistentState.students[col.code] || [];
+        const existing = persistentState.students[normCode] || [];
         for (const cs of colStudents) {
           const idx = existing.findIndex((e) => e.email.toLowerCase() === cs.email.toLowerCase());
           if (idx >= 0) {
@@ -482,11 +501,11 @@ async function syncMongoDBWithPersistentState() {
             existing.push(cs);
           }
         }
-        persistentState.students[col.code] = existing;
+        persistentState.students[normCode] = existing;
       }
 
       const colFaculty = persistentState.users
-        .filter((u) => u.role === 'faculty' && (u.collegeCode === col.code || u.college === col.name))
+        .filter((u) => u.role === 'faculty' && normalizeCollegeCode(u.collegeCode) === normCode)
         .map((u) => ({
           id: u.id,
           name: u.name,
@@ -495,12 +514,12 @@ async function syncMongoDBWithPersistentState() {
           department: u.department || 'Computer Science & Engineering',
           designation: u.designation || 'Faculty Member',
           college: col.name,
-          collegeCode: col.code,
+          collegeCode: normCode,
           assignedSlotsCount: 0,
           password: u.password,
         }));
       if (colFaculty.length > 0) {
-        const existing = persistentState.faculty[col.code] || [];
+        const existing = persistentState.faculty[normCode] || [];
         for (const cf of colFaculty) {
           const idx = existing.findIndex((e) => e.email.toLowerCase() === cf.email.toLowerCase());
           if (idx >= 0) {
@@ -509,15 +528,49 @@ async function syncMongoDBWithPersistentState() {
             existing.push(cf);
           }
         }
-        persistentState.faculty[col.code] = existing;
+        persistentState.faculty[normCode] = existing;
       }
     }
 
-    // Hydrate Slots (Parent Table: gd_sessions)
+    // Merge BMSIT2002 students/faculty into BMSIT
+    if (persistentState.students['BMSIT2002']) {
+      if (!persistentState.students['BMSIT']) persistentState.students['BMSIT'] = [];
+      for (const s of persistentState.students['BMSIT2002']) {
+        s.collegeCode = 'BMSIT';
+        if (!persistentState.students['BMSIT'].some(e => e.email.toLowerCase() === s.email.toLowerCase())) {
+          persistentState.students['BMSIT'].push(s);
+        }
+      }
+      delete persistentState.students['BMSIT2002'];
+    }
+    if (persistentState.faculty['BMSIT2002']) {
+      if (!persistentState.faculty['BMSIT']) persistentState.faculty['BMSIT'] = [];
+      for (const f of persistentState.faculty['BMSIT2002']) {
+        f.collegeCode = 'BMSIT';
+        if (!persistentState.faculty['BMSIT'].some(e => e.email.toLowerCase() === f.email.toLowerCase())) {
+          persistentState.faculty['BMSIT'].push(f);
+        }
+      }
+      delete persistentState.faculty['BMSIT2002'];
+    }
+
+    // Merge BMSIT2002 slots into BMSIT
+    if (persistentState.slots['BMSIT2002']) {
+      if (!persistentState.slots['BMSIT']) persistentState.slots['BMSIT'] = [];
+      for (const s of persistentState.slots['BMSIT2002']) {
+        s.collegeCode = 'BMSIT';
+        if (!persistentState.slots['BMSIT'].some(e => e.id === s.id)) {
+          persistentState.slots['BMSIT'].push(s);
+        }
+      }
+      delete persistentState.slots['BMSIT2002'];
+    }
+
+    // Hydrate Slots (Parent Table: gd_sessions) from MongoDB
     const dbSessions = await GDSessionModel.find();
     if (dbSessions.length > 0) {
       for (const s of dbSessions) {
-        const colCode = s.collegeCode || 'DIT';
+        const colCode = normalizeCollegeCode(s.collegeCode || 'DIT');
         if (!persistentState.slots[colCode]) persistentState.slots[colCode] = [];
         const existingSlot = persistentState.slots[colCode]?.find((slot) => slot.id === s.id);
         const rawStudents = (s as any).students && (s as any).students.length > 0
@@ -549,6 +602,14 @@ async function syncMongoDBWithPersistentState() {
         } else {
           persistentState.slots[colCode].push(slotItem);
         }
+      }
+    }
+
+    // Persist all slots to MongoDB
+    for (const [colCode, slotList] of Object.entries(persistentState.slots)) {
+      for (const s of (slotList as any[])) {
+        s.collegeCode = normalizeCollegeCode(s.collegeCode || colCode);
+        await persistSlotToMongoDB(s);
       }
     }
 
@@ -1597,7 +1658,7 @@ app.post('/api/user/heartbeat', (req, res) => {
 
 // --- COLLEGE ADMIN ENDPOINTS ---
 app.get('/api/college/stats', (req, res) => {
-  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || 'DIT');
   const college = persistentState.colleges.find((c) => c.code === code);
   const stuList = persistentState.students[code] || [];
   const facList = persistentState.faculty[code] || [];
@@ -1618,7 +1679,7 @@ app.get('/api/college/stats', (req, res) => {
 });
 
 app.get('/api/college/students', (req, res) => {
-  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || 'DIT');
   const rawStudents = persistentState.students[code] || [];
   const students = rawStudents.map((st) => {
     const userMatch = persistentState.users.find(
@@ -1637,7 +1698,7 @@ app.get('/api/college/students', (req, res) => {
 
 app.post('/api/college/students', async (req, res) => {
   const { students, student, collegeCode } = req.body;
-  const code = (collegeCode || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode(collegeCode || 'DIT');
   const incoming: any[] = Array.isArray(students) ? students : student ? [student] : [];
 
   if (!persistentState.students[code]) {
@@ -1752,7 +1813,7 @@ app.post('/api/college/students', async (req, res) => {
 });
 
 app.get('/api/college/faculty', async (req, res) => {
-  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || 'DIT');
   const facultyMap = new Map<string, any>();
 
   // Persistent roster remains the fast path / fallback.
@@ -1813,7 +1874,7 @@ app.get('/api/college/faculty', async (req, res) => {
 
 app.post('/api/college/faculty', async (req, res) => {
   const payload = req.body;
-  const code = (payload.collegeCode || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode(payload.collegeCode || 'DIT');
 
   if (!persistentState.faculty[code]) {
     persistentState.faculty[code] = [];
@@ -1999,17 +2060,56 @@ app.post('/api/college/dispatch-credentials', async (req, res) => {
 
 
 app.get('/api/college/slots', async (req, res) => {
-  const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || 'DIT');
   const facultyList = persistentState.faculty[code] || [];
   const slotMap = new Map<string, any>();
 
-  // Start with the in-memory state.
+  // Start with in-memory slots for this code (and aliases)
   for (const slot of (persistentState.slots[code] || [])) {
     slotMap.set(slot.id, slot);
   }
+  if (code === 'BMSIT' && persistentState.slots['BMSIT2002']) {
+    for (const slot of persistentState.slots['BMSIT2002']) {
+      slotMap.set(slot.id, { ...slot, collegeCode: 'BMSIT' });
+    }
+  }
 
-  // PostgreSQL is also authoritative for persisted slots. This is important
-  // after a Railway restart/deploy, where in-memory state starts empty.
+  // Authoritative MongoDB lookup
+  if (isMongoConnected()) {
+    try {
+      const dbSlots = await GDSessionModel.find({
+        $or: [{ collegeCode: code }, ...(code === 'BMSIT' ? [{ collegeCode: 'BMSIT2002' }] : [])],
+      });
+      for (const s of dbSlots) {
+        const existing = slotMap.get(s.id) || {};
+        slotMap.set(s.id, {
+          ...existing,
+          id: s.id,
+          slotName: s.slotName || s.topic,
+          topic: s.topic,
+          description: s.description || '',
+          durationMinutes: s.durationMinutes,
+          difficulty: (s as any).difficulty || 'Intermediate',
+          status: s.status,
+          slotTiming: s.slotTiming || '',
+          slotDate: s.slotDate || (existing as any).slotDate || 'Today',
+          maxCapacity: s.maxCapacity,
+          enrolledCount: (s as any).students?.length ?? s.enrolledCount ?? 0,
+          assignedFacultyId: s.assignedFacultyId || '',
+          assignedFacultyName: s.assignedFacultyName || '',
+          assignedFacultyEmail: s.assignedFacultyEmail || '',
+          assignedFacultyDept: s.assignedFacultyDept || '',
+          collegeCode: code,
+          students: s.students || [],
+          createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
+        });
+      }
+    } catch (mErr: any) {
+      console.warn('[MongoDB] Read slots error:', mErr.message);
+    }
+  }
+
+  // PostgreSQL lookup fallback
   if (isDbConnected && prisma) {
     try {
       const dbSlots = await prisma.gDSession.findMany({
@@ -2059,7 +2159,7 @@ app.get('/api/college/slots', async (req, res) => {
     return ensureSlotParticipants(baseSlot, code);
   });
 
-  // Keep the in-memory cache synchronized so all portals see the same roster.
+  // Keep in-memory cache synchronized
   persistentState.slots[code] = slots;
   savePersistentState();
 
@@ -2068,7 +2168,7 @@ app.get('/api/college/slots', async (req, res) => {
 
 app.post('/api/college/slots', async (req, res) => {
   const payload = req.body;
-  const code = (payload.collegeCode || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode(payload.collegeCode || 'DIT');
 
   if (!persistentState.slots[code]) {
     persistentState.slots[code] = [];
@@ -2175,10 +2275,6 @@ app.delete('/api/college/slots/:id', async (req, res) => {
       target = found;
       break;
     }
-  }
-
-  if (target && target.status === 'active') {
-    return res.status(409).json({ success: false, error: 'An active GD session cannot be deleted' });
   }
 
   // Remove from in-memory slots across all colleges
@@ -2333,7 +2429,7 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
 // --- FACULTY ASSIGNED SESSION ENDPOINTS ---
 app.get('/api/faculty/sessions', async (req, res) => {
   const facultyId = String(req.query.facultyId || '').trim();
-  const code = String(req.query.collegeCode || 'DIT').toUpperCase();
+  const code = normalizeCollegeCode(req.query.collegeCode as string);
   if (!facultyId) return res.status(400).json({ success: false, error: 'facultyId is required' });
 
   const roster = persistentState.faculty[code] || [];
@@ -2974,6 +3070,9 @@ app.post('/api/auth/login', async (req, res) => {
   // Record user activity upon successful verification
   recordUserActivity(user);
 
+  if (user.collegeCode) {
+    user.collegeCode = normalizeCollegeCode(user.collegeCode);
+  }
   const { password: _, ...cleanUser } = user;
   const token = jwt.sign({ id: cleanUser.id, email: cleanUser.email, role: cleanUser.role }, JWT_SECRET, { expiresIn: '7d' });
   res.json({
