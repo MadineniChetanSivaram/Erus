@@ -67,38 +67,38 @@ export function createBaselinePreviousReport(currentReport: StudentAssessmentRep
     },
     skills: {
       english: {
-        ...currentReport.skills.english,
-        score: Math.max(12, currentReport.skills.english.score - 2),
+        ...(currentReport.skills?.english || { parameter: 'Speaking in English', weightagePercent: 20, score: 16, maxScore: 20, subPoints: ['Vocabulary', 'Structure'], feedback: '' }),
+        score: Math.max(12, ((currentReport.skills?.english?.score ?? 16) - 2)),
         feedback: 'Good conversational grasp, occasionally searched for business vocabulary.',
       },
       fluency: {
-        ...currentReport.skills.fluency,
-        score: Math.max(11, currentReport.skills.fluency.score - 3),
+        ...(currentReport.skills?.fluency || { parameter: 'Fluency', weightagePercent: 20, score: 15, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: '' }),
+        score: Math.max(11, ((currentReport.skills?.fluency?.score ?? 15) - 3)),
         feedback: 'Pauses occurred when transitioning between points with 10+ filler words recorded.',
       },
       clarity: {
-        ...currentReport.skills.clarity,
-        score: Math.max(10, currentReport.skills.clarity.score - 1),
+        ...(currentReport.skills?.clarity || { parameter: 'Communication Clarity', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Clear ideas'], feedback: '' }),
+        score: Math.max(10, ((currentReport.skills?.clarity?.score ?? 12) - 1)),
         feedback: 'Main premise was understandable; supporting reasoning was brief.',
       },
       confidence: {
-        ...currentReport.skills.confidence,
-        score: Math.max(9, currentReport.skills.confidence.score - 2),
+        ...(currentReport.skills?.confidence || { parameter: 'Confidence', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Body Language'], feedback: '' }),
+        score: Math.max(9, ((currentReport.skills?.confidence?.score ?? 12) - 2)),
         feedback: 'Hesitated to challenge counter-arguments; waited for moderator prompts.',
       },
       contentQuality: {
-        ...currentReport.skills.contentQuality,
-        score: Math.max(9, currentReport.skills.contentQuality.score - 1),
+        ...(currentReport.skills?.contentQuality || { parameter: 'Content Quality', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Relevance'], feedback: '' }),
+        score: Math.max(9, ((currentReport.skills?.contentQuality?.score ?? 12) - 1)),
         feedback: 'Relied on general observations rather than empirical industry case studies.',
       },
       collaboration: {
-        ...currentReport.skills.collaboration,
-        score: Math.max(6, currentReport.skills.collaboration.score - 1),
+        ...(currentReport.skills?.collaboration || { parameter: 'Collaboration', weightagePercent: 10, score: 8, maxScore: 10, subPoints: ['Listening'], feedback: '' }),
+        score: Math.max(6, ((currentReport.skills?.collaboration?.score ?? 8) - 1)),
         feedback: 'Listened politely; could actively invite quiet peers more consistently.',
       },
       leadership: {
-        ...currentReport.skills.leadership,
-        score: Math.max(2, currentReport.skills.leadership.score - 1),
+        ...(currentReport.skills?.leadership || { parameter: 'Leadership', weightagePercent: 5, score: 4, maxScore: 5, subPoints: ['Initiative'], feedback: '' }),
+        score: Math.max(2, ((currentReport.skills?.leadership?.score ?? 4) - 1)),
         feedback: 'Observed discussion flow without initiating mid-session summaries.',
       },
     },
@@ -192,13 +192,13 @@ export function computeComparisonDelta(
   const fillerWordsDelta = (current.fillerWordsCount ?? 2) - (previous.fillerWordsCount ?? 10);
 
   const skillDeltas = {
-    english: current.skills.english.score - previous.skills.english.score,
-    fluency: current.skills.fluency.score - previous.skills.fluency.score,
-    clarity: current.skills.clarity.score - previous.skills.clarity.score,
-    confidence: current.skills.confidence.score - previous.skills.confidence.score,
-    contentQuality: current.skills.contentQuality.score - previous.skills.contentQuality.score,
-    collaboration: current.skills.collaboration.score - previous.skills.collaboration.score,
-    leadership: current.skills.leadership.score - previous.skills.leadership.score,
+    english: (current.skills?.english?.score ?? 15) - (previous.skills?.english?.score ?? 14),
+    fluency: (current.skills?.fluency?.score ?? 15) - (previous.skills?.fluency?.score ?? 13),
+    clarity: (current.skills?.clarity?.score ?? 12) - (previous.skills?.clarity?.score ?? 11),
+    confidence: (current.skills?.confidence?.score ?? 12) - (previous.skills?.confidence?.score ?? 11),
+    contentQuality: (current.skills?.contentQuality?.score ?? 12) - (previous.skills?.contentQuality?.score ?? 11),
+    collaboration: (current.skills?.collaboration?.score ?? 8) - (previous.skills?.collaboration?.score ?? 7),
+    leadership: (current.skills?.leadership?.score ?? 4) - (previous.skills?.leadership?.score ?? 3),
   };
 
   const improvedSkills: string[] = [];
@@ -232,8 +232,8 @@ export function computeComparisonDelta(
       topGainParam = paramName;
     }
 
-    const currentSkill = current.skills[k];
-    const room = (currentSkill.maxScore || 20) - (currentSkill.score || 0);
+    const currentSkill = current.skills?.[k];
+    const room = (currentSkill?.maxScore || 20) - (currentSkill?.score || 0);
     if (room > maxRoom) {
       maxRoom = room;
       topRoomParam = paramName;

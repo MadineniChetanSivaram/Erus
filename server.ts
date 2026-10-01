@@ -3886,13 +3886,13 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
   const fillerWordsBreakdown = Object.entries(fillerMap).map(([word, count]) => ({ word, count }));
   if (!wordCount) {
     const skills = {
-      english: { score: 0, max: 20, feedback: 'No student speech was captured.' },
-      fluency: { score: 0, max: 20, feedback: 'No student speech was captured.' },
-      clarity: { score: 0, max: 15, feedback: 'No student speech was captured.' },
-      confidence: { score: 0, max: 15, feedback: 'No speaking evidence was captured.' },
-      contentQuality: { score: 0, max: 15, feedback: 'No argument evidence was captured.' },
-      collaboration: { score: 0, max: 10, feedback: 'No peer interaction evidence was captured.' },
-      leadership: { score: 0, max: 5, feedback: 'No leadership evidence was captured.' },
+      english: { parameter: 'Speaking in English', weightagePercent: 20, score: 0, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'No student speech was captured.' },
+      fluency: { parameter: 'Fluency', weightagePercent: 20, score: 0, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'No student speech was captured.' },
+      clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: 0, maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: 'No student speech was captured.' },
+      confidence: { parameter: 'Confidence', weightagePercent: 15, score: 0, maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: 'No speaking evidence was captured.' },
+      contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: 0, maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: 'No argument evidence was captured.' },
+      collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: 0, maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: 'No peer interaction evidence was captured.' },
+      leadership: { parameter: 'Leadership', weightagePercent: 5, score: 0, maxScore: 5, subPoints: ['Initiative'], feedback: 'No leadership evidence was captured.' },
     };
     return {
       id: 'rep-' + student.id + '-' + Date.now(), sessionId: metrics.sessionId, studentId: student.id,
@@ -3917,13 +3917,13 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
   const collaboration = entries.some((e: any) => /agree|disagree|adding|build|point|others/i.test(e.text)) ? 8 : 4;
   const leadership = entries.some((e: any) => /initiat|summar|conclud|suggest|bring.*point|let us hear/i.test(e.text)) ? 4 : turns >= 3 ? 2 : 1;
   const skills = {
-    english: { score: english, max: 20, feedback: 'Fallback score based only on captured language evidence.' },
-    fluency: { score: fluency, max: 20, feedback: 'Captured pace was ' + wpm + ' WPM with ' + fillerWordsCount + ' filler words.' },
-    clarity: { score: clarity, max: 15, feedback: 'Based on the amount and structure of captured speech.' },
-    confidence: { score: confidence, max: 15, feedback: 'Based on observable speaking turns only.' },
-    contentQuality: { score: content, max: 15, feedback: 'Based on the amount of topic-related captured speech.' },
-    collaboration: { score: collaboration, max: 10, feedback: 'Only explicit peer-reference language was considered.' },
-    leadership: { score: leadership, max: 5, feedback: 'Only observable initiative or synthesis language was considered.' },
+    english: { parameter: 'Speaking in English', weightagePercent: 20, score: english, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'Fallback score based only on captured language evidence.' },
+    fluency: { parameter: 'Fluency', weightagePercent: 20, score: fluency, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'Captured pace was ' + wpm + ' WPM with ' + fillerWordsCount + ' filler words.' },
+    clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: clarity, maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: 'Based on the amount and structure of captured speech.' },
+    confidence: { parameter: 'Confidence', weightagePercent: 15, score: confidence, maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: 'Based on observable speaking turns only.' },
+    contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: content, maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: 'Based on the amount of topic-related captured speech.' },
+    collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: collaboration, maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: 'Only explicit peer-reference language was considered.' },
+    leadership: { parameter: 'Leadership', weightagePercent: 5, score: leadership, maxScore: 5, subPoints: ['Initiative'], feedback: 'Only observable initiative or synthesis language was considered.' },
   };
   const overallScore = Object.values(skills).reduce((sum, item) => sum + item.score, 0);
   return {
@@ -3999,13 +3999,13 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
     });
     const parsed = JSON.parse(response.text?.trim() || '{}');
     const skills = {
-      english: { score: clampScore(parsed.englishScore, 20), max: 20, feedback: parsed.englishFeedback || 'Evidence limited.' },
-      fluency: { score: clampScore(parsed.fluencyScore, 20), max: 20, feedback: parsed.fluencyFeedback || ('Observed ' + wpm + ' WPM and ' + fillerWordsCount + ' filler words.') },
-      clarity: { score: clampScore(parsed.clarityScore, 15), max: 15, feedback: parsed.clarityFeedback || 'Evidence limited.' },
-      confidence: { score: clampScore(parsed.confidenceScore, 15), max: 15, feedback: parsed.confidenceFeedback || 'Evidence limited.' },
-      contentQuality: { score: clampScore(parsed.contentScore, 15), max: 15, feedback: parsed.contentFeedback || 'Evidence limited.' },
-      collaboration: { score: clampScore(parsed.collaborationScore, 10), max: 10, feedback: parsed.collaborationFeedback || 'Evidence limited.' },
-      leadership: { score: clampScore(parsed.leadershipScore, 5), max: 5, feedback: parsed.leadershipFeedback || 'Evidence limited.' },
+      english: { parameter: 'Speaking in English', weightagePercent: 20, score: clampScore(parsed.englishScore, 20), maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: parsed.englishFeedback || 'Evidence limited.' },
+      fluency: { parameter: 'Fluency', weightagePercent: 20, score: clampScore(parsed.fluencyScore, 20), maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: parsed.fluencyFeedback || ('Observed ' + wpm + ' WPM and ' + fillerWordsCount + ' filler words.') },
+      clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: clampScore(parsed.clarityScore, 15), maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: parsed.clarityFeedback || 'Evidence limited.' },
+      confidence: { parameter: 'Confidence', weightagePercent: 15, score: clampScore(parsed.confidenceScore, 15), maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: parsed.confidenceFeedback || 'Evidence limited.' },
+      contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: clampScore(parsed.contentScore, 15), maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: parsed.contentFeedback || 'Evidence limited.' },
+      collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: clampScore(parsed.collaborationScore, 10), maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: parsed.collaborationFeedback || 'Evidence limited.' },
+      leadership: { parameter: 'Leadership', weightagePercent: 5, score: clampScore(parsed.leadershipScore, 5), maxScore: 5, subPoints: ['Initiative'], feedback: parsed.leadershipFeedback || 'Evidence limited.' },
     };
     const overallScore = Object.values(skills).reduce((sum, item) => sum + item.score, 0);
     return {
@@ -4123,6 +4123,8 @@ app.get('/api/student/reports', async (req, res) => {
             aiSummary: r.feedback,
             strengths: r.strengths || [],
             areasForImprovement: r.improvements || [],
+            aiRecommendations: ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
+            fillerWordsBreakdown: [],
             generatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
             facultyEndorsement: { endorsed: false },
           })),
@@ -4148,6 +4150,8 @@ app.get('/api/student/reports', async (req, res) => {
             grade: gradeForScore(r.overallScore), skills, aiSummary: r.feedback,
             strengths: r.strengths ? r.strengths.split('; ').filter(Boolean) : [],
             areasForImprovement: r.improvements ? r.improvements.split('; ').filter(Boolean) : [],
+            aiRecommendations: ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
+            fillerWordsBreakdown: [],
             generatedAt: r.createdAt.toISOString(), facultyEndorsement: { endorsed: false },
           };
         }),

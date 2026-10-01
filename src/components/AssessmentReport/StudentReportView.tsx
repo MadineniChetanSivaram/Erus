@@ -42,6 +42,67 @@ import { GDComparisonReport } from './GDComparisonReport';
 import { addReportToStudentHistory } from '../../utils/studentReportHistory';
 import confetti from 'canvas-confetti';
 
+export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): StudentAssessmentReport {
+  const base = fallback || SAMPLE_REPORT_RAHUL;
+  if (!raw) return base;
+
+  const defaultSkills: Record<string, SkillScore> = base.skills || {
+    english: { parameter: 'Speaking in English', weightagePercent: 20, score: 15, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'Consistently articulate language usage.' },
+    fluency: { parameter: 'Fluency', weightagePercent: 20, score: 15, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'Maintained smooth conversation flow.' },
+    clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: 'Expressed perspective clearly.' },
+    confidence: { parameter: 'Confidence', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: 'Spoke with assertiveness and poise.' },
+    contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: 'Relevant points aligned to group topic.' },
+    collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: 8, maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: 'Demonstrated team behavior and listened to peers.' },
+    leadership: { parameter: 'Leadership', weightagePercent: 5, score: 4, maxScore: 5, subPoints: ['Initiative'], feedback: 'Helped steer constructive discussion.' }
+  };
+
+  const rawSkills = raw.skills || {};
+  const normalizedSkills: Record<string, SkillScore> = {};
+
+  const skillKeys = ['english', 'fluency', 'clarity', 'confidence', 'contentQuality', 'collaboration', 'leadership'];
+  const allKeys = Array.from(new Set([...skillKeys, ...Object.keys(rawSkills)]));
+
+  for (const k of allKeys) {
+    const defaultItem = defaultSkills[k] || {
+      parameter: k.charAt(0).toUpperCase() + k.slice(1),
+      weightagePercent: 10,
+      score: 7,
+      maxScore: 10,
+      subPoints: ['Core competency', 'Demonstrated understanding'],
+      feedback: 'Good performance.'
+    };
+    const s = rawSkills[k] || {};
+    normalizedSkills[k] = {
+      parameter: s.parameter || defaultItem.parameter || (k.charAt(0).toUpperCase() + k.slice(1)),
+      weightagePercent: typeof s.weightagePercent === 'number' ? s.weightagePercent : defaultItem.weightagePercent,
+      score: typeof s.score === 'number' ? s.score : defaultItem.score,
+      maxScore: typeof s.maxScore === 'number' ? s.maxScore : (typeof s.max === 'number' ? s.max : defaultItem.maxScore),
+      subPoints: Array.isArray(s.subPoints) && s.subPoints.length > 0 ? s.subPoints : (defaultItem.subPoints || ['Structured delivery', 'Constructive engagement']),
+      feedback: s.feedback || defaultItem.feedback || 'Consistent and structured contribution.'
+    };
+  }
+
+  const rawStrengths = Array.isArray(raw.strengths) ? raw.strengths : (typeof raw.strengths === 'string' ? raw.strengths.split('; ').filter(Boolean) : []);
+  const rawImprovements = Array.isArray(raw.areasForImprovement) ? raw.areasForImprovement : (typeof raw.areasForImprovement === 'string' ? raw.areasForImprovement.split('; ').filter(Boolean) : (typeof raw.improvements === 'string' ? raw.improvements.split('; ').filter(Boolean) : []));
+  const rawRecommendations = Array.isArray(raw.aiRecommendations) ? raw.aiRecommendations : (typeof raw.aiRecommendations === 'string' ? [raw.aiRecommendations] : []);
+
+  return {
+    ...base,
+    ...raw,
+    id: raw.id || base.id,
+    studentId: raw.studentId || base.studentId,
+    studentName: raw.studentName || base.studentName,
+    overallScore: typeof raw.overallScore === 'number' ? raw.overallScore : (typeof raw.score === 'number' ? raw.score : base.overallScore),
+    grade: raw.grade || base.grade,
+    percentile: typeof raw.percentile === 'number' ? raw.percentile : base.percentile,
+    strengths: rawStrengths.length > 0 ? rawStrengths : (base.strengths || ['Clear vocal delivery', 'Constructive arguments']),
+    areasForImprovement: rawImprovements.length > 0 ? rawImprovements : (base.areasForImprovement || ['Include more case evidence']),
+    aiRecommendations: rawRecommendations.length > 0 ? rawRecommendations : (base.aiRecommendations || ['Practice timed syntheses of multi-perspective debates.']),
+    fillerWordsBreakdown: Array.isArray(raw.fillerWordsBreakdown) ? raw.fillerWordsBreakdown : (base.fillerWordsBreakdown || []),
+    skills: normalizedSkills,
+  };
+}
+
 interface StudentReportViewProps {
   session: GDSession;
   report?: StudentAssessmentReport;
@@ -107,11 +168,11 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         initialReport &&
         (initialReport.studentId === userStudent.id || initialReport.studentName === currentUser?.name)
       ) {
-        return initialReport;
+        return normalizeReport(initialReport);
       }
-      return generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport);
+      return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
     }
-    return initialReport || SAMPLE_REPORT_RAHUL;
+    return normalizeReport(initialReport || SAMPLE_REPORT_RAHUL);
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -155,7 +216,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         const data = await res.json();
         const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
         if (!cancelled && persisted) {
-          setCurrentReport((prev) => ({ ...prev, ...persisted } as StudentAssessmentReport));
+          setCurrentReport((prev) => normalizeReport({ ...prev, ...persisted }, prev));
         }
       } catch (e) {
         console.warn('[Student Report] Could not load persisted report:', e);
@@ -169,7 +230,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     if (isStudent && userStudent) {
       setSelectedStudentId(userStudent.id);
       if (currentReport.studentName !== (currentUser?.name || userStudent.name)) {
-        setCurrentReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
+        setCurrentReport(normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport)));
       }
     } else if (targetStudentId && targetStudentId !== selectedStudentId) {
       setSelectedStudentId(targetStudentId);
@@ -215,7 +276,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         if (persisted) {
           let skills: any = {};
           try { skills = typeof persisted.rubricJson === 'string' ? JSON.parse(persisted.rubricJson) : (persisted.rubricJson || {}); } catch {}
-          setCurrentReport({
+          setCurrentReport(normalizeReport({
             ...currentReport,
             id: persisted.id,
             sessionId: persisted.sessionId,
@@ -230,17 +291,17 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             strengths: persisted.strengths ? persisted.strengths.split('; ').filter(Boolean) : [],
             areasForImprovement: persisted.improvements ? persisted.improvements.split('; ').filter(Boolean) : [],
             facultyEndorsement: { endorsed: false },
-          } as StudentAssessmentReport);
+          }, currentReport));
         }
       } else {
         const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(userStudent?.id || '') + '&sessionId=' + encodeURIComponent(session?.id || ''));
         const data = await res.json();
         const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
-        if (persisted) setCurrentReport({ ...currentReport, ...persisted } as StudentAssessmentReport);
+        if (persisted) setCurrentReport(normalizeReport({ ...currentReport, ...persisted }, currentReport));
       }
     } catch (err) {
       console.error(err);
-      setCurrentReport(generateStudentReport(targetStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15));
+      setCurrentReport(normalizeReport(generateStudentReport(targetStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15)));
     } finally {
       setIsLoading(false);
     }
@@ -380,7 +441,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                 onChange={(e) => handleSelectStudent(e.target.value)}
                 className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2 text-xs font-bold focus:outline-none focus:border-indigo-500 pr-8 cursor-pointer shadow-xs"
               >
-                {session.students.map((st) => (
+                {(session?.students || []).map((st) => (
                   <option key={st.id} value={st.id}>
                     Seat {st.seatNumber}: {st.name} {st.isUser ? '(Demo Student)' : ''}
                   </option>
@@ -473,7 +534,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-slate-500 dark:text-slate-400">View Other Slot Reports:</span>
-            {availableSlots.map((sl) => {
+            {(availableSlots || []).map((sl) => {
               const isSelected = sl.id === session.id;
               const isCompleted = sl.status === 'completed';
               const studentKey = currentUser?.id || currentUser?.email || 'student';
@@ -743,7 +804,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                 {fillerCount}
               </span>
               <span className="text-[9px] text-slate-400 block truncate mt-0.5">
-                {currentReport.fillerWordsBreakdown && currentReport.fillerWordsBreakdown.length > 0
+                {Array.isArray(currentReport?.fillerWordsBreakdown) && currentReport.fillerWordsBreakdown.length > 0
                   ? currentReport.fillerWordsBreakdown.map((f) => `"${f.word}" (${f.count})`).join(', ')
                   : 'Minimal hesitation'}
               </span>
@@ -804,14 +865,17 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {(Object.entries(isEditingScores ? editableSkills : currentReport.skills) as [string, SkillScore][]).map(([key, item]) => {
-              const percentage = Math.round((item.score / item.maxScore) * 100);
+            {(Object.entries(isEditingScores ? editableSkills : (currentReport?.skills || {})) as [string, SkillScore][]).map(([key, item]) => {
+              const maxScore = item?.maxScore || 10;
+              const score = typeof item?.score === 'number' ? item.score : 0;
+              const percentage = Math.round((score / maxScore) * 100);
+              const subPoints = Array.isArray(item?.subPoints) ? item.subPoints : [];
               return (
                 <div key={key} className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">{item.parameter}</span>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono block">Weightage: {item.weightagePercent}%</span>
+                      <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">{item?.parameter || key}</span>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono block">Weightage: {item?.weightagePercent || 10}%</span>
                     </div>
 
                     <div className="text-right flex items-center gap-2">
@@ -820,17 +884,17 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                           <input
                             type="number"
                             min="0"
-                            max={item.maxScore}
-                            value={item.score}
-                            onChange={(e) => handleSkillScoreChange(key, parseInt(e.target.value, 10) || 0, item.maxScore)}
+                            max={maxScore}
+                            value={score}
+                            onChange={(e) => handleSkillScoreChange(key, parseInt(e.target.value, 10) || 0, maxScore)}
                             className="w-14 px-2 py-1 text-center font-mono font-bold text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:border-indigo-500"
                           />
-                          <span className="text-xs text-slate-400 font-mono">/ {item.maxScore}</span>
+                          <span className="text-xs text-slate-400 font-mono">/ {maxScore}</span>
                         </div>
                       ) : (
                         <div>
                           <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-mono">
-                            {item.score} / {item.maxScore}
+                            {score} / {maxScore}
                           </span>
                           <span className="text-[10px] text-slate-500 dark:text-slate-400 block">({percentage}%)</span>
                         </div>
@@ -843,9 +907,9 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                     <input
                       type="range"
                       min="0"
-                      max={item.maxScore}
-                      value={item.score}
-                      onChange={(e) => handleSkillScoreChange(key, parseInt(e.target.value, 10), item.maxScore)}
+                      max={maxScore}
+                      value={score}
+                      onChange={(e) => handleSkillScoreChange(key, parseInt(e.target.value, 10), maxScore)}
                       className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                     />
                   ) : (
@@ -861,20 +925,22 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                   )}
 
                   {/* Feedback text */}
-                  {item.feedback && (
+                  {item?.feedback && (
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 pt-0.5 leading-relaxed">
                       💬 {item.feedback}
                     </p>
                   )}
 
                   {/* Evaluated Sub-Points */}
-                  <div className="pt-1 flex flex-wrap gap-1.5 text-[10px] text-slate-600 dark:text-slate-400">
-                    {item.subPoints.map((sp, idx) => (
-                      <span key={idx} className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                        ✓ {sp}
-                      </span>
-                    ))}
-                  </div>
+                  {subPoints.length > 0 && (
+                    <div className="pt-1 flex flex-wrap gap-1.5 text-[10px] text-slate-600 dark:text-slate-400">
+                      {subPoints.map((sp, idx) => (
+                        <span key={idx} className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                          ✓ {sp}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -925,7 +991,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               Key Strengths Observed
             </h4>
             <ul className="space-y-1.5 text-xs text-emerald-950 dark:text-emerald-100">
-              {currentReport.strengths.map((str, i) => (
+              {(currentReport?.strengths || []).map((str, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span>
                   <span>{str}</span>
@@ -941,7 +1007,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               Target Areas for Improvement
             </h4>
             <ul className="space-y-1.5 text-xs text-amber-950 dark:text-amber-100">
-              {currentReport.areasForImprovement.map((area, i) => (
+              {(currentReport?.areasForImprovement || []).map((area, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-amber-600 dark:text-amber-400 font-bold">•</span>
                   <span>{area}</span>
@@ -953,7 +1019,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         </div>
 
         {/* Section 3B: Faculty Live In-Session Observations & Bookmarks (Enhancement 4) */}
-        {candidateLiveNotes.length > 0 && (
+        {(candidateLiveNotes || []).length > 0 && (
           <div className="bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-900/50 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
               <div className="flex items-center gap-2">
@@ -963,12 +1029,12 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                 </h4>
               </div>
               <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-                {candidateLiveNotes.length} Verified Notes
+                {(candidateLiveNotes || []).length} Verified Notes
               </span>
             </div>
 
             <div className="space-y-2.5">
-              {candidateLiveNotes.map((note) => {
+              {(candidateLiveNotes || []).map((note) => {
                 const tagConfig = {
                   strength: { label: 'Strength', badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' },
                   improvement: { label: 'Improvement', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-700' },
@@ -1013,10 +1079,10 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           </h4>
           <div className="space-y-2 text-xs text-indigo-950 dark:text-indigo-100">
             <p className="leading-relaxed">
-              <strong>Summary:</strong> {currentReport.aiSummary}
+              <strong>Summary:</strong> {currentReport?.aiSummary || 'Performance evaluated across all key communication dimensions.'}
             </p>
             <ul className="space-y-1.5 pt-1">
-              {currentReport.aiRecommendations.map((rec, i) => (
+              {(currentReport?.aiRecommendations || []).map((rec, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-indigo-600 dark:text-indigo-400 font-bold">→</span>
                   <span>{rec}</span>
