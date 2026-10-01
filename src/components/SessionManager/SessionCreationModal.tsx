@@ -57,33 +57,51 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
   // Faculty In-Charge Assignment State
   const [facultyList, setFacultyList] = useState<FacultyMemberInfo[]>(INSTITUTIONAL_FACULTY);
   const [selectedFacultyId, setSelectedFacultyId] = useState<string>(DEFAULT_FACULTY_ID);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load college faculty from API on mount
+  const getFallbackFaculty = (code: string): FacultyMemberInfo => ({
+    id: `fac-${(code || 'COL').toLowerCase()}-evaluator`,
+    facultyId: `FAC-${(code || 'COL').toUpperCase()}-001`,
+    name: `Faculty In-Charge (${(code || 'Campus').toUpperCase()})`,
+    department: 'Academic Faculty Evaluator',
+    designation: 'Faculty Evaluator & Observer',
+    email: `faculty@${(code || 'campus').toLowerCase()}.edu.in`,
+  });
+
+  // Load college faculty from API on open and when collegeCode changes
   useEffect(() => {
+    if (!isOpen) return;
+
     fetchCollegeFaculty(collegeCode)
       .then((fac) => {
         if (fac && fac.length > 0) {
-          setFacultyList((prev) => {
-            const merged = [...prev];
-            fac.forEach((f: any) => {
-              if (!merged.some((m) => m.facultyId === f.facultyId)) {
-                merged.push({
-                  id: f.id || f.facultyId,
-                  name: f.name,
-                  email: f.email,
-                  facultyId: f.facultyId,
-                  department: f.department || 'Academic Department',
-                  designation: f.designation || 'Faculty Evaluator',
-                  avatar: f.avatar,
-                });
-              }
-            });
-            return merged;
+          const list: FacultyMemberInfo[] = fac.map((f: any) => ({
+            id: f.id || f.facultyId,
+            name: f.name,
+            email: f.email,
+            facultyId: f.facultyId || f.id,
+            department: f.department || 'Academic Department',
+            designation: f.designation || 'Faculty Evaluator',
+            avatar: f.avatar,
+          }));
+          setFacultyList(list);
+          setSelectedFacultyId((prev) => {
+            const match = list.find((m) => m.facultyId === prev || m.id === prev);
+            return match ? match.facultyId : list[0].facultyId;
           });
+        } else {
+          const fallback = getFallbackFaculty(collegeCode);
+          setFacultyList([fallback]);
+          setSelectedFacultyId(fallback.facultyId);
         }
       })
-      .catch(() => {});
-  }, [collegeCode]);
+      .catch((err) => {
+        console.warn('Error fetching faculty for modal:', err);
+        const fallback = getFallbackFaculty(collegeCode);
+        setFacultyList([fallback]);
+        setSelectedFacultyId(fallback.facultyId);
+      });
+  }, [collegeCode, isOpen]);
 
   // Multiple slots state for this topic
   const [slots, setSlots] = useState<SlotScheduleItem[]>([
@@ -140,84 +158,103 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!topic.trim()) return;
-
-    const baseTimestamp = Date.now();
-    const selectedFaculty = facultyList.find((f) => f.facultyId === selectedFacultyId) || facultyList[0];
-
-    const createdSessions: GDSession[] = slots.map((slot, index) => {
-      const studentCount = Math.max(2, Math.min(30, slot.participantCount || 8));
-      const seatedStudents: Student[] = generateSlotParticipants(studentCount);
-
-      // Divide participants into 3 balanced breakout pods
-      const podSize = Math.max(1, Math.ceil(seatedStudents.length / 3));
-      const podAlphaIds = seatedStudents.slice(0, podSize).map((s) => s.id);
-      const podBetaIds = seatedStudents.slice(podSize, podSize * 2).map((s) => s.id);
-      const podGammaIds = seatedStudents.slice(podSize * 2).map((s) => s.id);
-
-      const slotTimingStr = `${slot.startTime} - ${slot.endTime}`;
-      const slotNameStr = slot.slotName.trim() || `Slot ${index + 1}`;
-
-      return {
-        id: `slot-${baseTimestamp.toString().slice(-4)}-${index + 1}`,
-        slotName: slotNameStr,
-        slotTiming: slotTimingStr,
-        slotDate: slot.slotDate || 'Today',
-        maxCapacity: studentCount,
-        enrolledCount: 0,
-        roomLayout: roomLayout,
-        topic: topic.trim(),
-        description: description.trim(),
-        durationMinutes,
-        difficulty,
-        assessmentRubric,
-        assignedFacultyId: selectedFaculty.facultyId,
-        assignedFacultyName: selectedFaculty.name,
-        assignedFacultyDept: selectedFaculty.department,
-        assignedFacultyEmail: selectedFaculty.email,
-        status: 'scheduled',
-        students: seatedStudents,
-        currentPhase: 'intro',
-        facilitatorSpeech: `Good morning participants of ${slotNameStr}. Today's discussion topic is: "${topic}". There are ${studentCount} candidates participating in this slot scheduled for ${slotTimingStr}. Everyone will get an opportunity to speak. The floor will be open shortly.`,
-        facilitatorAction: `Slot scheduled for ${slotTimingStr} (${studentCount} students seated)`,
-        isFacilitatorSpeaking: false,
-        silenceTimerSeconds: 0,
-        currentSpeakerId: null,
-        breakoutRooms: [
-          {
-            id: `br-1-${baseTimestamp}-${index}`,
-            name: 'Breakout Pod Alpha',
-            topic: `${topic} - Foundational Analysis`,
-            studentIds: podAlphaIds,
-            status: 'active',
-          },
-          {
-            id: `br-2-${baseTimestamp}-${index}`,
-            name: 'Breakout Pod Beta',
-            topic: `${topic} - Practical Implementation`,
-            studentIds: podBetaIds,
-            status: 'active',
-          },
-          {
-            id: `br-3-${baseTimestamp}-${index}`,
-            name: 'Breakout Pod Gamma',
-            topic: `${topic} - Governance & Future Outlook`,
-            studentIds: podGammaIds,
-            status: 'active',
-          },
-        ],
-        createdAt: new Date().toISOString(),
-        
-      };
-    });
-
-    if (onCreateSessions) {
-      onCreateSessions(createdSessions);
-    } else if (onCreateSession) {
-      onCreateSession(createdSessions[0]);
+    if (!topic.trim()) {
+      alert('Please enter a discussion topic title.');
+      return;
     }
 
-    onClose();
+    if (slots.length === 0) {
+      handleAddSlot();
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const baseTimestamp = Date.now();
+      const fallback = getFallbackFaculty(collegeCode);
+      const selectedFaculty =
+        facultyList.find((f) => f.facultyId === selectedFacultyId || f.id === selectedFacultyId) ||
+        facultyList[0] ||
+        fallback;
+
+      const createdSessions: GDSession[] = slots.map((slot, index) => {
+        const studentCount = Math.max(2, Math.min(30, slot.participantCount || 8));
+        const seatedStudents: Student[] = generateSlotParticipants(studentCount);
+
+        // Divide participants into 3 balanced breakout pods
+        const podSize = Math.max(1, Math.ceil(seatedStudents.length / 3));
+        const podAlphaIds = seatedStudents.slice(0, podSize).map((s) => s.id);
+        const podBetaIds = seatedStudents.slice(podSize, podSize * 2).map((s) => s.id);
+        const podGammaIds = seatedStudents.slice(podSize * 2).map((s) => s.id);
+
+        const slotTimingStr = `${slot.startTime || '09:30 AM'} - ${slot.endTime || '10:00 AM'}`;
+        const slotNameStr = (slot.slotName || '').trim() || `Slot ${index + 1}`;
+
+        return {
+          id: `slot-${baseTimestamp.toString().slice(-4)}-${index + 1}`,
+          slotName: slotNameStr,
+          slotTiming: slotTimingStr,
+          slotDate: slot.slotDate || 'Today',
+          maxCapacity: studentCount,
+          enrolledCount: 0,
+          roomLayout: roomLayout,
+          topic: topic.trim(),
+          description: description.trim(),
+          durationMinutes: Number(durationMinutes) || 25,
+          difficulty,
+          assessmentRubric,
+          assignedFacultyId: selectedFaculty.facultyId,
+          assignedFacultyName: selectedFaculty.name,
+          assignedFacultyDept: selectedFaculty.department,
+          assignedFacultyEmail: selectedFaculty.email,
+          collegeCode: collegeCode.toUpperCase(),
+          status: 'scheduled',
+          students: seatedStudents,
+          currentPhase: 'intro',
+          facilitatorSpeech: `Good morning participants of ${slotNameStr}. Today's discussion topic is: "${topic.trim()}". There are ${studentCount} candidates participating in this slot scheduled for ${slotTimingStr}. Everyone will get an opportunity to speak. The floor will be open shortly.`,
+          facilitatorAction: `Slot scheduled for ${slotTimingStr} (${studentCount} students seated)`,
+          isFacilitatorSpeaking: false,
+          silenceTimerSeconds: 0,
+          currentSpeakerId: null,
+          breakoutRooms: [
+            {
+              id: `br-1-${baseTimestamp}-${index}`,
+              name: 'Breakout Pod Alpha',
+              topic: `${topic.trim()} - Foundational Analysis`,
+              studentIds: podAlphaIds,
+              status: 'active',
+            },
+            {
+              id: `br-2-${baseTimestamp}-${index}`,
+              name: 'Breakout Pod Beta',
+              topic: `${topic.trim()} - Practical Implementation`,
+              studentIds: podBetaIds,
+              status: 'active',
+            },
+            {
+              id: `br-3-${baseTimestamp}-${index}`,
+              name: 'Breakout Pod Gamma',
+              topic: `${topic.trim()} - Governance & Future Outlook`,
+              studentIds: podGammaIds,
+              status: 'active',
+            },
+          ],
+          createdAt: new Date().toISOString(),
+        };
+      });
+
+      if (onCreateSessions) {
+        onCreateSessions(createdSessions);
+      } else if (onCreateSession) {
+        onCreateSession(createdSessions[0]);
+      }
+
+      onClose();
+    } catch (err) {
+      console.error('Error publishing slots to student portal:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -349,7 +386,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                       }`}
                     >
                       <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                        {f.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                        {(f.name || 'Faculty').split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2).toUpperCase() || 'FA'}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
@@ -596,7 +633,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
           <div className="p-3.5 bg-amber-50/80 dark:bg-amber-950/50 rounded-2xl border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5">
             <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong className="font-semibold">Faculty In-Charge & Student Portal Sync:</strong> Creating these {slots.length} slots will assign them to <span className="font-bold underline">{facultyList.find(f => f.facultyId === selectedFacultyId)?.name || 'the selected faculty'}</span> ({facultyList.find(f => f.facultyId === selectedFacultyId)?.department || 'Faculty'}). In the Student Portal, students selecting this faculty member will exclusively see and be able to book these slots.
+              <strong className="font-semibold">Faculty In-Charge & Student Portal Sync:</strong> Creating these {slots.length} slots will assign them to <span className="font-bold underline">{facultyList.find(f => f.facultyId === selectedFacultyId)?.name || facultyList[0]?.name || 'Faculty In-Charge'}</span> ({facultyList.find(f => f.facultyId === selectedFacultyId)?.department || facultyList[0]?.department || 'Academic Department'}). In the Student Portal, students selecting this faculty member will exclusively see and be able to book these slots.
             </div>
           </div>
 
@@ -617,10 +654,11 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
 
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-semibold shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-semibold shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Publish {slots.length} Slots to Student Portal</span>
+                <span>{isSubmitting ? 'Publishing...' : `Publish ${slots.length} Slot${slots.length !== 1 ? 's' : ''} to Student Portal`}</span>
               </button>
             </div>
           </div>

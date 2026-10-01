@@ -853,9 +853,13 @@ function GDAppContent() {
 
     // Persist new slots to backend college API for college admins and faculty
     if (currentUser?.role === 'college_admin' || currentUser?.role === 'faculty') {
-      const code = (currentUser as any).collegeCode || ((currentUser as any).college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'CAMPUS');
+      const code =
+        (currentUser as any).collegeCode ||
+        (newSessions[0] as any).collegeCode ||
+        ((currentUser as any).college ? (currentUser as any).college.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '') : 'DIT');
       newSessions.forEach((s) => {
         createCollegeSlot({
+          id: s.id,
           topic: s.topic,
           description: s.description,
           durationMinutes: s.durationMinutes,
@@ -863,7 +867,7 @@ function GDAppContent() {
           slotTiming: s.slotTiming,
           slotName: s.slotName,
           maxCapacity: s.maxCapacity || 15,
-          collegeCode: code,
+          collegeCode: (s as any).collegeCode || code,
           assignedFacultyId: s.assignedFacultyId || (currentUser.role === 'faculty' ? (currentUser as any).facultyId || currentUser.id : undefined),
           assignedFacultyName: s.assignedFacultyName || (currentUser.role === 'faculty' ? currentUser.name : undefined),
           assignedFacultyDept: s.assignedFacultyDept || (currentUser.role === 'faculty' ? (currentUser as any).department : undefined),
