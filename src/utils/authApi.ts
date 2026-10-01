@@ -289,6 +289,7 @@ export async function addCollegeStudents(payload: { students?: any[]; student?: 
       seatNumber: Number(s.seatNumber) || existing.length + idx + 1,
       college: s.college || (code === 'DIT' ? 'Delhi Institute of Technology' : code),
       collegeCode: code,
+      password: s.password || 'password123',
     };
     map.set(studentObj.studentId || studentObj.email, studentObj);
 
@@ -303,7 +304,7 @@ export async function addCollegeStudents(payload: { students?: any[]; student?: 
       course: studentObj.course,
       batch: studentObj.batch,
       seatNumber: studentObj.seatNumber,
-    } as any, 'password123');
+    } as any, s.password || 'password123');
   });
 
   const updated = Array.from(map.values());
@@ -370,6 +371,7 @@ export async function addCollegeFaculty(payload: any) {
     college: payload.college || (code === 'DIT' ? 'Delhi Institute of Technology' : code),
     collegeCode: code,
     assignedSlotsCount: payload.assignedSlotsCount || 0,
+    password: payload.password || 'faculty123',
   };
 
   const updated = [facObj, ...existing.filter((f) => f.facultyId !== facObj.facultyId && f.email !== facObj.email)];

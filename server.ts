@@ -67,6 +67,7 @@ interface BackendCollegeStudentItem {
   seatNumber: number;
   college: string;
   collegeCode: string;
+  password?: string;
 }
 
 interface BackendCollegeFacultyItem {
@@ -79,6 +80,7 @@ interface BackendCollegeFacultyItem {
   college: string;
   collegeCode: string;
   assignedSlotsCount: number;
+  password?: string;
 }
 
 interface BackendCollegeSlotItem {
@@ -400,6 +402,7 @@ async function syncMongoDBWithPersistentState() {
               seatNumber: u.seatNumber || 1,
               college: col.name,
               collegeCode: col.code,
+              password: u.password,
             }));
           if (colStudents.length > 0) persistentState.students[col.code] = colStudents;
 
@@ -415,6 +418,7 @@ async function syncMongoDBWithPersistentState() {
               college: col.name,
               collegeCode: col.code,
               assignedSlotsCount: 0,
+              password: u.password,
             }));
           if (colFaculty.length > 0) persistentState.faculty[col.code] = colFaculty;
         }
@@ -1466,7 +1470,19 @@ app.get('/api/college/stats', (req, res) => {
 
 app.get('/api/college/students', (req, res) => {
   const code = ((req.query.collegeCode as string) || 'DIT').toUpperCase();
-  const students = persistentState.students[code] || [];
+  const rawStudents = persistentState.students[code] || [];
+  const students = rawStudents.map((st) => {
+    const userMatch = persistentState.users.find(
+      (u) =>
+        u.email?.toLowerCase() === st.email?.toLowerCase() ||
+        u.id === st.id ||
+        (st.studentId && u.studentId === st.studentId)
+    );
+    return {
+      ...st,
+      password: userMatch?.password || st.password || 'password123',
+    };
+  });
   res.json({ success: true, students });
 });
 
@@ -1494,6 +1510,7 @@ app.post('/api/college/students', async (req, res) => {
       seatNumber: Number(st.seatNumber) || persistentState.students[code].length + 1,
       college: st.college || (persistentState.colleges.find((c) => c.code === code)?.name || 'Engineering Institute'),
       collegeCode: code,
+      password: studentPass,
     };
     persistentState.students[code].push(newStu);
     addedStudents.push(newStu);
@@ -1570,7 +1587,19 @@ app.post('/api/college/students', async (req, res) => {
     }
   }
 
-  res.json({ success: true, addedCount: addedStudents.length, students: persistentState.students[code] });
+  const mappedStudents = persistentState.students[code].map((st) => {
+    const userMatch = persistentState.users.find(
+      (u) =>
+        u.email?.toLowerCase() === st.email?.toLowerCase() ||
+        u.id === st.id ||
+        (st.studentId && u.studentId === st.studentId)
+    );
+    return {
+      ...st,
+      password: userMatch?.password || st.password || 'password123',
+    };
+  });
+  res.json({ success: true, addedCount: addedStudents.length, students: mappedStudents });
 });
 
 app.get('/api/college/faculty', async (req, res) => {
@@ -1616,7 +1645,18 @@ app.get('/api/college/faculty', async (req, res) => {
     }
   }
 
-  const faculty = Array.from(facultyMap.values());
+  const faculty = Array.from(facultyMap.values()).map((f) => {
+    const userMatch = persistentState.users.find(
+      (u) =>
+        u.email?.toLowerCase() === f.email?.toLowerCase() ||
+        u.id === f.id ||
+        (f.facultyId && u.facultyId === f.facultyId)
+    );
+    return {
+      ...f,
+      password: userMatch?.password || f.password || 'faculty123',
+    };
+  });
   persistentState.faculty[code] = faculty;
   savePersistentState();
   res.json({ success: true, faculty });
@@ -1630,6 +1670,7 @@ app.post('/api/college/faculty', async (req, res) => {
     persistentState.faculty[code] = [];
   }
 
+  const facultyPass = payload.password || `Fac@${Date.now().toString().slice(-4)}!`;
   const newFac: BackendCollegeFacultyItem = {
     id: payload.id || `fac-${Date.now()}`,
     name: payload.name || 'Faculty Member',
@@ -1640,6 +1681,7 @@ app.post('/api/college/faculty', async (req, res) => {
     college: payload.college || (persistentState.colleges.find((c) => c.code === code)?.name || 'Engineering Institute'),
     collegeCode: code,
     assignedSlotsCount: payload.assignedSlotsCount || 0,
+    password: facultyPass,
   };
 
   persistentState.faculty[code].push(newFac);
@@ -1647,7 +1689,7 @@ app.post('/api/college/faculty', async (req, res) => {
     id: newFac.id,
     name: newFac.name,
     email: newFac.email,
-    password: payload.password || 'faculty123',
+    password: facultyPass,
     role: 'faculty',
     college: newFac.college,
     collegeCode: code,
