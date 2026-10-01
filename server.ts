@@ -4,6 +4,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import dns from 'dns';
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch {}
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
@@ -332,15 +336,14 @@ loadPersistentState();
 async function syncMongoDBWithPersistentState() {
   if (!isMongoConnected()) return;
   try {
-    const collegeCount = await CollegeModel.countDocuments();
-    if (collegeCount === 0) {
-      console.log('[MongoDB] Fresh database detected. Initializing tables & sub-tables...');
-      await initMongoDBTablesAndSubTables();
-    } else {
-      console.log('[MongoDB] Existing MongoDB records found. Hydrating state from MongoDB...');
-      const dbColleges = await CollegeModel.find();
-      if (dbColleges.length > 0) {
-        persistentState.colleges = dbColleges.map((c: any) => ({
+    await initMongoDBTablesAndSubTables();
+
+    // 1. Colleges Sync: Read from MongoDB & merge with persistent state
+    const dbColleges = await CollegeModel.find();
+    if (dbColleges.length > 0) {
+      for (const c of dbColleges) {
+        const existingIdx = persistentState.colleges.findIndex((col) => col.code === c.code);
+        const mappedCol: BackendCollege = {
           id: c.id,
           name: c.name,
           code: c.code,
@@ -355,126 +358,210 @@ async function syncMongoDBWithPersistentState() {
           adminName: c.adminName || `${c.code} Administrator`,
           adminPassword: c.adminPassword || '',
           createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
-        }));
-      }
-
-      const dbUsers = await UserModel.find();
-      if (dbUsers.length > 0) {
-        for (const u of dbUsers) {
-          const existingIdx = persistentState.users.findIndex(
-            (pu) => pu.email.toLowerCase() === u.email.toLowerCase()
-          );
-          const mappedUser: StoredAuthUser = {
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            role: u.role as any,
-            password: u.password,
-            college: u.college,
-            collegeCode: u.collegeCode,
-            avatar: u.avatar,
-            studentId: u.studentProfile?.studentId,
-            course: u.studentProfile?.course,
-            batch: u.studentProfile?.batch,
-            seatNumber: u.studentProfile?.seatNumber,
-            facultyId: u.facultyProfile?.facultyId,
-            department: u.facultyProfile?.department || u.collegeAdminProfile?.department,
-            designation: u.facultyProfile?.designation,
-            adminId: u.collegeAdminProfile?.adminId,
-          };
-          if (existingIdx >= 0) {
-            persistentState.users[existingIdx] = mappedUser;
-          } else {
-            persistentState.users.push(mappedUser);
-          }
-        }
-
-        // Hydrate students and faculty lists per college
-        for (const col of persistentState.colleges) {
-          const colStudents = persistentState.users
-            .filter((u) => u.role === 'student' && (u.collegeCode === col.code || u.college === col.name))
-            .map((u) => ({
-              id: u.id,
-              name: u.name,
-              email: u.email,
-              studentId: u.studentId || 'STU-001',
-              course: u.course || 'B.Tech CSE',
-              batch: u.batch || '2022-2026',
-              seatNumber: u.seatNumber || 1,
-              college: col.name,
-              collegeCode: col.code,
-              password: u.password,
-            }));
-          if (colStudents.length > 0) persistentState.students[col.code] = colStudents;
-
-          const colFaculty = persistentState.users
-            .filter((u) => u.role === 'faculty' && (u.collegeCode === col.code || u.college === col.name))
-            .map((u) => ({
-              id: u.id,
-              name: u.name,
-              email: u.email,
-              facultyId: u.facultyId || 'FAC-001',
-              department: u.department || 'Computer Science & Engineering',
-              designation: u.designation || 'Faculty Member',
-              college: col.name,
-              collegeCode: col.code,
-              assignedSlotsCount: 0,
-              password: u.password,
-            }));
-          if (colFaculty.length > 0) persistentState.faculty[col.code] = colFaculty;
+        };
+        if (existingIdx >= 0) {
+          persistentState.colleges[existingIdx] = mappedCol;
+        } else {
+          persistentState.colleges.push(mappedCol);
         }
       }
-
-      // Hydrate Slots (Parent Table: gd_sessions)
-      const dbSessions = await GDSessionModel.find();
-      if (dbSessions.length > 0) {
-        for (const s of dbSessions) {
-          const colCode = s.collegeCode || 'DIT';
-          if (!persistentState.slots[colCode]) persistentState.slots[colCode] = [];
-          const existingSlot = persistentState.slots[colCode]?.find((slot) => slot.id === s.id);
-          const rawStudents = (s as any).students && (s as any).students.length > 0
-            ? (s as any).students
-            : existingSlot?.students;
-          let slotItem: BackendCollegeSlotItem = {
-            id: s.id,
-            slotName: s.slotName,
-            topic: s.topic,
-            description: s.description || '',
-            slotTiming: s.slotTiming || '10:00 AM - 10:30 AM',
-            slotDate: s.slotDate || 'Today',
-            status: s.status,
-            durationMinutes: s.durationMinutes,
-            enrolledCount: rawStudents && rawStudents.length > 0 ? rawStudents.length : s.enrolledCount,
-            maxCapacity: s.maxCapacity,
-            assignedFacultyId: s.assignedFacultyId,
-            assignedFacultyName: s.assignedFacultyName,
-            assignedFacultyEmail: s.assignedFacultyEmail,
-            assignedFacultyDept: s.assignedFacultyDept,
-            collegeCode: colCode,
-            createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
-            students: rawStudents,
-          };
-          slotItem = ensureSlotParticipants(slotItem, colCode);
-          const existingSlotIdx = persistentState.slots[colCode].findIndex((slot) => slot.id === s.id);
-          if (existingSlotIdx >= 0) {
-            persistentState.slots[colCode][existingSlotIdx] = slotItem;
-          } else {
-            persistentState.slots[colCode].push(slotItem);
-          }
-        }
-      }
-
-      // Hydrate Bookings (Sub-Table: gd_bookings)
-      const dbBookings = await GDBookingModel.find({ status: { $ne: 'CANCELLED' } });
-      for (const b of dbBookings) {
-        persistentState.studentBookings[b.studentId] = b.sessionId;
-      }
-
-      savePersistentState();
-      console.log(
-        `[MongoDB] Hydrated state from MongoDB: ${dbColleges.length} colleges, ${dbUsers.length} users, ${dbSessions.length} slots, ${dbBookings.length} active bookings.`
-      );
     }
+    // Upsert any local colleges not yet in MongoDB into MongoDB
+    for (const col of persistentState.colleges) {
+      const inDb = dbColleges.find((c) => c.code === col.code);
+      if (!inDb) {
+        await persistCollegeToMongoDB(col);
+      }
+    }
+
+    // 2. Users Sync: Read all users from MongoDB
+    const dbUsers = await UserModel.find();
+    if (dbUsers.length > 0) {
+      for (const u of dbUsers) {
+        const existingIdx = persistentState.users.findIndex(
+          (pu) => pu.email.toLowerCase() === u.email.toLowerCase()
+        );
+        const mappedUser: StoredAuthUser = {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role as any,
+          password: u.password,
+          college: u.college,
+          collegeCode: u.collegeCode,
+          avatar: u.avatar,
+          studentId: u.studentProfile?.studentId,
+          course: u.studentProfile?.course,
+          batch: u.studentProfile?.batch,
+          seatNumber: u.studentProfile?.seatNumber,
+          facultyId: u.facultyProfile?.facultyId,
+          department: u.facultyProfile?.department || u.collegeAdminProfile?.department,
+          designation: u.facultyProfile?.designation,
+          adminId: u.collegeAdminProfile?.adminId,
+        };
+        if (existingIdx >= 0) {
+          persistentState.users[existingIdx] = mappedUser;
+        } else {
+          persistentState.users.push(mappedUser);
+        }
+      }
+    }
+
+    // Ensure any students or faculty from persistentState.students & persistentState.faculty exist in persistentState.users
+    for (const [colCode, stuList] of Object.entries(persistentState.students || {})) {
+      for (const s of (stuList as any[])) {
+        const uIdx = persistentState.users.findIndex((u) => u.email.toLowerCase() === s.email.toLowerCase());
+        if (uIdx < 0) {
+          persistentState.users.push({
+            id: s.id || `stu-${Date.now()}`,
+            name: s.name,
+            email: s.email,
+            role: 'student',
+            password: s.password || s.defaultPassword || 'password123',
+            college: s.college || colCode,
+            collegeCode: colCode,
+            course: s.course,
+            batch: s.batch,
+            seatNumber: s.seatNumber,
+            studentId: s.studentId,
+          });
+        }
+      }
+    }
+    for (const [colCode, facList] of Object.entries(persistentState.faculty || {})) {
+      for (const f of (facList as any[])) {
+        const uIdx = persistentState.users.findIndex((u) => u.email.toLowerCase() === f.email.toLowerCase());
+        if (uIdx < 0) {
+          persistentState.users.push({
+            id: f.id || `fac-${Date.now()}`,
+            name: f.name,
+            email: f.email,
+            role: 'faculty',
+            password: f.password || f.defaultPassword || 'password123',
+            college: f.college || colCode,
+            collegeCode: colCode,
+            department: f.department,
+            designation: f.designation,
+            facultyId: f.facultyId,
+          });
+        }
+      }
+    }
+
+    // Upsert any user from persistentState.users not yet in MongoDB to MongoDB UserModel
+    for (const u of persistentState.users) {
+      const inDb = dbUsers.find((du) => du.email.toLowerCase() === u.email.toLowerCase());
+      if (!inDb) {
+        await persistUserToMongoDB(u);
+      }
+    }
+
+    // Hydrate students and faculty lists per college
+    for (const col of persistentState.colleges) {
+      const colStudents = persistentState.users
+        .filter((u) => u.role === 'student' && (u.collegeCode === col.code || u.college === col.name))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          studentId: u.studentId || 'STU-001',
+          course: u.course || 'B.Tech CSE',
+          batch: u.batch || '2022-2026',
+          seatNumber: u.seatNumber || 1,
+          college: col.name,
+          collegeCode: col.code,
+          password: u.password,
+        }));
+      if (colStudents.length > 0) {
+        const existing = persistentState.students[col.code] || [];
+        for (const cs of colStudents) {
+          const idx = existing.findIndex((e) => e.email.toLowerCase() === cs.email.toLowerCase());
+          if (idx >= 0) {
+            existing[idx] = { ...existing[idx], ...cs };
+          } else {
+            existing.push(cs);
+          }
+        }
+        persistentState.students[col.code] = existing;
+      }
+
+      const colFaculty = persistentState.users
+        .filter((u) => u.role === 'faculty' && (u.collegeCode === col.code || u.college === col.name))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          facultyId: u.facultyId || 'FAC-001',
+          department: u.department || 'Computer Science & Engineering',
+          designation: u.designation || 'Faculty Member',
+          college: col.name,
+          collegeCode: col.code,
+          assignedSlotsCount: 0,
+          password: u.password,
+        }));
+      if (colFaculty.length > 0) {
+        const existing = persistentState.faculty[col.code] || [];
+        for (const cf of colFaculty) {
+          const idx = existing.findIndex((e) => e.email.toLowerCase() === cf.email.toLowerCase());
+          if (idx >= 0) {
+            existing[idx] = { ...existing[idx], ...cf };
+          } else {
+            existing.push(cf);
+          }
+        }
+        persistentState.faculty[col.code] = existing;
+      }
+    }
+
+    // Hydrate Slots (Parent Table: gd_sessions)
+    const dbSessions = await GDSessionModel.find();
+    if (dbSessions.length > 0) {
+      for (const s of dbSessions) {
+        const colCode = s.collegeCode || 'DIT';
+        if (!persistentState.slots[colCode]) persistentState.slots[colCode] = [];
+        const existingSlot = persistentState.slots[colCode]?.find((slot) => slot.id === s.id);
+        const rawStudents = (s as any).students && (s as any).students.length > 0
+          ? (s as any).students
+          : existingSlot?.students;
+        let slotItem: BackendCollegeSlotItem = {
+          id: s.id,
+          slotName: s.slotName,
+          topic: s.topic,
+          description: s.description || '',
+          slotTiming: s.slotTiming || '10:00 AM - 10:30 AM',
+          slotDate: s.slotDate || 'Today',
+          status: s.status,
+          durationMinutes: s.durationMinutes,
+          enrolledCount: rawStudents && rawStudents.length > 0 ? rawStudents.length : s.enrolledCount,
+          maxCapacity: s.maxCapacity,
+          assignedFacultyId: s.assignedFacultyId,
+          assignedFacultyName: s.assignedFacultyName,
+          assignedFacultyEmail: s.assignedFacultyEmail,
+          assignedFacultyDept: s.assignedFacultyDept,
+          collegeCode: colCode,
+          createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
+          students: rawStudents,
+        };
+        slotItem = ensureSlotParticipants(slotItem, colCode);
+        const existingSlotIdx = persistentState.slots[colCode].findIndex((slot) => slot.id === s.id);
+        if (existingSlotIdx >= 0) {
+          persistentState.slots[colCode][existingSlotIdx] = slotItem;
+        } else {
+          persistentState.slots[colCode].push(slotItem);
+        }
+      }
+    }
+
+    // Hydrate Bookings (Sub-Table: gd_bookings)
+    const dbBookings = await GDBookingModel.find({ status: { $ne: 'CANCELLED' } });
+    for (const b of dbBookings) {
+      persistentState.studentBookings[b.studentId] = b.sessionId;
+    }
+
+    savePersistentState();
+    console.log(
+      `[MongoDB] Synchronized MongoDB state: ${persistentState.colleges.length} colleges, ${persistentState.users.length} users, ${Object.values(persistentState.slots).flat().length} slots.`
+    );
   } catch (err: any) {
     console.warn('[MongoDB] State sync warning:', err.message);
   }
@@ -2615,13 +2702,48 @@ app.post('/api/auth/login', async (req, res) => {
   const cleanId = identifier.trim().toLowerCase();
   let user: StoredAuthUser | undefined;
 
-  // PostgreSQL is authoritative in production. Do not let stale in-memory
-  // users hide accounts that were registered/updated in another session.
-  if (isDbConnected && prisma) {
+  // 1. Direct MongoDB lookup first when MongoDB is active
+  if (isMongoConnected()) {
     try {
-      // Look up the account first by email. The role is validated after the
-      // account is found, which makes login resilient to older records whose
-      // role/profile metadata was created before the multi-portal auth changes.
+      const dbUser = await UserModel.findOne({
+        $or: [
+          { email: cleanId },
+          { 'studentProfile.studentId': { $regex: new RegExp(`^${cleanId}$`, 'i') } },
+          { 'facultyProfile.facultyId': { $regex: new RegExp(`^${cleanId}$`, 'i') } },
+          { 'collegeAdminProfile.adminId': { $regex: new RegExp(`^${cleanId}$`, 'i') } },
+          { name: { $regex: new RegExp(`^${cleanId}$`, 'i') } },
+        ],
+      });
+
+      if (dbUser) {
+        user = {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role as any,
+          password: dbUser.password,
+          college: dbUser.college,
+          collegeCode: dbUser.collegeCode,
+          department: dbUser.facultyProfile?.department || dbUser.collegeAdminProfile?.department,
+          designation: dbUser.facultyProfile?.designation,
+          course: dbUser.studentProfile?.course,
+          batch: dbUser.studentProfile?.batch,
+          seatNumber: dbUser.studentProfile?.seatNumber,
+          studentId: dbUser.studentProfile?.studentId,
+          facultyId: dbUser.facultyProfile?.facultyId,
+          adminId: dbUser.collegeAdminProfile?.adminId,
+          avatar: dbUser.avatar || undefined,
+        };
+      }
+    } catch (mErr: any) {
+      console.warn('[MongoDB] Lookup error during login:', mErr.message);
+    }
+  }
+
+  // 2. PostgreSQL lookup when connected
+  if (!user && isDbConnected && prisma) {
+    try {
+      // Look up the account first by email.
       let dbUser = await prisma.user.findUnique({
         where: { email: cleanId },
         include: { studentProfile: true, facultyProfile: true, collegeAdminProfile: true, collegeOrg: true },
@@ -2667,17 +2789,88 @@ app.post('/api/auth/login', async (req, res) => {
     }
   }
 
-  // In-memory state is only a fallback when the database is unavailable.
+  // 3. In-memory persistentState.users lookup fallback
   if (!user) {
     user = persistentState.users.find((u) => {
       const matchId =
         u.email.toLowerCase() === cleanId ||
+        u.name.toLowerCase() === cleanId ||
         u.name.toLowerCase().includes(cleanId) ||
         (u.studentId && u.studentId.toLowerCase() === cleanId) ||
         (u.facultyId && u.facultyId.toLowerCase() === cleanId) ||
         (u.adminId && u.adminId.toLowerCase() === cleanId);
       return matchId;
     });
+  }
+
+  // 4. In-memory persistentState.students across all colleges fallback
+  if (!user) {
+    for (const [colCode, studs] of Object.entries(persistentState.students || {})) {
+      const s = (studs as any[]).find(
+        (st) =>
+          st.email?.toLowerCase() === cleanId ||
+          st.name?.toLowerCase() === cleanId ||
+          (st.studentId && st.studentId.toLowerCase() === cleanId)
+      );
+      if (s) {
+        const col = persistentState.colleges.find((c) => c.code === colCode);
+        user = {
+          id: s.id || `stu-${Date.now()}`,
+          name: s.name,
+          email: s.email,
+          role: 'student',
+          password: s.password || s.defaultPassword || 'password123',
+          college: col?.name || s.college || colCode,
+          collegeCode: colCode,
+          course: s.course,
+          batch: s.batch,
+          seatNumber: s.seatNumber,
+          studentId: s.studentId,
+        };
+        break;
+      }
+    }
+  }
+
+  // 5. In-memory persistentState.faculty across all colleges fallback
+  if (!user) {
+    for (const [colCode, facs] of Object.entries(persistentState.faculty || {})) {
+      const f = (facs as any[]).find(
+        (fc) =>
+          fc.email?.toLowerCase() === cleanId ||
+          fc.name?.toLowerCase() === cleanId ||
+          (fc.facultyId && fc.facultyId.toLowerCase() === cleanId)
+      );
+      if (f) {
+        const col = persistentState.colleges.find((c) => c.code === colCode);
+        user = {
+          id: f.id || `fac-${Date.now()}`,
+          name: f.name,
+          email: f.email,
+          role: 'faculty',
+          password: f.password || f.defaultPassword || 'password123',
+          college: col?.name || f.college || colCode,
+          collegeCode: colCode,
+          department: f.department,
+          designation: f.designation,
+          facultyId: f.facultyId,
+        };
+        break;
+      }
+    }
+  }
+
+  // 6. Ensure user found from state/fallback is synchronized
+  if (user) {
+    const existingIdx = persistentState.users.findIndex((u) => u.email.toLowerCase() === user!.email.toLowerCase());
+    if (existingIdx >= 0) {
+      persistentState.users[existingIdx] = { ...persistentState.users[existingIdx], ...user };
+    } else {
+      persistentState.users.push(user);
+    }
+    if (isMongoConnected()) {
+      persistUserToMongoDB(user).catch((e) => console.warn('[MongoDB] Sync user error during login:', e.message));
+    }
   }
 
   // Repair older accounts that exist in the persisted application state but
