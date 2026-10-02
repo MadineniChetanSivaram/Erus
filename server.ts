@@ -26,7 +26,7 @@ import {
   AssessmentReportModel,
   GDBookingModel,
 } from './src/db/mongo.ts';
-import { sendCredentialsEmail, sendPasswordResetOtpEmail } from './src/services/mailer.ts';
+import { sendCredentialsEmail, sendPasswordResetOtpEmail, verifyEmailConfiguration, sendTestEmail } from './src/services/mailer.ts';
 
 dotenv.config();
 
@@ -203,6 +203,15 @@ let persistentState = {
     activeUsersToday: [] as string[],
     updatedAt: new Date().toISOString(),
   } as SystemSettings,
+  emailSettings: {
+    gmailUser: '',
+    gmailAppPassword: '',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpUser: '',
+    smtpPass: '',
+    smtpFrom: '',
+  },
 };
 
 function checkAndResetDailyStats() {
@@ -321,6 +330,30 @@ function loadPersistentState() {
             updatedAt: data.systemSettings.updatedAt || new Date().toISOString(),
           };
           checkAndResetDailyStats();
+        }
+        if (data.emailSettings && typeof data.emailSettings === 'object') {
+          persistentState.emailSettings = { ...persistentState.emailSettings, ...data.emailSettings };
+          if (data.emailSettings.gmailUser && !process.env.GMAIL_USER) {
+            process.env.GMAIL_USER = data.emailSettings.gmailUser;
+          }
+          if (data.emailSettings.gmailAppPassword && !process.env.GMAIL_APP_PASSWORD) {
+            process.env.GMAIL_APP_PASSWORD = data.emailSettings.gmailAppPassword;
+          }
+          if (data.emailSettings.smtpHost && !process.env.SMTP_HOST) {
+            process.env.SMTP_HOST = data.emailSettings.smtpHost;
+          }
+          if (data.emailSettings.smtpPort && !process.env.SMTP_PORT) {
+            process.env.SMTP_PORT = String(data.emailSettings.smtpPort);
+          }
+          if (data.emailSettings.smtpUser && !process.env.SMTP_USER) {
+            process.env.SMTP_USER = data.emailSettings.smtpUser;
+          }
+          if (data.emailSettings.smtpPass && !process.env.SMTP_PASS) {
+            process.env.SMTP_PASS = data.emailSettings.smtpPass;
+          }
+          if (data.emailSettings.smtpFrom && !process.env.SMTP_FROM) {
+            process.env.SMTP_FROM = data.emailSettings.smtpFrom;
+          }
         }
       }
     }
@@ -1317,6 +1350,89 @@ app.post('/api/admin/colleges/:id/send-credentials', async (req, res) => {
     }
   }
   res.json({ success: true, message: 'Credentials dispatched successfully via secure notification.' });
+});
+
+app.get('/api/admin/email-status', async (_req, res) => {
+  const status = await verifyEmailConfiguration();
+  res.json({ success: true, ...status });
+});
+
+app.post('/api/admin/send-test-email', async (req, res) => {
+  const { to } = req.body;
+  if (!to) {
+    return res.status(400).json({ success: false, error: 'Recipient email address is required.' });
+  }
+  const result = await sendTestEmail(String(to).trim());
+  res.json(result);
+});
+
+app.post('/api/admin/email-config', async (req, res) => {
+  const { gmailUser, gmailAppPassword, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom, resendApiKey } = req.body;
+  if (!persistentState.emailSettings) {
+    (persistentState as any).emailSettings = {};
+  }
+  if (gmailUser !== undefined) {
+    process.env.GMAIL_USER = String(gmailUser || '').trim();
+    persistentState.emailSettings.gmailUser = process.env.GMAIL_USER;
+  }
+  if (gmailAppPassword !== undefined) {
+    process.env.GMAIL_APP_PASSWORD = String(gmailAppPassword || '').trim().replace(/\s+/g, '');
+    persistentState.emailSettings.gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
+  }
+  if (smtpHost !== undefined) {
+    process.env.SMTP_HOST = String(smtpHost || '').trim();
+    persistentState.emailSettings.smtpHost = process.env.SMTP_HOST;
+  }
+  if (smtpPort !== undefined) {
+    process.env.SMTP_PORT = String(smtpPort || 587).trim();
+    persistentState.emailSettings.smtpPort = Number(process.env.SMTP_PORT);
+  }
+  if (smtpUser !== undefined) {
+    process.env.SMTP_USER = String(smtpUser || '').trim();
+    persistentState.emailSettings.smtpUser = process.env.SMTP_USER;
+  }
+  if (smtpPass !== undefined) {
+    process.env.SMTP_PASS = String(smtpPass || '').trim();
+    persistentState.emailSettings.smtpPass = process.env.SMTP_PASS;
+  }
+  if (smtpFrom !== undefined) {
+    process.env.SMTP_FROM = String(smtpFrom || '').trim();
+    persistentState.emailSettings.smtpFrom = process.env.SMTP_FROM;
+  }
+  if (resendApiKey !== undefined) {
+    process.env.RESEND_API_KEY = String(resendApiKey || '').trim();
+    (persistentState.emailSettings as any).resendApiKey = process.env.RESEND_API_KEY;
+  }
+
+  savePersistentState();
+
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+    const updateEnvVar = (key: string, val: string) => {
+      if (!val) return;
+      const regex = new RegExp(`^${key}=.*$`, 'm');
+      if (regex.test(envContent)) {
+        envContent = envContent.replace(regex, `${key}=${val}`);
+      } else {
+        envContent += `\n${key}=${val}`;
+      }
+    };
+    if (process.env.GMAIL_USER) updateEnvVar('GMAIL_USER', process.env.GMAIL_USER);
+    if (process.env.GMAIL_APP_PASSWORD) updateEnvVar('GMAIL_APP_PASSWORD', process.env.GMAIL_APP_PASSWORD);
+    if (process.env.SMTP_HOST) updateEnvVar('SMTP_HOST', process.env.SMTP_HOST);
+    if (process.env.SMTP_PORT) updateEnvVar('SMTP_PORT', process.env.SMTP_PORT);
+    if (process.env.SMTP_USER) updateEnvVar('SMTP_USER', process.env.SMTP_USER);
+    if (process.env.SMTP_PASS) updateEnvVar('SMTP_PASS', process.env.SMTP_PASS);
+    if (process.env.SMTP_FROM) updateEnvVar('SMTP_FROM', process.env.SMTP_FROM);
+    if (process.env.RESEND_API_KEY) updateEnvVar('RESEND_API_KEY', process.env.RESEND_API_KEY);
+    fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
+  } catch (err: any) {
+    console.warn('[Email Config] Could not write to .env:', err.message);
+  }
+
+  const status = await verifyEmailConfiguration();
+  res.json({ success: status.active, ...status });
 });
 
 app.delete('/api/admin/colleges/:id', async (req, res) => {

@@ -3,8 +3,9 @@ import nodemailer from 'nodemailer';
 interface SendCredentialsParams {
   to: string;
   name: string;
-  role: 'student' | 'faculty';
-  username: string; // studentId or facultyId or email
+  role: 'student' | 'faculty' | 'college_admin';
+  username?: string; // studentId or facultyId or email
+  loginId?: string;
   password: string;
   collegeName?: string;
   collegeCode?: string;
@@ -19,41 +20,157 @@ interface SendResetOtpParams {
   expiresInMinutes?: number;
 }
 
-// Build transport based on environment variables
-function createTransporter() {
-  const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const user = process.env.SMTP_USER || process.env.SMTP_EMAIL;
-  const pass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
+let cachedTransporter: nodemailer.Transporter | null = null;
+let cachedConfigKey = '';
 
+// Dynamically build transport based on latest environment variables
+export function getTransporter(): nodemailer.Transporter | null {
+  const host = process.env.SMTP_HOST?.trim();
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
+  const user = (process.env.SMTP_USER || process.env.SMTP_EMAIL)?.trim();
+  const pass = (process.env.SMTP_PASS || process.env.SMTP_PASSWORD)?.trim();
+  const gmailUser = process.env.GMAIL_USER?.trim();
+  const gmailPass = (process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS)?.trim();
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+
+  const currentKey = `${host}:${port}:${user}:${pass ? '***' : ''}:${gmailUser}:${gmailPass ? '***' : ''}:${resendKey ? '***' : ''}`;
+
+  if (cachedTransporter && cachedConfigKey === currentKey) {
+    return cachedTransporter;
+  }
+
+  // 1. Gmail App Password configuration
+  if (gmailUser && gmailPass) {
+    console.log(`[Email Service] Initializing Gmail SMTP transport for ${gmailUser}`);
+    cachedTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: gmailUser,
+        pass: gmailPass.replace(/\s+/g, ''), // Strip spaces from 16-char app passwords
+      },
+    });
+    cachedConfigKey = currentKey;
+    return cachedTransporter;
+  }
+
+  // 2. Resend SMTP configuration
+  if (resendKey) {
+    console.log('[Email Service] Initializing Resend SMTP transport');
+    cachedTransporter = nodemailer.createTransport({
+      host: 'smtp.resend.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: 'resend',
+        pass: resendKey,
+      },
+    });
+    cachedConfigKey = currentKey;
+    return cachedTransporter;
+  }
+
+  // 3. Generic Custom SMTP (Brevo, SendGrid, Mailgun, Amazon SES, or custom server)
   if (host && user && pass) {
-    return nodemailer.createTransport({
+    console.log(`[Email Service] Initializing SMTP transport on ${host}:${port}`);
+    cachedTransporter = nodemailer.createTransport({
       host,
       port,
-      secure: port === 465,
+      secure: port === 465 || process.env.SMTP_SECURE === 'true',
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
+      },
     });
+    cachedConfigKey = currentKey;
+    return cachedTransporter;
   }
 
-  // Gmail shorthand support: GMAIL_USER and GMAIL_APP_PASSWORD
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS;
-  if (gmailUser && gmailPass) {
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: gmailUser, pass: gmailPass },
-    });
-  }
-
+  cachedTransporter = null;
+  cachedConfigKey = '';
   return null;
 }
 
-const transporter = createTransporter();
+export function getFromAddress(): string {
+  if (process.env.SMTP_FROM) return process.env.SMTP_FROM.trim();
+  if (process.env.GMAIL_USER) return process.env.GMAIL_USER.trim();
+  if (process.env.SMTP_USER) return process.env.SMTP_USER.trim();
+  return 'no-reply@campus.erus.edu';
+}
+
+export async function verifyEmailConfiguration(): Promise<{
+  active: boolean;
+  provider?: string;
+  from?: string;
+  error?: string;
+}> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    return {
+      active: false,
+      error: 'No email credentials configured. Please set GMAIL_USER + GMAIL_APP_PASSWORD or SMTP_HOST + SMTP_USER + SMTP_PASS.',
+    };
+  }
+
+  try {
+    await transporter.verify();
+    let provider = 'Custom SMTP';
+    if (process.env.GMAIL_USER) provider = 'Google Gmail';
+    else if (process.env.RESEND_API_KEY) provider = 'Resend';
+    else if (process.env.SMTP_HOST?.includes('brevo') || process.env.SMTP_HOST?.includes('sendinblue')) provider = 'Brevo';
+    else if (process.env.SMTP_HOST?.includes('sendgrid')) provider = 'SendGrid';
+
+    return {
+      active: true,
+      provider,
+      from: getFromAddress(),
+    };
+  } catch (err: any) {
+    return {
+      active: false,
+      error: `SMTP Verification failed: ${err.message || err}`,
+    };
+  }
+}
+
+export async function sendTestEmail(toEmail: string): Promise<{ success: boolean; message: string; error?: string }> {
+  const transporter = getTransporter();
+  if (!transporter) {
+    return {
+      success: false,
+      message: 'SMTP credentials missing. Configure GMAIL_USER + GMAIL_APP_PASSWORD or SMTP variables in .env.',
+    };
+  }
+
+  try {
+    const fromAddr = getFromAddress();
+    await transporter.sendMail({
+      from: `"ERUS Platform" <${fromAddr}>`,
+      to: toEmail,
+      subject: 'ERUS Platform - Live Email Integration Test',
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+          <h2 style="color: #0f172a; margin-top: 0;">🎉 Real Email Delivery Verified</h2>
+          <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+            This email confirms that your outgoing mail server is properly connected and functioning. All system emails, including student credentials, observer assignments, and password reset OTPs, will now be delivered live to actual recipient inboxes.
+          </p>
+          <div style="background: #f1f5f9; padding: 12px 16px; border-radius: 8px; font-size: 12px; color: #64748b; font-family: monospace;">
+            Sender: ${fromAddr}<br>
+            Timestamp: ${new Date().toISOString()}
+          </div>
+        </div>
+      `,
+    });
+    return { success: true, message: `Live test email successfully delivered to ${toEmail}` };
+  } catch (err: any) {
+    return { success: false, message: 'Failed to deliver test email', error: err.message };
+  }
+}
 
 export async function sendCredentialsEmail(params: SendCredentialsParams): Promise<{ success: boolean; simulated?: boolean; error?: string }> {
-  const { to, name, role, username, password, collegeName = 'Your Institution', loginUrl = 'https://erus-production.up.railway.app' } = params;
-  const roleTitle = role === 'faculty' ? 'Faculty Evaluator' : 'Student Participant';
-  const roleColor = role === 'faculty' ? '#0d9488' : '#2563eb';
+  const { to, name, role, username, loginId, password, collegeName = 'Your Institution', loginUrl = 'https://erus-production.up.railway.app' } = params;
+  const roleTitle = role === 'faculty' ? 'Faculty Evaluator' : role === 'college_admin' ? 'College Administrator' : 'Student Participant';
+  const roleColor = role === 'faculty' ? '#0d9488' : role === 'college_admin' ? '#d97706' : '#2563eb';
+  const userIdentifier = username || loginId || to;
 
   const html = `
     <!DOCTYPE html>
@@ -91,7 +208,7 @@ export async function sendCredentialsEmail(params: SendCredentialsParams): Promi
         <div class="body-content">
           <div class="greeting">Hello, ${name}</div>
           <p class="desc">
-            Your College Administrator has created your official <strong>${roleTitle}</strong> account for the ERUS AI Group Discussion & Evaluation Platform.
+            Your official <strong>${roleTitle}</strong> account for the ERUS AI Group Discussion & Evaluation Platform is ready.
           </p>
           <div class="creds-box">
             <div class="cred-row">
@@ -100,7 +217,7 @@ export async function sendCredentialsEmail(params: SendCredentialsParams): Promi
             </div>
             <div class="cred-row">
               <span class="cred-label">Username / Roll No:</span>
-              <span class="cred-val">${username}</span>
+              <span class="cred-val">${userIdentifier}</span>
             </div>
             <div class="cred-row">
               <span class="cred-label">Assigned Password:</span>
@@ -122,19 +239,21 @@ export async function sendCredentialsEmail(params: SendCredentialsParams): Promi
     </html>
   `;
 
+  const transporter = getTransporter();
   if (!transporter) {
-    console.log(`[Email Service - Simulated] Credentials sent to ${to} (${name}): Username=${username}, Password=${password}`);
+    console.log(`[Email Service - Simulated] Credentials sent to ${to} (${name}): Username=${userIdentifier}, Password=${password}`);
     return { success: true, simulated: true };
   }
 
   try {
-    const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@campus.erus.edu';
+    const fromAddress = getFromAddress();
     await transporter.sendMail({
       from: `"ERUS Platform" <${fromAddress}>`,
       to,
       subject: `Your ${collegeName} ERUS Portal Login Credentials`,
       html,
     });
+    console.log(`[Email Service - Live] Successfully delivered credentials email to ${to}`);
     return { success: true, simulated: false };
   } catch (err: any) {
     console.warn(`[Email Service] Failed to send email to ${to}:`, err.message);
@@ -190,19 +309,21 @@ export async function sendPasswordResetOtpEmail(params: SendResetOtpParams): Pro
     </html>
   `;
 
+  const transporter = getTransporter();
   if (!transporter) {
     console.log(`[Email Service - Simulated] Password reset OTP sent to ${to}: Code=${otp} (expires in ${expiresInMinutes}m)`);
     return { success: true, simulated: true };
   }
 
   try {
-    const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@campus.erus.edu';
+    const fromAddress = getFromAddress();
     await transporter.sendMail({
       from: `"ERUS Security" <${fromAddress}>`,
       to,
       subject: `Your ERUS Password Reset Code: ${otp}`,
       html,
     });
+    console.log(`[Email Service - Live] Successfully delivered OTP email to ${to}`);
     return { success: true, simulated: false };
   } catch (err: any) {
     console.warn(`[Email Service] Failed to send OTP email to ${to}:`, err.message);
