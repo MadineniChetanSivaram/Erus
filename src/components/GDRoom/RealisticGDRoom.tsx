@@ -1309,6 +1309,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
   useEffect(() => {
     if (rtcSimulationMode) return;
+    if (isSocketConnected) return; // Central server controls silence watchdog and turn transitions
     if (!isSessionActive) return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1330,6 +1331,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [
     isSessionActive,
+    isSocketConnected,
     session.silenceTimerSeconds,
     elapsedSeconds,
     session.currentSpeakerId,

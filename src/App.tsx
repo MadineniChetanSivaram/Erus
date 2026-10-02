@@ -490,8 +490,8 @@ function GDAppContent() {
       status: 'active',
       silenceTimerSeconds: 0,
       currentPhase: 'intro',
-      facilitatorSpeech: welcomeIntroText,
-      isFacilitatorSpeaking: true,
+      facilitatorSpeech: '',
+      isFacilitatorSpeaking: false,
       startedAt: Date.now(),
       students: prev.students.map((s) => ({
         ...s,
@@ -516,25 +516,9 @@ function GDAppContent() {
       } : s))
     );
 
-    // Note: The synchronized opening speech is delivered authoritatively across all connected
+    // The synchronized opening speech and transcript are delivered authoritatively across all connected
     // participants (students and faculty) via the server's facilitator-intervention broadcast.
-
-    // Initialize clean transcripts list with AI welcome intro
-    setTranscripts([
-      {
-        id: `t-start-${Date.now()}`,
-        sessionId: targetSlotId,
-        speakerId: 'ai-facilitator',
-        speakerName: 'AI Facilitator (ERUS)',
-        seatNumber: null,
-        isFacilitator: true,
-        timestamp: '00:00',
-        timestampSeconds: 0,
-        text: welcomeIntroText,
-        type: 'intro',
-        sentiment: 'positive',
-      },
-    ]);
+    setTranscripts([]);
 
     // Notify backend
     if (currentUser?.role === 'faculty') {

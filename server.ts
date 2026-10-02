@@ -2498,10 +2498,13 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
   }
   const room = LIVE_ROOMS.get(slotId);
   if (room) {
+    const wasAlreadyActive = room.status === 'active';
     room.status = 'active';
     room.silenceTimerSeconds = 0;
     io.to(`room-${slotId}`).emit('session-started', { slotId, status: 'active', topic: room.topic });
-    scheduleNextTurn(room);
+    if (!wasAlreadyActive && !room.openingStarted) {
+      scheduleNextTurn(room);
+    }
   }
   res.json({ success: true, slotId, status: 'active' });
 });
@@ -5114,14 +5117,6 @@ Do not mention AI.`,
     targetSeatNumber: quietPeer?.seatNumber,
     transcript: interventionTranscript,
   });
-
-  if (room.status === 'active') {
-    setTimeout(() => {
-      if (room.status === 'active' && !room.currentSpeakerId) {
-        scheduleNextTurn(room);
-      }
-    }, 2500);
-  }
 }
 function triggerDominanceNudge(room: LiveGDRoomState, dominantPeer: LiveRoomPeer) {
   const quietStudents = Array.from(room.peers.values()).filter(
@@ -5238,11 +5233,9 @@ io.on('connection', (socket) => {
     const safeSlotId = slotId || 'session-101';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
+      const wasAlreadyActive = room.status === 'active';
       room.status = 'active';
       room.silenceTimerSeconds = 0;
-      room.openingStarted = false;
-      room.initialSpeakerSelected = false;
-      room.deadlockCount = 0;
       syncAiParticipants(room);
       io.to(`room-${safeSlotId}`).emit('session-started', {
         slotId: safeSlotId,
@@ -5251,7 +5244,12 @@ io.on('connection', (socket) => {
         simulationMode: room.simulationMode,
         aiParticipants: Array.from(room.aiParticipants.values()),
       });
-      scheduleNextTurn(room);
+      if (!wasAlreadyActive && !room.openingStarted) {
+        room.openingStarted = false;
+        room.initialSpeakerSelected = false;
+        room.deadlockCount = 0;
+        scheduleNextTurn(room);
+      }
     }
   });
 

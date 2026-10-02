@@ -303,13 +303,12 @@ class RoomVoiceEngine {
           if (this.watchdogInterval) clearInterval(this.watchdogInterval);
           this.watchdogInterval = setInterval(() => {
             if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
-              window.speechSynthesis.pause();
               window.speechSynthesis.resume();
             } else {
               clearInterval(this.watchdogInterval);
               this.watchdogInterval = null;
             }
-          }, 3500);
+          }, 10000);
 
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('erus-ai-voice-start'));
@@ -431,13 +430,12 @@ class RoomVoiceEngine {
           if (this.watchdogInterval) clearInterval(this.watchdogInterval);
           this.watchdogInterval = setInterval(() => {
             if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
-              window.speechSynthesis.pause();
               window.speechSynthesis.resume();
             } else {
               clearInterval(this.watchdogInterval);
               this.watchdogInterval = null;
             }
-          }, 3500);
+          }, 10000);
 
           window.dispatchEvent(new CustomEvent('erus-ai-voice-start'));
           window.speechSynthesis.speak(utterance);
