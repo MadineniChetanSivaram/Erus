@@ -268,6 +268,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     setMicEnabled: rtcSetMicEnabled,
     broadcastTranscript: rtcBroadcastTranscript,
     startSession: rtcStartSession,
+    finishSession: rtcFinishSession,
     requestAiIntervention: rtcRequestAiIntervention,
     broadcastFacilitatorSpeech: rtcBroadcastFacilitatorSpeech,
     notifySpeakingFinished: rtcNotifySpeakingFinished,
@@ -284,6 +285,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         status: 'active',
         startedAt: prev.startedAt || Date.now(),
       }));
+    },
+    onSessionEnded: () => {
+      // Synchronized GD termination: faculty has completed the GD, so student view automatically finishes & evaluates
+      onFinishSession();
     },
     onNewTranscript: (newTx) => {
       setTranscripts((prev) => {
@@ -351,6 +356,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
     },
   });
+
+  // Synchronized GD termination watch: if session status changes to 'completed', finish GD for student
+  useEffect(() => {
+    if (session.status === 'completed' && currentUser?.role === 'student') {
+      onFinishSession();
+    }
+  }, [session.status, currentUser?.role, onFinishSession]);
 
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
@@ -1639,7 +1651,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               ) : (
                 <button
                   id="finish-session-btn"
-                  onClick={onFinishSession}
+                  onClick={() => {
+                    rtcFinishSession();
+                    onFinishSession();
+                  }}
                   disabled={!isSessionActive}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
                 >
@@ -2413,7 +2428,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   {/* 6. Leave / Finish GD Call (Red Pill Button) */}
                   <button
                     id="leave-call-btn"
-                    onClick={onFinishSession}
+                    onClick={() => {
+                      if (isFaculty) rtcFinishSession();
+                      onFinishSession();
+                    }}
                     className="px-4 py-2.5 rounded-full font-bold text-xs bg-red-600 hover:bg-red-700 text-white shadow-lg flex items-center gap-2 cursor-pointer transition-all ml-1 sm:ml-2"
                     title={isFaculty ? 'Finish Observation & Review Reports' : 'Leave Group Discussion & View Assessment Report'}
                   >

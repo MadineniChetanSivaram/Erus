@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header, NavTabType } from './components/Header';
 import { RealisticGDRoom } from './components/GDRoom/RealisticGDRoom';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -28,6 +28,7 @@ import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
 import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, sendUserHeartbeat } from './utils/authApi';
+import { getSocket } from './utils/socket';
 import { 
   getStudentBookedSlotsByTopic,
   setStudentBookedSlotForTopic,
@@ -131,6 +132,7 @@ function GDAppContent() {
   });
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const { theme } = useTheme();
+  const isFinishingSessionRef = useRef(false);
 
   // Guard: Role-based navigation restrictions
   useEffect(() => {
@@ -247,6 +249,14 @@ function GDAppContent() {
             if (!prev) return mappedSlots[0] || INITIAL_SESSION;
             const fresh = mappedSlots.find((s) => s.id === prev.id);
             if (!fresh) return mappedSlots[0] ? { ...prev, ...mappedSlots[0] } : prev;
+
+            // If session was completed while student is in room, automatically finish GD and transition to report
+            if (fresh.status === 'completed' && prev.status !== 'completed' && currentUser?.role === 'student' && currentTab === 'room') {
+              setTimeout(() => {
+                handleFinishSession();
+              }, 50);
+            }
+
             return {
               ...prev,
               ...fresh,
@@ -266,7 +276,24 @@ function GDAppContent() {
     // Poll periodically for live status updates
     const timer = setInterval(syncSlots, 4000);
     return () => clearInterval(timer);
-  }, [currentUser]);
+  }, [currentUser, currentTab]);
+
+  // Synchronized session conclusion across student client via WebSocket
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'student') return;
+    const socket = getSocket();
+    const handleRemoteSessionEnded = (data: any) => {
+      if (!data?.slotId || data.slotId === session?.id) {
+        if (currentTab === 'room') {
+          handleFinishSession();
+        }
+      }
+    };
+    socket.on('session-ended', handleRemoteSessionEnded);
+    return () => {
+      socket.off('session-ended', handleRemoteSessionEnded);
+    };
+  }, [currentUser, session?.id, currentTab]);
 
 
   // Reset slots back to clean demo defaults
@@ -579,6 +606,9 @@ function GDAppContent() {
 
   // Conclude GD and generate report
   const handleFinishSession = async () => {
+    if (isFinishingSessionRef.current) return;
+    isFinishingSessionRef.current = true;
+
     // 1. Guaranteed student resolution
     const userStudent: Student = session.students?.find((s) => s.isUser) ||
       session.students?.find((s) => !s.isEmptySeat && (s.id === currentUser?.id || s.name === currentUser?.name)) ||
@@ -736,6 +766,10 @@ function GDAppContent() {
     } catch (e) {
       console.warn('[Evaluation] Finalization exception, redirecting to report:', e);
       setCurrentTab('report');
+    } finally {
+      setTimeout(() => {
+        isFinishingSessionRef.current = false;
+      }, 2500);
     }
   };
 

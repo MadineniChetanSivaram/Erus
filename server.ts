@@ -2477,8 +2477,9 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
   }
   if (room) {
     room.status = 'completed';
-    io.to('room-' + slotId).emit('session-ended', { slotId, status: 'completed', reports });
   }
+  io.to('room-' + slotId).emit('session-ended', { slotId, status: 'completed', reports });
+  io.emit('session-ended', { slotId, status: 'completed', reports });
   res.json({ success: true, slotId, status: 'completed', reports, transcriptCount: transcriptHistory.length });
 });
 
@@ -5762,6 +5763,17 @@ io.on('connection', (socket) => {
         scheduleNextTurn(room);
       }
     }
+  });
+
+  // 1.6 Conclude / Finish Discussion Session
+  socket.on('finish-session', ({ slotId }: { slotId: string }) => {
+    const safeSlotId = slotId || 'session-101';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (room) {
+      room.status = 'completed';
+    }
+    io.to(`room-${safeSlotId}`).emit('session-ended', { slotId: safeSlotId, status: 'completed' });
+    io.emit('session-ended', { slotId: safeSlotId, status: 'completed' });
   });
 
   // 1.8 Request AI Facilitator Intervention / Probing Question

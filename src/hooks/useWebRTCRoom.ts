@@ -33,6 +33,7 @@ interface UseWebRTCRoomOptions {
     targetSeatNumber?: number;
   }) => void;
   onSessionStarted?: (data: any) => void;
+  onSessionEnded?: (data: any) => void;
   onAiParticipantSpeech?: (data: any) => void;
 }
 
@@ -58,6 +59,7 @@ export function useWebRTCRoom({
   onNewTranscript,
   onFacilitatorIntervention,
   onSessionStarted,
+  onSessionEnded,
   onAiParticipantSpeech,
 }: UseWebRTCRoomOptions) {
   const [connected, setConnected] = useState(false);
@@ -103,10 +105,12 @@ export function useWebRTCRoom({
   const onNewTranscriptRef = useRef(onNewTranscript);
   const onFacilitatorInterventionRef = useRef(onFacilitatorIntervention);
   const onSessionStartedRef = useRef(onSessionStarted);
+  const onSessionEndedRef = useRef(onSessionEnded);
   const onAiParticipantSpeechRef = useRef(onAiParticipantSpeech);
   onNewTranscriptRef.current = onNewTranscript;
   onFacilitatorInterventionRef.current = onFacilitatorIntervention;
   onSessionStartedRef.current = onSessionStarted;
+  onSessionEndedRef.current = onSessionEnded;
   onAiParticipantSpeechRef.current = onAiParticipantSpeech;
 
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
@@ -782,6 +786,14 @@ export function useWebRTCRoom({
       }
     });
 
+    // Faculty Concludes / Finishes GD Broadcast
+    socket.on('session-ended', (data) => {
+      if (!active) return;
+      if (onSessionEndedRef.current) {
+        onSessionEndedRef.current(data);
+      }
+    });
+
     socket.on('disconnect', () => {
       if (!active) return;
       setConnected(false);
@@ -952,6 +964,13 @@ export function useWebRTCRoom({
     }
   }, [slotId, isMicMuted]);
 
+  // Conclude / finish the GD session across all connected clients
+  const finishSession = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('finish-session', { slotId });
+    }
+  }, [slotId]);
+
   return {
     connected,
     assignedSeat,
@@ -967,6 +986,7 @@ export function useWebRTCRoom({
     setMicEnabled,
     broadcastTranscript,
     startSession,
+    finishSession,
     requestAiIntervention,
     broadcastFacilitatorSpeech,
     notifySpeakingFinished,
