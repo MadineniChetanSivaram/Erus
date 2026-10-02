@@ -41,6 +41,8 @@ import {
   Trash2,
   Plus,
   Tag,
+  Maximize2,
+  Minimize2,
   X
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType, FacultyLiveNote } from '../../types/gd';
@@ -128,6 +130,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Audio & Mic Diagnostic Test Modal State
   const [showAudioTestModal, setShowAudioTestModal] = useState(false);
+
+  // Participant Spotlight / Enlarged HD View State
+  const [enlargedStudent, setEnlargedStudent] = useState<Student | null>(null);
+
+  const handleToggleEnlargeStudent = (student: Student) => {
+    if (student.isEmptySeat) return;
+    setEnlargedStudent((prev) => (prev?.id === student.id ? null : student));
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEnlargedStudent(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const formatElapsedClock = (secs: number) => {
     const mins = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -541,6 +561,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     activeDisplayStudents[0];
   const isSpeakingLive = !!(session.currentSpeakerId || (isListeningMic && !isFaculty) || activeDisplayStudents.some((s) => s.isSpeaking));
   
+  const liveEnlargedStudent = useMemo(() => {
+    if (!enlargedStudent) return null;
+    return activeDisplayStudents.find((s) => s.id === enlargedStudent.id) || enlargedStudent;
+  }, [enlargedStudent, activeDisplayStudents]);
+
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const studentTurnsSinceIntervention = useRef<number>(0);
@@ -1778,6 +1803,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
                         onAddNote={handleOpenNoteModal}
+                        onEnlarge={handleToggleEnlargeStudent}
                       />
                     ))}
                   </div>
@@ -1796,6 +1822,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
                         onAddNote={handleOpenNoteModal}
+                        onEnlarge={handleToggleEnlargeStudent}
                       />
                     ))}
                   </div>
@@ -1818,7 +1845,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     <div className="absolute inset-4 rounded-full border border-dashed border-indigo-300/40 dark:border-indigo-600/30 pointer-events-none" />
 
                     {/* CENTER STAGE: The Person Speaking in Middle of Round Table */}
-                    <div className="relative z-20 flex flex-col items-center max-w-md text-center p-3 sm:p-4 rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-indigo-500/60 dark:border-indigo-400/60 shadow-2xl backdrop-blur-md transition-all duration-300">
+                    <div 
+                      onDoubleClick={() => currentSpeakerStudent && handleToggleEnlargeStudent(currentSpeakerStudent)}
+                      title={currentSpeakerStudent ? `${currentSpeakerStudent.name} • Double-click to enlarge spotlight` : undefined}
+                      className="relative z-20 flex flex-col items-center max-w-md text-center p-3 sm:p-4 rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-indigo-500/60 dark:border-indigo-400/60 shadow-2xl backdrop-blur-md transition-all duration-300 cursor-pointer"
+                    >
                       
                       {/* Animated Soundwave Aura for Active Speaker */}
                       <div className="relative">
@@ -1889,6 +1920,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
                         onAddNote={handleOpenNoteModal}
+                        onEnlarge={handleToggleEnlargeStudent}
                       />
                     ))}
                   </div>
@@ -1907,6 +1939,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         isListeningMic={isListeningMic}
                         isFaculty={isFaculty}
                         onAddNote={handleOpenNoteModal}
+                        onEnlarge={handleToggleEnlargeStudent}
                       />
                     ))}
                   </div>
@@ -1953,7 +1986,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </div>
 
                   {/* Presenter at the Podium */}
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 backdrop-blur-sm">
+                  <div 
+                    onDoubleClick={() => currentSpeakerStudent && handleToggleEnlargeStudent(currentSpeakerStudent)}
+                    title={currentSpeakerStudent ? `${currentSpeakerStudent.name} • Double-click to enlarge spotlight` : undefined}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 backdrop-blur-sm cursor-pointer"
+                  >
                     
                     {/* Presenter Avatar & Badge */}
                     <div className="relative flex flex-col items-center flex-shrink-0">
@@ -2037,6 +2074,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           isListeningMic={isListeningMic}
                           isFaculty={isFaculty}
                           onAddNote={handleOpenNoteModal}
+                          onEnlarge={handleToggleEnlargeStudent}
                         />
                       ))}
                     </div>
@@ -2060,6 +2098,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           isListeningMic={isListeningMic}
                           isFaculty={isFaculty}
                           onAddNote={handleOpenNoteModal}
+                          onEnlarge={handleToggleEnlargeStudent}
                         />
                       ))}
                     </div>
@@ -2084,6 +2123,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             isListeningMic={isListeningMic}
                             isFaculty={isFaculty}
                             onAddNote={handleOpenNoteModal}
+                            onEnlarge={handleToggleEnlargeStudent}
                           />
                         ))}
                       </div>
@@ -3025,6 +3065,126 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         </div>
       )}
 
+      {/* 4. ENLARGED PARTICIPANT SPOTLIGHT MODAL (TRIGGERED ON DOUBLE-CLICK) */}
+      {liveEnlargedStudent && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
+          onClick={() => setEnlargedStudent(null)}
+        >
+          <div 
+            className="relative w-full max-w-3xl rounded-3xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold uppercase tracking-wider bg-indigo-600 text-white shadow-xs">
+                  Seat {liveEnlargedStudent.seatNumber}
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <span>{liveEnlargedStudent.name}</span>
+                    {liveEnlargedStudent.isUser && !isFaculty && (
+                      <span className="text-[10px] bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 px-1.5 py-0.2 rounded font-mono">YOU</span>
+                    )}
+                    {liveEnlargedStudent.isRealPeer && !liveEnlargedStudent.isUser && (
+                      <span className="text-[10px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.2 rounded font-mono font-bold">LIVE PEER</span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">{liveEnlargedStudent.college || 'Campus Participant'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isFaculty && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenNoteModal(liveEnlargedStudent.id);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-400/40 font-semibold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Bookmark className="w-3.5 h-3.5 fill-current" />
+                    <span>Observation Note</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEnlargedStudent(null)}
+                  className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Close (Esc)"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Video Stage Container */}
+            <div className="relative aspect-video w-full bg-slate-950 flex items-center justify-center overflow-hidden">
+              {liveEnlargedStudent.isEmptySeat ? (
+                <div className="flex flex-col items-center justify-center text-slate-500">
+                  <User className="w-16 h-16 opacity-30 mb-2" />
+                  <p className="text-sm">Empty Desk • Awaiting Candidate</p>
+                </div>
+              ) : (liveEnlargedStudent.isUser ? (isCameraOn && videoStream) : (liveEnlargedStudent.videoStream && liveEnlargedStudent.cameraActive !== false)) ? (
+                <VideoStreamPlayer 
+                  stream={(liveEnlargedStudent.isUser ? videoStream : liveEnlargedStudent.videoStream)!}
+                  muted={liveEnlargedStudent.isUser}
+                  className={`w-full h-full object-cover ${liveEnlargedStudent.isUser ? 'transform -scale-x-100' : ''}`}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                  <div className="w-24 h-24 rounded-full bg-indigo-600/90 flex items-center justify-center text-3xl font-extrabold text-white uppercase shadow-xl mb-3">
+                    {liveEnlargedStudent.name.charAt(0)}
+                  </div>
+                  <p className="text-sm font-semibold text-slate-200">{liveEnlargedStudent.name}</p>
+                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                    <VideoOff className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Camera is currently off</span>
+                  </p>
+                </div>
+              )}
+
+              {/* Live Speaker Animation Aura */}
+              {liveEnlargedStudent.isSpeaking && (
+                <div className="absolute top-4 left-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-600/90 text-white text-xs font-bold shadow-lg backdrop-blur-xs">
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Speaking Now</span>
+                </div>
+              )}
+
+              {/* Status Badges Overlay (Bottom-Left) */}
+              <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 backdrop-blur-md ${
+                  liveEnlargedStudent.micActive ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40' : 'bg-slate-900/80 text-rose-400 border border-rose-500/30'
+                }`}>
+                  {liveEnlargedStudent.micActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                  <span>{liveEnlargedStudent.micActive ? 'Mic Active' : 'Mic Muted'}</span>
+                </span>
+
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 backdrop-blur-md ${
+                  (liveEnlargedStudent.isUser ? isCameraOn : liveEnlargedStudent.cameraActive !== false)
+                    ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-500/40'
+                    : 'bg-slate-900/80 text-slate-400 border border-slate-700/50'
+                }`}>
+                  {(liveEnlargedStudent.isUser ? isCameraOn : liveEnlargedStudent.cameraActive !== false) ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                  <span>{(liveEnlargedStudent.isUser ? isCameraOn : liveEnlargedStudent.cameraActive !== false) ? 'Camera On' : 'Camera Off'}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Bottom Stats */}
+            <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center gap-4">
+                <span>Speaking Turns: <strong className="text-white font-mono">{liveEnlargedStudent.speakingTurns}</strong></span>
+                <span>Time Spoken: <strong className="text-white font-mono">{Math.floor(liveEnlargedStudent.speakingDurationSeconds / 60)}m {liveEnlargedStudent.speakingDurationSeconds % 60}s</strong></span>
+              </div>
+              <span className="text-[11px] text-slate-500">Double-click any seat to enlarge • Press Esc to minimize</span>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
@@ -3034,8 +3194,30 @@ const VideoStreamPlayer: React.FC<{ stream: MediaStream; className?: string; mut
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (video && stream) {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      video.play().catch(() => {});
+
+      const handlePlay = () => {
+        video.play().catch(() => {});
+      };
+
+      stream.addEventListener('addtrack', handlePlay);
+      stream.addEventListener('removetrack', handlePlay);
+      stream.getVideoTracks().forEach((track) => {
+        track.addEventListener('unmute', handlePlay);
+      });
+
+      return () => {
+        stream.removeEventListener('addtrack', handlePlay);
+        stream.removeEventListener('removetrack', handlePlay);
+        stream.getVideoTracks().forEach((track) => {
+          track.removeEventListener('unmute', handlePlay);
+        });
+      };
     }
   }, [stream]);
 
@@ -3195,6 +3377,7 @@ export const StudentPodCard: React.FC<{
   isListeningMic?: boolean;
   isFaculty?: boolean;
   onAddNote?: (student: Student) => void;
+  onEnlarge?: (student: Student) => void;
 }> = ({
   student,
   isCurrentSpeaker,
@@ -3205,13 +3388,20 @@ export const StudentPodCard: React.FC<{
   isListeningMic = false,
   isFaculty = false,
   onAddNote,
+  onEnlarge,
 }) => {
   const isUser = !isFaculty && !!student.isUser;
 
   return (
-    <div className={`flex flex-col items-center group transition-all duration-300 ${
-      isCurrentSpeaker ? 'scale-110 z-20' : 'z-10'
-    }`}>
+    <div 
+      onDoubleClick={() => !student.isEmptySeat && onEnlarge?.(student)}
+      title={student.isEmptySeat ? 'Open Desk' : `${student.name} • Double-click to enlarge spotlight`}
+      className={`flex flex-col items-center group transition-all duration-300 ${
+        student.isEmptySeat ? '' : 'cursor-pointer'
+      } ${
+        isCurrentSpeaker ? 'scale-110 z-20' : 'z-10'
+      }`}
+    >
       
       {/* 1. Realistic Numbered Seat Placard (Pinned cleanly at top, in natural flex flow) */}
       <div className={`mb-1 whitespace-nowrap px-1.5 sm:px-2 py-0.5 rounded-md text-[9px] font-bold font-mono shadow-xs uppercase tracking-wider transition-colors flex items-center gap-1 ${
@@ -3272,6 +3462,20 @@ export const StudentPodCard: React.FC<{
             size="normal"
             isFaculty={isFaculty}
           />
+
+          {!student.isEmptySeat && onEnlarge && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEnlarge(student);
+              }}
+              className="absolute top-1 right-1 p-1 rounded-md bg-slate-900/85 hover:bg-indigo-600 text-white opacity-0 group-hover:opacity-100 transition-opacity z-20 cursor-pointer shadow-md"
+              title={`Enlarge spotlight for ${student.name} (or double-click)`}
+            >
+              <Maximize2 className="w-2.5 h-2.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -3307,6 +3511,7 @@ export const ClassroomDeskCard: React.FC<{
   isListeningMic?: boolean;
   isFaculty?: boolean;
   onAddNote?: (student: Student) => void;
+  onEnlarge?: (student: Student) => void;
 }> = ({
   student,
   isCurrentSpeaker,
@@ -3316,12 +3521,17 @@ export const ClassroomDeskCard: React.FC<{
   isListeningMic = false,
   isFaculty = false,
   onAddNote,
+  onEnlarge,
 }) => {
   const isUser = !isFaculty && !!student.isUser;
 
   return (
     <div
+      onDoubleClick={() => !student.isEmptySeat && onEnlarge?.(student)}
+      title={student.isEmptySeat ? 'Open Desk' : `${student.name} • Double-click to enlarge spotlight`}
       className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${
+        student.isEmptySeat ? '' : 'cursor-pointer'
+      } ${
         student.isEmptySeat
           ? 'bg-slate-50/50 dark:bg-slate-900/30 border-dashed border-slate-200 dark:border-slate-800'
           : isCurrentSpeaker
@@ -3383,19 +3593,35 @@ export const ClassroomDeskCard: React.FC<{
         </div>
       </div>
 
-      {!student.isEmptySeat && onAddNote && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddNote(student);
-          }}
-          className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-amber-500 hover:text-amber-600 transition-colors cursor-pointer shrink-0"
-          title={`Record live observation note for ${student.name}`}
-        >
-          <Bookmark className="w-3 h-3 fill-current" />
-        </button>
-      )}
+      <div className="flex items-center gap-1 shrink-0">
+        {!student.isEmptySeat && onEnlarge && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEnlarge(student);
+            }}
+            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-indigo-500 hover:text-indigo-600 transition-colors cursor-pointer"
+            title={`Enlarge spotlight for ${student.name}`}
+          >
+            <Maximize2 className="w-3 h-3" />
+          </button>
+        )}
+
+        {!student.isEmptySeat && onAddNote && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddNote(student);
+            }}
+            className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-amber-500 hover:text-amber-600 transition-colors cursor-pointer"
+            title={`Record live observation note for ${student.name}`}
+          >
+            <Bookmark className="w-3 h-3 fill-current" />
+          </button>
+        )}
+      </div>
     </div>
   );
 };

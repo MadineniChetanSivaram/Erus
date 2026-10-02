@@ -170,18 +170,42 @@ export function useWebRTCRoom({
     pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionsRef.current.set(peerSocketId, pc);
 
+    // Initialize bidirectional audio & video transceivers so SDP negotiation always supports both media types
+    try {
+      if (pc.getTransceivers().length === 0) {
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        pc.addTransceiver('video', { direction: 'sendrecv' });
+      }
+    } catch (e) {
+      console.warn('[WebRTC Transceiver init]:', e);
+    }
+
     // Add local microphone audio track to the connection
     if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        pc?.addTrack(track, localStreamRef.current!);
-      });
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        const senders = pc.getSenders();
+        const audioSender = senders.find((s) => s.track?.kind === 'audio' || (s as any).kind === 'audio');
+        if (audioSender) {
+          audioSender.replaceTrack(audioTrack).catch(() => {});
+        } else {
+          try { pc.addTrack(audioTrack, localStreamRef.current); } catch (e) {}
+        }
+      }
     }
 
     // Add local webcam video track if camera is currently enabled
     if (videoStreamRef.current && isCameraOnRef.current) {
-      videoStreamRef.current.getVideoTracks().forEach((track) => {
-        pc?.addTrack(track, videoStreamRef.current!);
-      });
+      const videoTrack = videoStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        const senders = pc.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === 'video' || (s as any).kind === 'video');
+        if (videoSender) {
+          videoSender.replaceTrack(videoTrack).catch(() => {});
+        } else {
+          try { pc.addTrack(videoTrack, videoStreamRef.current); } catch (e) {}
+        }
+      }
     }
 
     // ICE Candidate exchange
@@ -369,11 +393,7 @@ export function useWebRTCRoom({
     socket.on('gd-room-joined', async ({ assignedSeat: mySeat, peers: existingPeers, silenceTimerSeconds: initialSilence, aiParticipants: initialAiParticipants, simulationMode: initialSimulationMode }) => {
       if (!active) return;
       setAssignedSeat(mySeat);
-      // Students need not see faculty in GD: filter out any faculty or admin peers
-      const visiblePeers = (existingPeers || []).filter(
-        (p) => !(currentUser?.role === 'student' && (p.role === 'faculty' || p.role === 'college_admin'))
-      );
-      setPeers(visiblePeers);
+      setPeers(existingPeers || []);
       setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
       setSimulationMode(Boolean(initialSimulationMode));
       setSilenceTimerSeconds(initialSilence || 0);
@@ -383,7 +403,10 @@ export function useWebRTCRoom({
         for (const remotePeer of existingPeers) {
           try {
             const pc = getOrCreatePeerConnection(remotePeer.socketId);
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            });
             await pc.setLocalDescription(offer);
             socket.emit('signal-send', {
               to: remotePeer.socketId,
@@ -397,18 +420,28 @@ export function useWebRTCRoom({
     });
 
     // A new peer joined the room
-    socket.on('peer-joined', ({ peer }) => {
+    socket.on('peer-joined', async ({ peer }) => {
       if (!active) return;
-      // Students need not see faculty in GD
-      if (currentUser?.role === 'student' && (peer.role === 'faculty' || peer.role === 'college_admin')) {
-        return;
-      }
       setPeers((prev) => {
         const filtered = prev.filter((p) => p.socketId !== peer.socketId);
         return [...filtered, peer];
       });
-      // Prepare peer connection for incoming offer from newly joined peer
-      getOrCreatePeerConnection(peer.socketId);
+
+      // Prepare peer connection and actively offer to incoming peer to guarantee connectivity
+      try {
+        const pc = getOrCreatePeerConnection(peer.socketId);
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await pc.setLocalDescription(offer);
+        socket.emit('signal-send', {
+          to: peer.socketId,
+          signal: { sdp: offer },
+        });
+      } catch (e) {
+        console.warn('[WebRTC peer-joined offer error]:', e);
+      }
     });
 
     // WebRTC Signaling Relay Received (Offer, Answer, ICE Candidate)
@@ -655,13 +688,18 @@ export function useWebRTCRoom({
             await videoSender.replaceTrack(videoTrack);
           } else {
             pc.addTrack(videoTrack, videoStream!);
-            // Trigger renegotiation offer
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socketRef.current?.emit('signal-send', {
-              to: peerSocketId,
-              signal: { sdp: pc.localDescription },
-            });
+          }
+          if (pc.signalingState === 'stable') {
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socketRef.current?.emit('signal-send', {
+                to: peerSocketId,
+                signal: { sdp: pc.localDescription },
+              });
+            } catch (renegErr) {
+              console.warn('[WebRTC Renegotiation offer notice]:', renegErr);
+            }
           }
         } else {
           if (videoSender) {

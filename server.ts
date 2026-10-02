@@ -5191,14 +5191,11 @@ io.on('connection', (socket) => {
 
     syncAiParticipants(room);
 
-    // Real peer connectivity:
-    // Students only ever see real student peers. Faculty is NEVER sent to students as a peer!
-    const studentPeers = Array.from(room.peers.values()).filter(
-      p => p.socketId !== socket.id && p.role !== 'faculty' && p.role !== 'college_admin'
-    );
+    // Full WebRTC connectivity: transmit all peers in the room so students and faculty can establish end-to-end audio/video
+    const allRoomPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
     socket.emit('gd-room-joined', {
       assignedSeat: seatNumber,
-      peers: studentPeers,
+      peers: allRoomPeers,
       aiParticipants: Array.from(room.aiParticipants.values()),
       simulationMode: false,
       transcripts: room.transcripts,
@@ -5208,13 +5205,10 @@ io.on('connection', (socket) => {
       status: room.status,
     });
 
-    // Notify other peers in the room ONLY if this is a real student!
-    // Students must never see the faculty in the GD room.
-    if (!isObserver) {
-      socket.to(`room-${safeSlotId}`).emit('peer-joined', {
-        peer,
-      });
-    }
+    // Notify all active peers in room so incoming WebRTC peer connection can be established
+    socket.to(`room-${safeSlotId}`).emit('peer-joined', {
+      peer,
+    });
 
     if (room.simulationMode && room.status === 'waiting') {
       room.status = 'active';
@@ -5268,8 +5262,21 @@ io.on('connection', (socket) => {
     const peer = room.peers.get(socket.id);
     if (!peer) return;
 
-    // Faculty or college_admin are observers; do not claim floor or broadcast speaking updates to round table
+    // Faculty or college_admin are observers; update status and notify room, but do not claim student floor
     if (peer.role === 'faculty' || peer.role === 'college_admin') {
+      peer.isSpeaking = !!isSpeaking;
+      if (micActive !== undefined) peer.micActive = micActive;
+      if (cameraActive !== undefined) peer.cameraActive = cameraActive;
+      io.to(`room-${safeSlotId}`).emit('peer-speaking-updated', {
+        socketId: socket.id,
+        userId: peer.userId,
+        seatNumber: peer.seatNumber,
+        role: peer.role,
+        isSpeaking: peer.isSpeaking,
+        micActive: peer.micActive,
+        cameraActive: peer.cameraActive,
+        volumeLevel: volumeLevel || 0,
+      });
       return;
     }
 
