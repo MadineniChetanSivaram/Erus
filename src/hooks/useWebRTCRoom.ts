@@ -372,8 +372,10 @@ export function useWebRTCRoom({
       if (!active) return;
       setConnected(true);
 
-      // Acquire microphone
-      await initLocalMicrophone();
+      // Acquire microphone (only for student participants - faculty is pure listener)
+      if (currentUser?.role !== 'faculty') {
+        await initLocalMicrophone();
+      }
 
       // Join the slot room with user metadata
       socket.emit('join-gd-room', {

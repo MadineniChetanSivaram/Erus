@@ -2189,32 +2189,34 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 {/* Center Control Action Buttons */}
                 <div className="flex items-center gap-2 sm:gap-3 mx-auto sm:mx-0">
                   
-                  {/* 1. Microphone Toggle */}
-                  <button
-                    id="mic-speak-btn"
-                    onClick={toggleMicRecognition}
-                    className={`relative p-3 rounded-full font-semibold transition-all shadow-lg flex items-center justify-center cursor-pointer ${
-                      isListeningMic
-                        ? 'bg-red-600 hover:bg-red-700 text-white ring-4 ring-red-500/40 animate-pulse'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                    }`}
-                    title={
-                      isFaculty
-                        ? (isListeningMic ? 'Stop Speaking (Moderator Mic Live)' : 'Push to Speak as Faculty Moderator')
-                        : (isListeningMic ? 'Mute Microphone (Speaking Active)' : 'Unmute Microphone (Push to Speak)')
-                    }
-                  >
-                    {isListeningMic ? (
-                      <Mic className="w-5 h-5 text-white animate-bounce" />
-                    ) : (
-                      <MicOff className="w-5 h-5 text-rose-400" />
-                    )}
-                    {isListeningMic && audioLevel > 0 && (
-                      <span 
-                        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-slate-950 animate-ping"
-                      />
-                    )}
-                  </button>
+                  {/* 1. Microphone Toggle (Student participants only - faculty is strictly a listener) */}
+                  {!isFaculty && (
+                    <button
+                      id="mic-speak-btn"
+                      onClick={toggleMicRecognition}
+                      className={`relative p-3 rounded-full font-semibold transition-all shadow-lg flex items-center justify-center cursor-pointer ${
+                        isListeningMic
+                          ? 'bg-red-600 hover:bg-red-700 text-white ring-4 ring-red-500/40 animate-pulse'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                      }`}
+                      title={
+                        isListeningMic 
+                          ? 'Mute Microphone (Speaking Active)' 
+                          : 'Unmute Microphone (Push to Speak)'
+                      }
+                    >
+                      {isListeningMic ? (
+                        <Mic className="w-5 h-5 text-white animate-bounce" />
+                      ) : (
+                        <MicOff className="w-5 h-5 text-rose-400" />
+                      )}
+                      {isListeningMic && audioLevel > 0 && (
+                        <span 
+                          className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-slate-950 animate-ping"
+                        />
+                      )}
+                    </button>
+                  )}
 
                   {/* 2. Camera Toggle (Student only) */}
                   {!isFaculty && (
@@ -2357,9 +2359,40 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
               </div>
 
-              {/* Live Voice Broadcast Console (No Send Option - Direct Voice Broadcast) */}
+              {/* Live Voice Broadcast Console for Student OR Evaluator Audio Listening Console for Faculty */}
               <div className="w-full">
-                {isListeningMic ? (
+                {isFaculty ? (
+                  <div className="w-full rounded-2xl bg-slate-100/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 p-2.5 sm:p-3 flex items-center justify-between transition-all">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                        <Volume2 className="w-4 h-4 animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <span>Faculty Listening & Observation Mode</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-mono font-medium">
+                            Live Stream Audible
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Listening to live student and AI participant speeches. You can record timestamped observation notes and prompt facilitator questions.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowAudioTestModal(true)}
+                        className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                        title="Test speaker output and sound chime"
+                      >
+                        <Volume2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Test Audio Output</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : isListeningMic ? (
                   <div className="w-full rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border-2 border-emerald-500/80 p-3 sm:p-3.5 shadow-lg shadow-emerald-950/40 transition-all animate-fadeIn">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -2369,7 +2402,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         </span>
                         <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
                           <Radio className="w-3.5 h-3.5 animate-pulse" />
-                          {isFaculty ? 'Faculty Moderator Mic Live' : 'Live Floor Mic • Audible to Everyone'}
+                          Live Floor Mic • Audible to Everyone
                         </span>
                         <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-900/60 border border-emerald-700/50 text-[10px] text-emerald-300 font-mono">
                           <span>Broadcasting Live</span>
@@ -2449,9 +2482,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {isFaculty
-                            ? 'Unmute microphone to speak live to the room, or click directives below.'
-                            : 'Click Unmute to speak live to the room — your voice is broadcast live to all participants.'}
+                          Click Unmute to speak live to the room — your voice is broadcast live to all participants.
                         </p>
                       </div>
                     </div>
@@ -2810,7 +2841,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               </button>
             </div>
 
-            <LobbyAudioTester />
+            <LobbyAudioTester speakerOnly={isFaculty} />
 
             <div className="flex justify-end pt-2">
               <button

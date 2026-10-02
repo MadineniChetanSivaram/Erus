@@ -3,9 +3,10 @@ import { Mic, Volume2, CheckCircle2, VolumeX, Sparkles, RefreshCw } from 'lucide
 
 interface LobbyAudioTesterProps {
   className?: string;
+  speakerOnly?: boolean;
 }
 
-export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = '' }) => {
+export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = '', speakerOnly = false }) => {
   const [micVolume, setMicVolume] = useState<number>(0);
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
   const [micDetectedSpeech, setMicDetectedSpeech] = useState<boolean>(false);
@@ -17,8 +18,9 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Initialize Microphone Tester
+  // Initialize Microphone Tester (Only if not in speaker-only faculty mode)
   useEffect(() => {
+    if (speakerOnly) return;
     let active = true;
 
     async function startMicTest() {
@@ -97,7 +99,7 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
         audioContextRef.current.close().catch(() => {});
       }
     };
-  }, []);
+  }, [speakerOnly]);
 
   // Play pleasant two-tone test chime through speakers/headphones
   const playTestChime = () => {
@@ -145,7 +147,7 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
     }
   };
 
-  const isHardwareReady = (hasMicPermission && micDetectedSpeech) || speakerTested;
+  const isHardwareReady = speakerOnly ? speakerTested : ((hasMicPermission && micDetectedSpeech) || speakerTested);
 
   return (
     <div className={`p-3.5 rounded-2xl bg-white/95 dark:bg-slate-900/90 border border-amber-200/80 dark:border-amber-900/50 shadow-xs ${className}`}>
@@ -158,7 +160,7 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                Pre-Session Hardware Readiness Check
+                {speakerOnly ? 'Faculty Audio Output Readiness Check' : 'Pre-Session Hardware Readiness Check'}
               </span>
               {isHardwareReady ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
@@ -172,7 +174,9 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
               )}
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Verify your microphone and earphones before Faculty starts the discussion.
+              {speakerOnly 
+                ? 'Test your earphones/speakers to clearly hear live student and AI participant speeches.' 
+                : 'Verify your microphone and earphones before Faculty starts the discussion.'}
             </p>
           </div>
         </div>
@@ -200,54 +204,56 @@ export const LobbyAudioTester: React.FC<LobbyAudioTesterProps> = ({ className = 
         </button>
       </div>
 
-      {/* Real-time Microphone VU Meter Bar */}
-      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2 flex-1">
-          <Mic className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-            micVolume > 15 ? 'text-emerald-600 dark:text-emerald-400 animate-pulse' : 'text-slate-400'
-          }`} />
-          <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 shrink-0">
-            Live Mic Meter:
-          </span>
+      {/* Real-time Microphone VU Meter Bar (Student only) */}
+      {!speakerOnly && (
+        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 flex-1">
+            <Mic className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+              micVolume > 15 ? 'text-emerald-600 dark:text-emerald-400 animate-pulse' : 'text-slate-400'
+            }`} />
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 shrink-0">
+              Live Mic Meter:
+            </span>
 
-          {/* 10-Segment VU Meter */}
-          <div className="flex-1 max-w-xs h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700 flex items-center">
-            <div
-              className={`h-full rounded-full transition-all duration-75 ${
-                micVolume > 50
-                  ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-amber-500'
-                  : micVolume > 15
-                  ? 'bg-emerald-500'
-                  : 'bg-slate-300 dark:bg-slate-600'
-              }`}
-              style={{ width: `${Math.max(4, micVolume)}%` }}
-            />
+            {/* 10-Segment VU Meter */}
+            <div className="flex-1 max-w-xs h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700 flex items-center">
+              <div
+                className={`h-full rounded-full transition-all duration-75 ${
+                  micVolume > 50
+                    ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-amber-500'
+                    : micVolume > 15
+                    ? 'bg-emerald-500'
+                    : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+                style={{ width: `${Math.max(4, micVolume)}%` }}
+              />
+            </div>
+
+            <span className="text-[10px] font-mono font-bold text-slate-500 w-8 text-right">
+              {micVolume}%
+            </span>
           </div>
 
-          <span className="text-[10px] font-mono font-bold text-slate-500 w-8 text-right">
-            {micVolume}%
-          </span>
+          {/* Helper Hint */}
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            {hasMicPermission === false ? (
+              <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
+                <VolumeX className="w-3.5 h-3.5" />
+                Microphone permission denied. Click "Allow" in your address bar.
+              </span>
+            ) : micDetectedSpeech ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Microphone working clearly!
+              </span>
+            ) : (
+              <span className="italic">
+                Say "Hello" to test your mic sensitivity.
+              </span>
+            )}
+          </div>
         </div>
-
-        {/* Helper Hint */}
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-          {hasMicPermission === false ? (
-            <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
-              <VolumeX className="w-3.5 h-3.5" />
-              Microphone permission denied. Click "Allow" in your address bar.
-            </span>
-          ) : micDetectedSpeech ? (
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              Microphone working clearly!
-            </span>
-          ) : (
-            <span className="italic">
-              Say "Hello" to test your mic sensitivity.
-            </span>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 };
