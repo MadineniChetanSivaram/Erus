@@ -588,33 +588,23 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
-      // If seat has no assigned student, display as open waiting desk
-      if (!st.name || st.name.startsWith('Seat ') || st.isEmptySeat) {
-        return {
-          ...st,
-          id: `seat-${fixedSeatNumber}-empty`,
-          seatNumber: fixedSeatNumber,
-          name: `Seat ${fixedSeatNumber}`,
-          college: 'Available Desk',
-          avatar: '',
-          isUser: false,
-          isRealPeer: false,
-          isEmptySeat: true,
-          isSpeaking: false,
-          micActive: false,
-          cameraActive: false,
-          speakingTurns: 0,
-          speakingDurationSeconds: 0,
-          videoStream: null,
-        };
-      }
-
+      // If neither the local student nor a live connected peer occupies this seat, display as available waiting desk
       return {
         ...st,
+        id: `seat-${fixedSeatNumber}-empty`,
         seatNumber: fixedSeatNumber,
+        name: `Seat ${fixedSeatNumber}`,
+        college: 'Available Desk',
+        avatar: '',
         isUser: false,
         isRealPeer: false,
-        isEmptySeat: false,
+        isEmptySeat: true,
+        isSpeaking: false,
+        micActive: false,
+        cameraActive: false,
+        speakingTurns: 0,
+        speakingDurationSeconds: 0,
+        videoStream: null,
       };
     });
   }, [session.students, rtcPeers, rtcPeerStreams, rtcAssignedSeat, currentUser?.id, currentUser?.name, currentUser?.avatar, currentUser?.college, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn, videoStream]);

@@ -721,56 +721,66 @@ async function persistUserToMongoDB(u: StoredAuthUser) {
 }
 
 function ensureSlotParticipants(slot: BackendCollegeSlotItem, code: string): BackendCollegeSlotItem {
+  // Determine which students have actually booked this specific slot
+  const bookedStudentIds = new Set<string>();
+  for (const [stuId, sId] of Object.entries(persistentState.studentBookings || {})) {
+    if (sId === slot.id) bookedStudentIds.add(stuId);
+  }
+  for (const [stuId, topicMap] of Object.entries(persistentState.studentTopicBookings || {})) {
+    for (const [topic, sId] of Object.entries(topicMap || {})) {
+      if (sId === slot.id) bookedStudentIds.add(stuId);
+    }
+  }
+
   const colStudents = persistentState.students[code] || [];
-  const colStudentIds = new Set(colStudents.map((s) => s.id));
-  const colStudentEmails = new Set(colStudents.map((s) => s.email.toLowerCase()));
+  const colStudentMap = new Map<string, BackendCollegeStudentItem>(colStudents.map((s) => [s.id, s]));
 
-  // If slot already has enrolled students, filter out any demo/mock AI participants
-  if (Array.isArray(slot.students) && slot.students.length > 0) {
-    const realStudentsOnly = slot.students.filter(
-      (s: any) =>
-        !s.isEmptySeat &&
-        !s.id?.startsWith('slot-stu-') &&
-        !s.email?.includes('.edu') &&
-        (colStudentIds.has(s.id) || colStudentEmails.has(String(s.email || '').toLowerCase()))
-    );
-    slot.students = realStudentsOnly.map((s, idx) => ({ ...s, seatNumber: idx + 1 }));
-    slot.enrolledCount = slot.students.length;
-    return slot;
+  // Keep ONLY students who have actually booked this specific slot
+  const validStudents: any[] = [];
+  if (Array.isArray(slot.students)) {
+    for (const s of slot.students) {
+      if (s && !s.isEmptySeat && !s.id?.startsWith('slot-stu-') && bookedStudentIds.has(s.id)) {
+        if (!validStudents.some((v) => v.id === s.id)) {
+          validStudents.push(s);
+        }
+      }
+    }
   }
 
-  // If slot has no students list yet, attach real college enrolled students who registered
-  if (colStudents.length > 0) {
-    slot.students = colStudents.map((cs, i) => ({
-      id: cs.id,
-      name: cs.name,
-      email: cs.email,
-      studentId: cs.studentId,
-      course: cs.course,
-      batch: cs.batch,
-      seatNumber: i + 1,
-      college: cs.college,
-      collegeCode: cs.collegeCode,
-      avatar: '',
-      isUser: false,
-      micActive: false,
-      isSpeaking: false,
-      hasRaisedHand: false,
-      cameraActive: false,
-      speakingDurationSeconds: 0,
-      speakingTurns: 0,
-      interruptionCount: 0,
-      questionsAnswered: 0,
-      questionsInitiated: 0,
-      sentiment: 'neutral',
-      isEmptySeat: false,
-    }));
-    slot.enrolledCount = slot.students.length;
-  } else {
-    slot.students = [];
-    slot.enrolledCount = 0;
+  // Also include any students who booked this slot in persistentState but aren't in slot.students yet
+  for (const stuId of bookedStudentIds) {
+    if (!validStudents.some((v) => v.id === stuId)) {
+      const stu = colStudentMap.get(stuId) || persistentState.users.find((u) => u.id === stuId && u.role === 'student');
+      if (stu) {
+        validStudents.push({
+          id: stu.id,
+          name: stu.name,
+          email: stu.email,
+          studentId: (stu as any).studentId,
+          course: (stu as any).course,
+          batch: (stu as any).batch,
+          college: stu.college,
+          collegeCode: (stu as any).collegeCode || code,
+          avatar: stu.avatar || '',
+          isUser: false,
+          micActive: false,
+          isSpeaking: false,
+          hasRaisedHand: false,
+          cameraActive: false,
+          speakingDurationSeconds: 0,
+          speakingTurns: 0,
+          interruptionCount: 0,
+          questionsAnswered: 0,
+          questionsInitiated: 0,
+          sentiment: 'neutral',
+          isEmptySeat: false,
+        });
+      }
+    }
   }
 
+  slot.students = validStudents.map((s, idx) => ({ ...s, seatNumber: idx + 1 }));
+  slot.enrolledCount = slot.students.length;
   return slot;
 }
 
@@ -2785,14 +2795,41 @@ app.post('/api/student/book-slot', async (req, res) => {
   }
 
   if (!alreadyBooked) {
-    slot.enrolledCount = currentCount + 1;
     persistentState.studentTopicBookings[student.id][topicKey] = slotId;
     persistentState.studentBookings[student.id] = slotId;
+    if (!Array.isArray(slot.students)) slot.students = [];
+    if (!slot.students.some((s: any) => s.id === student.id)) {
+      slot.students.push({
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        studentId: student.studentId,
+        course: student.course,
+        batch: student.batch,
+        seatNumber: slot.students.length + 1,
+        college: student.college,
+        collegeCode: student.collegeCode,
+        avatar: student.avatar || '',
+        isUser: false,
+        micActive: false,
+        isSpeaking: false,
+        hasRaisedHand: false,
+        cameraActive: false,
+        speakingDurationSeconds: 0,
+        speakingTurns: 0,
+        interruptionCount: 0,
+        questionsAnswered: 0,
+        questionsInitiated: 0,
+        sentiment: 'neutral',
+        isEmptySeat: false,
+      });
+    }
+    slot.enrolledCount = slot.students.length;
   }
   savePersistentState();
   persistBookingToMongoDB(slotId, student.id, 'BOOKED', topicKey);
   if (isMongoConnected()) {
-    GDSessionModel.updateOne({ id: slotId }, { $set: { enrolledCount: slot.enrolledCount } }).catch(() => null);
+    GDSessionModel.updateOne({ id: slotId }, { $set: { enrolledCount: slot.enrolledCount, students: slot.students } }).catch(() => null);
   }
 
   if (isDbConnected && prisma) {
@@ -2841,7 +2878,12 @@ app.post('/api/student/cancel-slot', async (req, res) => {
   }
   for (const list of Object.values(persistentState.slots)) {
     const slot = list.find((candidate) => candidate.id === slotId);
-    if (slot) slot.enrolledCount = Math.max(0, Number(slot.enrolledCount || 0) - 1);
+    if (slot) {
+      if (Array.isArray(slot.students)) {
+        slot.students = slot.students.filter((s: any) => s.id !== studentId);
+      }
+      slot.enrolledCount = Array.isArray(slot.students) ? slot.students.length : Math.max(0, Number(slot.enrolledCount || 1) - 1);
+    }
   }
   savePersistentState();
   if (slotId) {
