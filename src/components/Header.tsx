@@ -159,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* Student Assessment Reports Tab */}
-          {(isStudent || isFaculty || isCollegeAdmin) && (
+          {(isStudent || isFaculty) && (
             <button
               id="tab-report-btn"
               onClick={() => setCurrentTab('report')}
