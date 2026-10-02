@@ -1,6 +1,7 @@
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 const { execSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 console.log('[Startup] Checking database configuration...');
 
@@ -11,7 +12,7 @@ if (mongoUri) {
 } else if (process.env.DATABASE_URL) {
   console.log('[Startup] DATABASE_URL detected. Synchronizing Prisma schema with PostgreSQL...');
   try {
-    execSync('npx prisma db push --skip-generate', { stdio: 'inherit' });
+    execSync('npx prisma db push --skip-generate --accept-data-loss', { stdio: 'inherit', timeout: 15000 });
     console.log('[Startup] Database schema synchronized successfully.');
   } catch (err) {
     console.warn('[Startup] Prisma db push warning (server will continue):', err.message);
@@ -20,5 +21,15 @@ if (mongoUri) {
   console.log('[Startup] Connecting to default local MongoDB (localhost:27017)...');
 }
 
+const serverBundlePath = path.join(__dirname, '..', 'dist', 'server.cjs');
+if (!fs.existsSync(serverBundlePath)) {
+  console.log('[Startup] dist/server.cjs not found. Running build step...');
+  try {
+    execSync('npm run build', { stdio: 'inherit' });
+  } catch (buildErr) {
+    console.error('[Startup] Build error:', buildErr.message);
+  }
+}
+
 console.log('[Startup] Launching ERUS server...');
-require(path.join(__dirname, '..', 'dist', 'server.cjs'));
+require(serverBundlePath);

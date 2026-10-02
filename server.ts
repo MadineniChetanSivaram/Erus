@@ -6025,11 +6025,6 @@ io.on('connection', (socket) => {
 
 // Vite middleware / SPA static serving
 async function setupVite() {
-  // 1. Initialize MongoDB connection, tables and sub-tables
-  await connectMongoDB();
-  await initMongoDBTablesAndSubTables();
-  await syncMongoDBWithPersistentState();
-
   const distPath = path.join(process.cwd(), 'dist');
   const distIndexExists = fs.existsSync(path.join(distPath, 'index.html'));
   const isProd = process.env.NODE_ENV === 'production' || distIndexExists;
@@ -6047,9 +6042,21 @@ async function setupVite() {
     });
   }
 
+  // Bind to port immediately so Railway / hosting health checks pass without delay
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[ERUS-AIGDF] Server active on port ${PORT} with WebSockets enabled (mode: ${isProd ? 'production' : 'development'})`);
   });
+
+  // Initialize MongoDB connection, tables and sub-tables in background without delaying port binding
+  (async () => {
+    try {
+      await connectMongoDB();
+      await initMongoDBTablesAndSubTables();
+      await syncMongoDBWithPersistentState();
+    } catch (dbErr: any) {
+      console.warn('[MongoDB Background Init Warning]:', dbErr.message);
+    }
+  })();
 }
 
 setupVite();
