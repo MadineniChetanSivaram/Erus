@@ -1285,6 +1285,10 @@ function GDAppContent() {
             session={session}
             report={activeReport}
             onBackToRoom={() => {
+              if (currentUser?.role === 'super_admin') {
+                setCurrentTab('super_admin');
+                return;
+              }
               if (currentUser?.role === 'college_admin') {
                 setCurrentTab('college_admin');
                 return;
@@ -1301,7 +1305,9 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onViewFacultyDashboard={() => {
-              if (currentUser?.role === 'college_admin') {
+              if (currentUser?.role === 'super_admin') {
+                setCurrentTab('super_admin');
+              } else if (currentUser?.role === 'college_admin') {
                 setCurrentTab('college_admin');
               } else {
                 setCurrentTab('faculty');

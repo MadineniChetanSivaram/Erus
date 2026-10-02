@@ -863,3 +863,24 @@ export async function dispatchCredentials(payload: {
   }
 }
 
+export async function fetchSlotReports(slotId: string): Promise<{ success: boolean; slot?: any; reports: any[]; participants: any[] }> {
+  try {
+    const res = await fetch(`/api/college/slots/${encodeURIComponent(slotId)}/reports`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return {
+          success: true,
+          slot: data.slot,
+          reports: Array.isArray(data.reports) ? data.reports : [],
+          participants: Array.isArray(data.participants) ? data.participants : [],
+        };
+      }
+    }
+  } catch (e: any) {
+    console.warn('Error fetching slot reports:', e);
+  }
+  return { success: false, reports: [], participants: [] };
+}
+
+

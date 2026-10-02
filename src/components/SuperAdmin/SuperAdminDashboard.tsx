@@ -24,7 +24,10 @@ import {
   Server,
   RefreshCw,
   Sliders,
-  Gauge
+  Gauge,
+  BarChart3,
+  FileText,
+  Filter
 } from 'lucide-react';
 import { SuperAdminUser, CollegeInfo } from '../../types/auth';
 import { 
@@ -35,8 +38,10 @@ import {
   fetchAdminStats,
   fetchServerCapacity,
   updateServerCapacity,
+  fetchCollegeSlots,
   ServerCapacityData
 } from '../../utils/authApi';
+import { SlotStudentReportsView } from '../AssessmentReport/SlotStudentReportsView';
 
 interface SuperAdminDashboardProps {
   currentUser: SuperAdminUser;
@@ -70,6 +75,16 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Navigation tab: Institutions Directory vs Student Reports
+  const [mainTab, setMainTab] = useState<'institutions' | 'reports'>('institutions');
+
+  // Slot-wise Student Reports State (College -> Topic -> Slot)
+  const [selectedCollegeCode, setSelectedCollegeCode] = useState<string>('');
+  const [collegeSlots, setCollegeSlots] = useState<any[]>([]);
+  const [selectedTopic, setSelectedTopic] = useState<string>('');
+  const [selectedSlotId, setSelectedSlotId] = useState<string>('');
+  const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
+
   const [newCollege, setNewCollege] = useState({
     name: '',
     code: '',
@@ -79,6 +94,47 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     adminName: '',
     adminPassword: '',
   });
+
+  const handleCollegeChange = async (collegeCode: string) => {
+    setSelectedCollegeCode(collegeCode);
+    setLoadingSlots(true);
+    try {
+      const slots = await fetchCollegeSlots(collegeCode);
+      setCollegeSlots(slots || []);
+      const topics = Array.from(new Set((slots || []).map((s: any) => s.topic || s.slotName))).filter(Boolean) as string[];
+      const firstTopic = topics[0] || '';
+      setSelectedTopic(firstTopic);
+      const matchingSlots = (slots || []).filter((s: any) => (s.topic || s.slotName) === firstTopic);
+      setSelectedSlotId(matchingSlots[0]?.id || '');
+    } catch (err) {
+      console.warn('Error loading slots for college:', err);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
+  const handleTopicChange = (topic: string) => {
+    setSelectedTopic(topic);
+    const matchingSlots = collegeSlots.filter((s: any) => (s.topic || s.slotName) === topic);
+    setSelectedSlotId(matchingSlots[0]?.id || '');
+  };
+
+  const distinctTopics = useMemo(() => {
+    return Array.from(new Set(collegeSlots.map((s: any) => s.topic || s.slotName))).filter(Boolean) as string[];
+  }, [collegeSlots]);
+
+  const topicSlots = useMemo(() => {
+    if (!selectedTopic) return collegeSlots;
+    return collegeSlots.filter((s: any) => (s.topic || s.slotName) === selectedTopic);
+  }, [collegeSlots, selectedTopic]);
+
+  const currentSelectedSlot = useMemo(() => {
+    return collegeSlots.find((s: any) => s.id === selectedSlotId) || topicSlots[0] || null;
+  }, [collegeSlots, selectedSlotId, topicSlots]);
+
+  const currentCollege = useMemo(() => {
+    return colleges.find((c) => c.code === selectedCollegeCode) || null;
+  }, [colleges, selectedCollegeCode]);
 
   useEffect(() => {
     loadData();
@@ -98,7 +154,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         fetchAdminStats(),
         fetchServerCapacity(),
       ]);
-      if (colData && colData.length > 0) setColleges(colData);
+      if (colData && colData.length > 0) {
+        setColleges(colData);
+        if (!selectedCollegeCode) {
+          handleCollegeChange(colData[0].code);
+        }
+      }
       if (statsData) setStats(statsData);
       if (capData) {
         setCapacityData(capData);
@@ -267,6 +328,35 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Super Admin Main View Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <button
+          onClick={() => setMainTab('institutions')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs ${
+            mainTab === 'institutions'
+              ? 'bg-purple-600 text-white shadow-purple-600/20'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Institutions & Capacity</span>
+        </button>
+
+        <button
+          onClick={() => setMainTab('reports')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs ${
+            mainTab === 'reports'
+              ? 'bg-purple-600 text-white shadow-purple-600/20'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>Student Assessment Reports (Slot-Wise)</span>
+        </button>
+      </div>
+
+      {mainTab === 'institutions' ? (
+        <>
       {/* Top 5 Global Metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
@@ -672,6 +762,18 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                   <td className="py-4 px-5 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => {
+                          handleCollegeChange(c.code);
+                          setMainTab('reports');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                        title="View Student Assessment Reports for this institution"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Reports</span>
+                      </button>
+
+                      <button
                         onClick={() =>
                           setCredentialsModal({
                             email: c.adminEmail || c.contactEmail,
@@ -714,6 +816,131 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           </table>
         </div>
       </div>
+        </>
+      ) : (
+        <div className="space-y-6 animate-fade-in">
+          {/* Step 1, 2, 3 Selector Card */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="font-heading font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-purple-600" />
+                  <span>Slot-Wise Student Assessment Explorer</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Select an Institution, then a Discussion Topic, and choose a Slot to inspect student assessment reports and cohort analytics.
+                </p>
+              </div>
+
+              {loadingSlots && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-purple-600 dark:text-purple-400">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Loading slots...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Step 1: Select College */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">1</span>
+                  <span>Select Institution</span>
+                </label>
+                <div className="relative">
+                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    value={selectedCollegeCode}
+                    onChange={(e) => handleCollegeChange(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-purple-500 cursor-pointer shadow-xs"
+                  >
+                    <option value="" disabled>-- Choose an Institution --</option>
+                    {colleges.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Step 2: Select Topic */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span>
+                  <span>Select Discussion Topic</span>
+                </label>
+                <div className="relative">
+                  <Sparkles className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    value={selectedTopic}
+                    disabled={!selectedCollegeCode || distinctTopics.length === 0}
+                    onChange={(e) => handleTopicChange(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-purple-500 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {distinctTopics.length === 0 ? (
+                      <option value="">No discussion topics found</option>
+                    ) : (
+                      distinctTopics.map((t) => (
+                        <option key={t} value={t}>
+                          {t} ({collegeSlots.filter((s) => (s.topic || s.slotName) === t).length} slots)
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Step 3: Select Slot */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">3</span>
+                  <span>Select Slot</span>
+                </label>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    value={selectedSlotId}
+                    disabled={topicSlots.length === 0}
+                    onChange={(e) => setSelectedSlotId(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-purple-500 cursor-pointer shadow-xs disabled:opacity-50 font-mono"
+                  >
+                    {topicSlots.length === 0 ? (
+                      <option value="">No slots available</option>
+                    ) : (
+                      topicSlots.map((sl) => (
+                        <option key={sl.id} value={sl.id}>
+                          {sl.slotTiming || '10:30 AM'} ({sl.status?.toUpperCase()}) - {sl.enrolledCount ?? sl.students?.length ?? 0} students
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Slot-Wise Reports View */}
+          {selectedSlotId ? (
+            <SlotStudentReportsView
+              key={selectedSlotId}
+              slotId={selectedSlotId}
+              slotData={currentSelectedSlot}
+              collegeName={currentCollege?.name}
+            />
+          ) : (
+            <div className="py-16 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 space-y-3">
+              <FileText className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto" />
+              <h4 className="font-heading font-extrabold text-base text-slate-800 dark:text-slate-200">
+                Select an Institution, Topic, and Slot
+              </h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Choose a partner college and discussion slot from the filters above to inspect detailed candidate reports.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* MODAL: ONBOARD NEW COLLEGE */}

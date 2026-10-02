@@ -26,7 +26,8 @@ import {
   Key,
   EyeOff,
   Copy,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
@@ -43,6 +44,7 @@ import {
   dispatchCredentials
 } from '../../utils/authApi';
 import { formatSlotDate } from '../../utils/studentBooking';
+import { SlotStudentReportsView } from '../AssessmentReport/SlotStudentReportsView';
 
 interface CollegeAdminDashboardProps {
   currentUser: CollegeAdminUser;
@@ -61,7 +63,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   onCreateSlot,
   onDeleteSlot,
 }) => {
-  const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots' | 'reports'>('students');
+  const [selectedReportSlotId, setSelectedReportSlotId] = useState<string>('');
 
   // Stats state
   const [stats, setStats] = useState({
@@ -802,6 +805,23 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
             <Calendar className="w-4 h-4" />
             <span>GD Slot Scheduler ({displaySlots.length})</span>
           </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('reports');
+              if (!selectedReportSlotId && displaySlots.length > 0) {
+                setSelectedReportSlotId(displaySlots[0].id);
+              }
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'reports'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Student Reports</span>
+          </button>
         </div>
       </div>
 
@@ -1219,21 +1239,32 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Delete</span>
                   </button>
+                  <button
+                    onClick={() => {
+                      setSelectedReportSlotId(sl.id);
+                      setActiveTab('reports');
+                    }}
+                    className="px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    title="View candidate evaluation reports for this slot"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Reports</span>
+                  </button>
                   {sl.status === 'completed' ? (
                     onEnterGDRoom && (
                       <button
                         onClick={() => onEnterGDRoom((sl as any).rawSession || sl)}
-                        className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                        className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer truncate"
                         title="View overall session analytics, student scores, and cohort performance"
                       >
-                        <BarChart3 className="w-3.5 h-3.5" />
-                        <span>View Analytics & Report</span>
+                        <BarChart3 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Analytics</span>
                       </button>
                     )
                   ) : (
-                    <div className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 font-medium text-[11px] flex items-center justify-center gap-1.5 text-center">
+                    <div className="flex-1 py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 font-medium text-[11px] flex items-center justify-center gap-1.5 text-center truncate">
                       <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                      <span>Faculty Evaluator Session</span>
+                      <span className="truncate">Faculty Evaluator</span>
                     </div>
                   )}
                 </div>
@@ -1242,6 +1273,87 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
           </div>
         </div>
       )}
+
+      {/* ==================================================== */}
+      {/* TAB 4: STUDENT REPORTS (SLOT-WISE) */}
+      {/* ==================================================== */}
+      {activeTab === 'reports' && (() => {
+        const effectiveReportSlotId = selectedReportSlotId || (displaySlots.length > 0 ? displaySlots[0].id : '');
+        const selectedSlot = displaySlots.find((s) => s.id === effectiveReportSlotId) || displaySlots[0];
+
+        return (
+          <div className="space-y-6 animate-fade-in">
+            {/* Slot Selector Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
+                      Student Assessment Reports (Slot-Wise)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Select a scheduled or completed discussion slot to view candidate evaluation rubrics, scores, and AI feedback.
+                    </p>
+                  </div>
+                </div>
+
+                {displaySlots.length > 0 && (
+                  <span className="self-start sm:self-auto text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    {displaySlots.length} Total Slots
+                  </span>
+                )}
+              </div>
+
+              {displaySlots.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  No GD slots have been created for this institution yet. Create a slot in the scheduler to inspect reports.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-amber-600" />
+                    <span>Choose Discussion Slot:</span>
+                  </label>
+                  <select
+                    value={effectiveReportSlotId}
+                    onChange={(e) => setSelectedReportSlotId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-amber-500 cursor-pointer shadow-xs"
+                  >
+                    {displaySlots.map((sl) => (
+                      <option key={sl.id} value={sl.id}>
+                        {sl.topic || sl.slotName} • {formatSlotDate(sl.slotDate)} {sl.slotTiming || ''} ({sl.status?.toUpperCase()}) — {sl.enrolledCount} Students Enrolled
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Reports Component */}
+            {effectiveReportSlotId ? (
+              <SlotStudentReportsView
+                key={effectiveReportSlotId}
+                slotId={effectiveReportSlotId}
+                slotData={selectedSlot}
+                collegeName={stats.collegeName}
+              />
+            ) : (
+              <div className="py-16 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 space-y-3">
+                <FileText className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto" />
+                <h4 className="font-heading font-extrabold text-base text-slate-800 dark:text-slate-200">
+                  Select a Slot to View Reports
+                </h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Pick any discussion slot from the dropdown above to view student evaluations, 7-dimensional skills, and feedback.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ==================================================== */}
       {/* MODAL: ADD STUDENT */}
