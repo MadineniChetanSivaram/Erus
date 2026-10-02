@@ -4873,13 +4873,11 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
           maxSilence: 20,
         });
 
-        // Deadlock intervention is a safety net, not the normal turn engine.
-        // Apply a cooldown so the same silence cannot repeatedly trigger the
-        // same moderator question.
+        // Silence watchdog: trigger AI moderator intervention if no one speaks for 15s
         const now = Date.now();
-        const deadlockCooldownMs = 45000;
+        const deadlockCooldownMs = 25000;
         if (
-          room.silenceTimerSeconds >= 20 &&
+          room.silenceTimerSeconds >= 15 &&
           !room.waitingForParticipantId &&
           (!room.lastDeadlockAt || now - room.lastDeadlockAt >= deadlockCooldownMs)
         ) {
@@ -4921,22 +4919,15 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   if (!allParticipants.length) return;
 
   // Round-robin rule: nobody may receive a second turn until every active
-  // participant has completed the current round. A participant's
-  // speakingTurns count is therefore the round counter.
+  // participant has completed the current round.
   const minimumTurns = Math.min(...allParticipants.map((p) => Number(p.speakingTurns || 0)));
   const currentRoundCandidates = allParticipants.filter(
     (p) => Number(p.speakingTurns || 0) === minimumTurns
   );
 
-  // Normally exclude the person who just finished. At the exact boundary
-  // where everyone has the same turn count, start the next round instead of
-  // allowing another participant to get an extra turn first.
   const completedMatches = currentRoundCandidates.some(
     (p) => p.id === completedUserId || p.userId === completedUserId
   );
-  // If everyone has the same turn count, the previous round is complete.
-  // Start the next round with the full participant set; never skip the
-  // participant who just finished in this boundary case.
   const isNewRoundBoundary = currentRoundCandidates.length === allParticipants.length;
   const candidates: any[] =
     completedMatches && !isNewRoundBoundary && currentRoundCandidates.length > 1
@@ -4945,8 +4936,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
   if (!candidates.length) return;
 
-  // Randomize only the opening turn. From the second turn onward the existing
-  // minimum-turn round-robin logic keeps participation balanced.
+  // Randomize only the opening turn
   if (!room.initialSpeakerSelected && allParticipants.length > 1) {
     const starter = allParticipants[Math.floor(Math.random() * allParticipants.length)];
     candidates.splice(0, candidates.length, starter);
@@ -4959,21 +4949,17 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const now = Date.now();
 
     candidates.sort((a, b) => {
-      // Prefer the participant who has waited longest.
       return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
     });
 
     let target = candidates[0];
-    // When the previous speaker explicitly handed the floor to someone, honor that
-    // handoff instead of recalculating a different participant.
     if (room.nextSpeakerId) {
       const handedOff = candidates.find((p) => p.id === room.nextSpeakerId || p.userId === room.nextSpeakerId);
       if (handedOff) target = handedOff;
       room.nextSpeakerId = undefined;
     }
-    // Randomize only the opening turn. After the discussion starts, fairness
-    // is handled by the round/turn counters below.
-    if (!room.openingStarted) {
+    const isOpening = !room.openingStarted;
+    if (isOpening) {
       target = candidates[Math.floor(Math.random() * candidates.length)];
       room.openingStarted = true;
     }
@@ -4981,33 +4967,74 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
     const targetReal = target as LiveRoomPeer;
     room.waitingForParticipantId = targetReal.userId;
-    const recentSeconds = targetReal.lastSpokeAt ? Math.round((now - targetReal.lastSpokeAt) / 1000) : null;
-    let invitation = 'Thank you. Let us hear from ' + targetReal.name + ' from Seat ' + targetReal.seatNumber + '. ' + targetReal.name.split(' ')[0] + ', what is your view on this topic?';
+    const firstName = targetReal.name.split(' ')[0];
+    const seatStr = targetReal.seatNumber ? `Seat ${targetReal.seatNumber}` : 'your seat';
+
+    let invitation = '';
+    if (isOpening) {
+      invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
+    } else {
+      const recentSpeakerTranscript = room.transcripts.filter((t) => !t.isFacilitator).slice(-1)[0];
+      const prevSpeakerName = recentSpeakerTranscript ? recentSpeakerTranscript.speakerName.split(' ')[0] : null;
+
+      const questionTemplates = [
+        `Thank you${prevSpeakerName ? ', ' + prevSpeakerName : ''}. Let us now hear from ${targetReal.name} at ${seatStr}. ${firstName}, what is your perspective on this same question?`,
+        `Thank you${prevSpeakerName ? ', ' + prevSpeakerName : ''}. Turning to ${targetReal.name} at ${seatStr}: ${firstName}, do you agree with this viewpoint, or would you counter it?`,
+        `Good point by ${prevSpeakerName || 'our peer'}. Let us invite ${targetReal.name} from ${seatStr} into the discussion. ${firstName}, how would you evaluate this argument?`,
+        `Thank you. Let us hear from ${targetReal.name} at ${seatStr} next. ${firstName}, what real-world evidence would you add to this discussion?`,
+        `Let us maintain balanced participation. ${targetReal.name} from ${seatStr}, ${firstName}, what is your take on this question?`
+      ];
+      invitation = questionTemplates[Math.floor(Math.random() * questionTemplates.length)];
+    }
+
     if (ai) {
       try {
+        const promptInstruction = isOpening
+          ? `You are the live AI moderator of a collegiate Group Discussion on "${room.topic}". The session has just begun. Welcome the participants and call upon ${targetReal.name} from ${seatStr} to open the discussion with their opening thoughts. Write ONE natural moderator sentence under 28 words. ALWAYS mention "${targetReal.name}" and "${seatStr}".`
+          : `You are the live AI moderator of a collegiate Group Discussion on "${room.topic}". Call upon ${targetReal.name} from ${seatStr} to give their turn on the question under discussion. Recent discussion:\n${recentHistory || '(none)'}\nWrite ONE natural moderator sentence under 25 words. ALWAYS address ${targetReal.name} and ${seatStr} explicitly.`;
+
         const response = await ai.models.generateContent({
           model: 'gemini-3.7-flash',
-          contents: 'You are the live moderator of a collegiate Group Discussion on "' + room.topic + '". Call exactly ' + targetReal.name + ' next. They have spoken ' + targetReal.speakingTurns + ' time(s). ' + (recentSeconds === null ? 'They have not spoken yet.' : 'They last spoke ' + recentSeconds + ' seconds ago.') + ' Recent discussion:\n' + (recentHistory || '(none)') + '\nWrite one natural moderator sentence under 28 words. Name the participant and ask a short topic-specific question if they have not spoken recently.',
+          contents: promptInstruction,
         });
-        invitation = response.text?.trim() || invitation;
-      } catch {}
+        const genText = response.text?.trim();
+        if (genText) {
+          invitation = genText;
+        }
+      } catch (err) {
+        console.warn('[AI Turn Invitation Error]:', err);
+      }
     }
+
     const transcript: BackendTranscript = {
-      id: 't-next-turn-' + Date.now(), sessionId: room.slotId, speakerId: 'facilitator',
-      speakerName: 'AI Facilitator', seatNumber: null, isFacilitator: true, timestamp: '00:00',
-      timestampSeconds: Date.now(), text: invitation, type: 'intervention', sentiment: 'neutral',
+      id: 't-facilitator-' + Date.now(),
+      sessionId: room.slotId,
+      speakerId: 'facilitator',
+      speakerName: 'AI Facilitator (ERUS)',
+      seatNumber: null,
+      isFacilitator: true,
+      timestamp: '00:00',
+      timestampSeconds: Date.now(),
+      text: invitation,
+      type: isOpening ? 'intro' : 'intervention',
+      sentiment: 'neutral',
     };
     room.transcripts.push(transcript);
-    io.to('room-' + room.slotId).emit('facilitator-intervention', { text: invitation, action: 'next_turn', targetUserId: targetReal.userId, targetSeatNumber: targetReal.seatNumber, transcript });
+    persistTranscriptToMongoDB(transcript);
+    io.to('room-' + room.slotId).emit('facilitator-intervention', {
+      text: invitation,
+      action: isOpening ? 'opening' : 'next_turn',
+      targetUserId: targetReal.userId,
+      targetSeatNumber: targetReal.seatNumber,
+      transcript
+    });
   }, 1200);
 }
+
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   if (realStudents.length === 0) return;
 
-  // Prefer the participant with the fewest turns, then the longest silence.
-  // Do not immediately call the same person again when another participant
-  // is available.
   const candidates = realStudents
     .filter((p) => p.userId !== room.lastDeadlockTargetId)
     .sort((a, b) =>
@@ -5019,27 +5046,23 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   )[0];
 
   const candidateName = quietPeer?.name || 'participants';
+  const seatStr = quietPeer?.seatNumber ? `from Seat ${quietPeer.seatNumber}` : '';
+  const firstName = candidateName.split(' ')[0];
   if (quietPeer) room.lastDeadlockTargetId = quietPeer.userId;
 
   const recentHistory = room.transcripts
     .filter((t) => !t.isFacilitator)
     .slice(-8)
     .map((t) => `${t.speakerName}: ${t.text}`)
-    .join('\\n');
-
-  const previousDeadlocks = room.transcripts
-    .filter((t) => t.isFacilitator && t.type === 'intervention')
-    .slice(-5)
-    .map((t) => t.text)
-    .join('\\n');
+    .join('\n');
 
   const fallbackQuestions = [
-    `${candidateName}, what is one practical example that supports your position on "${room.topic}"?`,
-    `${candidateName}, what is the strongest concern you see with the viewpoint discussed so far?`,
-    `${candidateName}, how could this idea be implemented realistically in an Indian college or workplace?`,
-    `${candidateName}, who is most affected by this issue, and why should their perspective matter?`,
-    `${candidateName}, if you had to challenge one assumption in this discussion, which would you challenge?`,
-    `${candidateName}, what evidence or outcome would convince you that this approach is actually working?`
+    `${candidateName} ${seatStr}, since the floor is quiet, what is one practical example that supports your position on "${room.topic}"?`,
+    `${candidateName} ${seatStr}, ${firstName}, what is the strongest concern you see with the viewpoint discussed so far?`,
+    `${candidateName} ${seatStr}, how could this idea be implemented realistically in an Indian college or workplace?`,
+    `${candidateName} ${seatStr}, ${firstName}, who is most affected by this issue, and why should their perspective matter?`,
+    `${candidateName} ${seatStr}, if you had to challenge one assumption in this discussion, which would you challenge?`,
+    `${candidateName} ${seatStr}, ${firstName}, what evidence or outcome would convince you that this approach is actually working?`
   ];
   let deadlockQuestion = fallbackQuestions[(room.deadlockCount - 1) % fallbackQuestions.length];
 
@@ -5049,19 +5072,15 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
         model: 'gemini-3.7-flash',
         contents: `You are the live moderator of an Indian collegiate Group Discussion.
 Topic: "${room.topic}"
-Candidate to call: "${candidateName}"
-This is deadlock intervention number ${room.deadlockCount}.
+Candidate to call: "${candidateName} ${seatStr}"
+This is silence intervention number ${room.deadlockCount}.
 
 Recent discussion:
 ${recentHistory || '(no recent student speech)'}
 
-Previous moderator interventions that MUST NOT be repeated or paraphrased:
-${previousDeadlocks || '(none)'}
-
 Write ONE short, natural moderator question under 25 words.
-Call exactly ${candidateName} by name.
-Ask a NEW angle based on the recent discussion.
-Do not say "the floor is quiet", "since nobody is speaking", "opportunities and risks", or repeat any previous question.
+Call exactly ${candidateName} ${seatStr} by name and seat number to give them their turn.
+Ask a clear question on "${room.topic}".
 Do not mention AI.`,
       });
       const generated = response.text?.trim();
@@ -5075,7 +5094,7 @@ Do not mention AI.`,
     id: `t-facilitator-deadlock-${Date.now()}`,
     sessionId: room.slotId,
     speakerId: 'facilitator',
-    speakerName: 'AI Facilitator',
+    speakerName: 'AI Facilitator (ERUS)',
     seatNumber: null,
     isFacilitator: true,
     timestamp: '00:00',
@@ -5086,6 +5105,7 @@ Do not mention AI.`,
   };
 
   room.transcripts.push(interventionTranscript);
+  persistTranscriptToMongoDB(interventionTranscript);
 
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text: deadlockQuestion,
@@ -5095,8 +5115,6 @@ Do not mention AI.`,
     transcript: interventionTranscript,
   });
 
-  // A deadlock question should immediately hand control back to the normal
-  // turn engine; otherwise the room can sit silent for another full 20 seconds.
   if (room.status === 'active') {
     setTimeout(() => {
       if (room.status === 'active' && !room.currentSpeakerId) {
@@ -5210,29 +5228,21 @@ io.on('connection', (socket) => {
       peer,
     });
 
-    if (room.simulationMode && room.status === 'waiting') {
-      room.status = 'active';
-      room.silenceTimerSeconds = 0;
-      syncAiParticipants(room);
-      io.to(`room-${safeSlotId}`).emit('session-started', {
-        slotId: safeSlotId,
-        status: 'active',
-        topic: room.topic,
-        simulationMode: true,
-        aiParticipants: Array.from(room.aiParticipants.values()),
-      });
+    if (room.status === 'active' && !room.currentSpeakerId && !room.waitingForParticipantId) {
       scheduleNextTurn(room);
     }
   });
 
-  // 1.5 Start Discussion Session. In the current demo configuration,
-  // the room is an autonomous six-AI GD; connected students are observers.
+  // 1.5 Start Discussion Session
   socket.on('start-session', ({ slotId }: { slotId: string }) => {
     const safeSlotId = slotId || 'session-101';
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.status = 'active';
       room.silenceTimerSeconds = 0;
+      room.openingStarted = false;
+      room.initialSpeakerSelected = false;
+      room.deadlockCount = 0;
       syncAiParticipants(room);
       io.to(`room-${safeSlotId}`).emit('session-started', {
         slotId: safeSlotId,
@@ -5243,6 +5253,43 @@ io.on('connection', (socket) => {
       });
       scheduleNextTurn(room);
     }
+  });
+
+  // 1.8 Request AI Facilitator Intervention / Probing Question
+  socket.on('request-ai-intervention', async ({ slotId }: { slotId: string }) => {
+    const safeSlotId = slotId || 'session-101';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (!room) return;
+    await triggerDeadlockIntervention(room);
+  });
+
+  // 1.9 Broadcast Facilitator Speech (e.g. Explain Rules or Faculty Guidance)
+  socket.on('broadcast-facilitator-speech', ({ slotId, text, actionType }: { slotId: string; text: string; actionType?: string }) => {
+    const safeSlotId = slotId || 'session-101';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (!room || !text?.trim()) return;
+
+    const transcript: BackendTranscript = {
+      id: `t-facilitator-${Date.now()}`,
+      sessionId: safeSlotId,
+      speakerId: 'facilitator',
+      speakerName: 'AI Facilitator (ERUS)',
+      seatNumber: null,
+      isFacilitator: true,
+      timestamp: '00:00',
+      timestampSeconds: Date.now(),
+      text: text.trim(),
+      type: 'moderation',
+      sentiment: 'positive',
+    };
+    room.transcripts.push(transcript);
+    persistTranscriptToMongoDB(transcript);
+
+    io.to(`room-${safeSlotId}`).emit('facilitator-intervention', {
+      text: text.trim(),
+      action: actionType || 'moderation',
+      transcript,
+    });
   });
 
   // 2. WebRTC N-Way Signaling Relay (All-to-All mesh)

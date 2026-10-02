@@ -268,6 +268,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     setMicEnabled: rtcSetMicEnabled,
     broadcastTranscript: rtcBroadcastTranscript,
     startSession: rtcStartSession,
+    requestAiIntervention: rtcRequestAiIntervention,
+    broadcastFacilitatorSpeech: rtcBroadcastFacilitatorSpeech,
     aiParticipants: rtcAiParticipants,
     simulationMode: rtcSimulationMode,
   } = useWebRTCRoom({
@@ -321,14 +323,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isFacilitatorSpeaking: true,
       }));
 
-      // If the server moderator called this exact participant, show the
-      // invitation/question in their UI so they know the floor is theirs.
-      if (
-        intervention.targetUserId &&
+      // If the server moderator called this participant (by userId or by seatNumber)
+      const isTargetStudent =
         currentUser?.role === 'student' &&
-        intervention.targetUserId === currentUser.id
-      ) {
-        const targetStudent = session.students.find((s) => s.id === currentUser.id) || session.students[0];
+        (intervention.targetUserId === currentUser.id ||
+          (intervention.targetSeatNumber !== undefined && intervention.targetSeatNumber === rtcAssignedSeat));
+
+      if (isTargetStudent) {
+        const targetStudent =
+          session.students.find((s) => s.isUser || s.id === currentUser.id || s.seatNumber === rtcAssignedSeat) ||
+          session.students[0];
         if (targetStudent) {
           setInvitedStudentPrompt({
             student: targetStudent,
@@ -339,7 +343,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
 
       // Audibly speak AI intervention using roomVoice
-      if (!voiceMuted) {
+      if (!voiceMuted && !isRoomAudioMuted) {
         roomVoice.speakAsFacilitator(intervention.text, () => {
           setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
         });
@@ -1538,7 +1542,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
               <button
                 id="ai-probe-btn"
-                onClick={() => requestAiIntervention('probing')}
+                onClick={() => {
+                  if (rtcRequestAiIntervention) {
+                    rtcRequestAiIntervention();
+                  } else {
+                    requestAiIntervention('probing');
+                  }
+                }}
                 disabled={!isSessionActive || isAiProcessing}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-600/20 dark:hover:bg-indigo-600/30 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-500/40 transition-all shadow-xs active:scale-95 disabled:opacity-50"
               >
@@ -1548,7 +1558,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
               <button
                 id="ai-rules-btn"
-                onClick={() => speakFacilitator("Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.", 'explain_rules', 'rules')}
+                onClick={() => {
+                  const rulesText = "Discussion Rules: 1. Speak one person at a time. 2. Respect differing opinions. 3. Support arguments with examples. 4. Encourage participation. 5. Stay on topic. Let us maintain balanced dialogue.";
+                  if (rtcBroadcastFacilitatorSpeech) {
+                    rtcBroadcastFacilitatorSpeech(rulesText, 'explain_rules');
+                  } else {
+                    speakFacilitator(rulesText, 'explain_rules', 'rules');
+                  }
+                }}
                 disabled={!isSessionActive || isAiProcessing}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
               >

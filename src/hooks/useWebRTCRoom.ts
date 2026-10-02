@@ -763,6 +763,20 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
+  // Request AI Facilitator Intervention (probing question)
+  const requestAiIntervention = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('request-ai-intervention', { slotId });
+    }
+  }, [slotId]);
+
+  // Broadcast Facilitator Speech (e.g. explain rules)
+  const broadcastFacilitatorSpeech = useCallback((text: string, actionType?: string) => {
+    if (socketRef.current && text.trim()) {
+      socketRef.current.emit('broadcast-facilitator-speech', { slotId, text: text.trim(), actionType });
+    }
+  }, [slotId]);
+
   return {
     connected,
     assignedSeat,
@@ -778,6 +792,8 @@ export function useWebRTCRoom({
     setMicEnabled,
     broadcastTranscript,
     startSession,
+    requestAiIntervention,
+    broadcastFacilitatorSpeech,
     error,
   };
 }

@@ -516,12 +516,8 @@ function GDAppContent() {
       } : s))
     );
 
-    // Speak introduction only if voice is not muted and currently viewing room
-    if (!voiceMuted && currentTab === 'room') {
-      facilitatorVoice.speak(welcomeIntroText, () => {
-        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
-      });
-    }
+    // Note: The synchronized opening speech is delivered authoritatively across all connected
+    // participants (students and faculty) via the server's facilitator-intervention broadcast.
 
     // Initialize clean transcripts list with AI welcome intro
     setTranscripts([
