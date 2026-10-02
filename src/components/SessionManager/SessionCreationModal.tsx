@@ -20,7 +20,8 @@ export interface SlotScheduleItem {
   startTime: string;
   endTime: string;
   slotDate: string;
-  participantCount: number;
+  participantCount: number | '';
+  isCustomCapacity?: boolean;
 }
 
 interface SessionCreationModalProps {
@@ -149,7 +150,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         if (s.id !== id) return s;
         return {
           ...s,
-          [field]: field === 'participantCount' ? Math.max(2, Math.min(30, Number(value) || 8)) : value,
+          [field]: field === 'participantCount' ? (value === '' ? '' : Math.max(1, Math.min(100, Number(value) || 1))) : value,
         };
       })
     );
@@ -178,7 +179,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         fallback;
 
       const createdSessions: GDSession[] = slots.map((slot, index) => {
-        const studentCount = Math.max(2, Math.min(30, slot.participantCount || 8));
+        const studentCount = Math.max(1, Math.min(100, Number(slot.participantCount) || 8));
         const seatedStudents: Student[] = generateSlotParticipants(studentCount);
 
         // Divide participants into 3 balanced breakout pods
@@ -563,12 +564,20 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                             <span>No. of Students:</span>
                           </span>
                           <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 font-mono">
-                            {slot.participantCount} seats
+                            {slot.participantCount || 0} seats
                           </span>
                         </label>
                         <select
-                          value={slot.participantCount}
-                          onChange={(e) => handleUpdateSlot(slot.id, 'participantCount', e.target.value)}
+                          value={slot.isCustomCapacity ? 'custom' : slot.participantCount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'custom') {
+                              handleUpdateSlot(slot.id, 'isCustomCapacity', true);
+                            } else {
+                              handleUpdateSlot(slot.id, 'isCustomCapacity', false);
+                              handleUpdateSlot(slot.id, 'participantCount', Number(val) || 8);
+                            }
+                          }}
                           className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white cursor-pointer focus:ring-2 focus:ring-amber-500 font-medium"
                         >
                           <option value={4}>4 Students (Mini GD)</option>
@@ -581,7 +590,33 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
                           <option value={20}>20 Students</option>
                           <option value={24}>24 Students</option>
                           <option value={30}>30 Students (Max)</option>
+                          <option value="custom">
+                            {slot.isCustomCapacity && slot.participantCount ? `Custom (${slot.participantCount} Students)` : 'Custom...'}
+                          </option>
                         </select>
+
+                        {slot.isCustomCapacity && (
+                          <div className="flex items-center gap-1.5 pt-1 animate-fade-in">
+                            <div className="relative flex-1">
+                              <input
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={slot.participantCount || ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  handleUpdateSlot(slot.id, 'participantCount', raw === '' ? '' : parseInt(raw, 10));
+                                }}
+                                placeholder="Enter custom count (e.g. 5, 14, 35)"
+                                autoFocus
+                                className="w-full bg-slate-50 dark:bg-slate-950 border border-amber-400 dark:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 pr-14"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-amber-600 dark:text-amber-400 pointer-events-none">
+                                students
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 

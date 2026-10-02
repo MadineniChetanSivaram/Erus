@@ -376,7 +376,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // and fills remaining slots with available empty desks.
   useEffect(() => {
     setSession((prev) => {
-      const capacity = Math.max(2, Math.min(15, prev.maxCapacity || 8));
+      const capacity = Math.max(2, Math.min(50, prev.maxCapacity || 8));
       const seatMap = new Map<number, Student>();
       const usedSeats = new Set<number>();
 
