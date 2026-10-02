@@ -339,6 +339,20 @@ function savePersistentState() {
 
 loadPersistentState();
 
+// Helper to assign distinct sequential seats (Seat 1, Seat 2, ...) avoiding collisions
+function assignUniqueSeats<T extends { seatNumber?: number; email?: string }>(items: T[]): T[] {
+  const used = new Set<number>();
+  return items.map((item) => {
+    let seat = Number(item.seatNumber);
+    if (!seat || seat < 1 || used.has(seat)) {
+      seat = 1;
+      while (used.has(seat)) seat++;
+    }
+    used.add(seat);
+    return { ...item, seatNumber: seat };
+  });
+}
+
 // ==========================================
 // MONGODB CLIENT & TABLE / SUB-TABLE PERSISTENCE
 // ==========================================
@@ -441,6 +455,7 @@ async function syncMongoDBWithPersistentState() {
           persistentState.users.push(userObj);
         } else {
           persistentState.users[uIdx].collegeCode = normCode;
+          if (s.seatNumber) persistentState.users[uIdx].seatNumber = s.seatNumber;
         }
       }
     }
@@ -486,7 +501,7 @@ async function syncMongoDBWithPersistentState() {
           studentId: u.studentId || 'STU-001',
           course: u.course || 'B.Tech CSE',
           batch: u.batch || '2022-2026',
-          seatNumber: u.seatNumber || 1,
+          seatNumber: u.seatNumber,
           college: col.name,
           collegeCode: normCode,
           password: u.password,
@@ -501,7 +516,11 @@ async function syncMongoDBWithPersistentState() {
             existing.push(cs);
           }
         }
-        persistentState.students[normCode] = existing;
+        persistentState.students[normCode] = assignUniqueSeats(existing);
+        for (const st of persistentState.students[normCode]) {
+          const u = persistentState.users.find(u => u.email.toLowerCase() === st.email.toLowerCase());
+          if (u) u.seatNumber = st.seatNumber;
+        }
       }
 
       const colFaculty = persistentState.users
@@ -1680,7 +1699,10 @@ app.get('/api/college/stats', (req, res) => {
 
 app.get('/api/college/students', (req, res) => {
   const code = normalizeCollegeCode((req.query.collegeCode as string) || 'DIT');
-  const rawStudents = persistentState.students[code] || [];
+  let rawStudents = persistentState.students[code] || [];
+  rawStudents = assignUniqueSeats(rawStudents);
+  persistentState.students[code] = rawStudents;
+
   const students = rawStudents.map((st) => {
     const userMatch = persistentState.users.find(
       (u) =>
@@ -1688,12 +1710,62 @@ app.get('/api/college/students', (req, res) => {
         u.id === st.id ||
         (st.studentId && u.studentId === st.studentId)
     );
+    if (userMatch) {
+      userMatch.seatNumber = st.seatNumber;
+    }
     return {
       ...st,
       password: userMatch?.password || st.password || 'password123',
     };
   });
   res.json({ success: true, students });
+});
+
+app.patch('/api/college/students/:id/seat', async (req, res) => {
+  const { id } = req.params;
+  const { seatNumber, collegeCode } = req.body;
+  const code = normalizeCollegeCode(collegeCode || 'BMSIT');
+  const stuList = persistentState.students[code] || [];
+  const student = stuList.find((s) => s.id === id || s.email?.toLowerCase() === id.toLowerCase() || s.studentId === id);
+  if (!student) {
+    return res.status(404).json({ success: false, error: 'Student not found' });
+  }
+  const newSeat = Number(seatNumber);
+  if (!newSeat || newSeat < 1) {
+    return res.status(400).json({ success: false, error: 'Invalid seat number' });
+  }
+  student.seatNumber = newSeat;
+  const user = persistentState.users.find((u) => u.email.toLowerCase() === student.email.toLowerCase());
+  if (user) {
+    user.seatNumber = newSeat;
+    await persistUserToMongoDB(user);
+  }
+  savePersistentState();
+  res.json({ success: true, student });
+});
+
+app.delete('/api/college/students/:id', async (req, res) => {
+  const { id } = req.params;
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || 'BMSIT');
+  if (persistentState.students[code]) {
+    persistentState.students[code] = persistentState.students[code].filter(
+      (s) => s.id !== id && s.email?.toLowerCase() !== id.toLowerCase() && s.studentId !== id
+    );
+  }
+  persistentState.users = persistentState.users.filter(
+    (u) => u.id !== id && u.email?.toLowerCase() !== id.toLowerCase() && u.studentId !== id
+  );
+  if (isMongoConnected()) {
+    try {
+      await UserModel.deleteMany({
+        $or: [{ id }, { email: id.toLowerCase() }, { 'studentProfile.studentId': id }]
+      });
+    } catch (e: any) {
+      console.warn('[MongoDB] Delete student error:', e.message);
+    }
+  }
+  savePersistentState();
+  res.json({ success: true, message: 'Student removed successfully' });
 });
 
 app.post('/api/college/students', async (req, res) => {
@@ -1707,17 +1779,26 @@ app.post('/api/college/students', async (req, res) => {
 
   const addedStudents: BackendCollegeStudentItem[] = [];
   const shouldSendEmail = Boolean(req.body.sendEmail);
+  const currentStudents = persistentState.students[code] || [];
+  const usedSeats = new Set(currentStudents.map((s) => Number(s.seatNumber)).filter(Boolean));
 
   incoming.forEach((st, idx) => {
     const studentPass = st.password || `Stud@${Date.now().toString().slice(-4)}!`;
+    let assignedSeat = Number(st.seatNumber);
+    if (!assignedSeat || assignedSeat < 1 || usedSeats.has(assignedSeat)) {
+      assignedSeat = 1;
+      while (usedSeats.has(assignedSeat)) assignedSeat++;
+    }
+    usedSeats.add(assignedSeat);
+
     const newStu: BackendCollegeStudentItem = {
       id: st.id || `s-${Date.now()}-${idx}`,
       name: st.name || 'Candidate',
       email: st.email || `student-${Date.now()}-${idx}@${code.toLowerCase()}.edu.in`,
       studentId: st.studentId || `STU-${Date.now().toString().slice(-4)}-${idx}`,
       course: st.course || 'B.Tech Computer Science & Engineering',
-      batch: st.batch || '2022-2026',
-      seatNumber: Number(st.seatNumber) || persistentState.students[code].length + 1,
+      batch: st.batch || '2024-2028',
+      seatNumber: assignedSeat,
       college: st.college || (persistentState.colleges.find((c) => c.code === code)?.name || 'Engineering Institute'),
       collegeCode: code,
       password: studentPass,

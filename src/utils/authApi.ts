@@ -278,15 +278,24 @@ export async function addCollegeStudents(payload: { students?: any[]; student?: 
   const map = new Map<string, any>();
   existing.forEach((s) => map.set(s.studentId || s.email, s));
 
+  const usedSeats = new Set(existing.map((e: any) => Number(e.seatNumber)).filter(Boolean));
+
   incoming.forEach((s, idx) => {
+    let assignedSeat = Number(s.seatNumber);
+    if (!assignedSeat || assignedSeat < 1 || usedSeats.has(assignedSeat)) {
+      assignedSeat = 1;
+      while (usedSeats.has(assignedSeat)) assignedSeat++;
+    }
+    usedSeats.add(assignedSeat);
+
     const studentObj = {
       id: s.id || `s-${Date.now()}-${idx}`,
       name: s.name,
       email: s.email,
       studentId: s.studentId || `STU-${Date.now().toString().slice(-4)}-${idx}`,
       course: s.course || 'B.Tech Computer Science & Engineering',
-      batch: s.batch || '2022-2026',
-      seatNumber: Number(s.seatNumber) || existing.length + idx + 1,
+      batch: s.batch || '2024-2028',
+      seatNumber: assignedSeat,
       college: s.college || (code === 'DIT' ? 'Delhi Institute of Technology' : code),
       collegeCode: code,
       password: s.password || 'password123',

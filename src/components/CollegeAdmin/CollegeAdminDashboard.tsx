@@ -286,6 +286,13 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     e.preventDefault();
     if (!newStudent.name || !newStudent.email) return;
 
+    const usedSeats = new Set(students.map((s) => Number(s.seatNumber)).filter(Boolean));
+    let assignedSeat = Number(newStudent.seatNumber);
+    if (!assignedSeat || assignedSeat < 1) {
+      assignedSeat = 1;
+      while (usedSeats.has(assignedSeat)) assignedSeat++;
+    }
+
     const studentToAdd = {
       id: `s-${Date.now().toString().slice(-5)}`,
       name: newStudent.name.trim(),
@@ -293,8 +300,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       studentId: newStudent.studentId.trim() || `STU-${Date.now().toString().slice(-4)}`,
       course: newStudent.course,
       batch: newStudent.batch,
-      seatNumber: Number(newStudent.seatNumber) || students.length + 1,
-      college: currentUser.college || 'Delhi Institute of Technology',
+      seatNumber: assignedSeat,
+      college: currentUser.college || 'BMS Institute of Technology',
       collegeCode,
       password: newStudent.password || 'password123',
       sendEmail: newStudent.sendEmail,
@@ -310,15 +317,18 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     });
 
     if (res && res.success) {
-      setBannerMsg(`Student ${studentToAdd.name} registered.${newStudent.sendEmail ? ' Credentials dispatched to email.' : ''}`);
+      setBannerMsg(`Student ${studentToAdd.name} registered (Assigned Seat ${assignedSeat}).${newStudent.sendEmail ? ' Credentials dispatched to email.' : ''}`);
       setIsAddStudentOpen(false);
+      const nextUsed = new Set([...students, studentToAdd].map((s) => Number(s.seatNumber)).filter(Boolean));
+      let nextSeat = 1;
+      while (nextUsed.has(nextSeat)) nextSeat++;
       setNewStudent({
         name: '',
         email: '',
         studentId: '',
         course: 'B.Tech Computer Science & Engineering',
         batch: '2024-2028',
-        seatNumber: 1,
+        seatNumber: nextSeat > 15 ? 1 : nextSeat,
         password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!`,
         sendEmail: true,
       });
@@ -339,16 +349,23 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       if (lines.length <= 1) return;
 
       const parsed: any[] = [];
+      const usedSeats = new Set(students.map((s) => Number(s.seatNumber)).filter(Boolean));
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(',').map((p) => p.trim());
         if (parts.length >= 2 && parts[0] && parts[1]) {
+          let csvSeat = parseInt(parts[5], 10);
+          if (!csvSeat || csvSeat < 1 || usedSeats.has(csvSeat)) {
+            csvSeat = 1;
+            while (usedSeats.has(csvSeat)) csvSeat++;
+          }
+          usedSeats.add(csvSeat);
           parsed.push({
             name: parts[0],
             email: parts[1],
             studentId: parts[2] || `STU-${Date.now().toString().slice(-4)}-${i}`,
             course: parts[3] || 'B.Tech CSE',
-            batch: parts[4] || '2022-2026',
-            seatNumber: parseInt(parts[5], 10) || i,
+            batch: parts[4] || '2024-2028',
+            seatNumber: csvSeat,
           });
         }
       }
@@ -836,7 +853,22 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
               </button>
 
               <button
-                onClick={() => setIsAddStudentOpen(true)}
+                onClick={() => {
+                  const used = new Set(students.map((s) => Number(s.seatNumber)).filter(Boolean));
+                  let nextSeat = 1;
+                  while (used.has(nextSeat)) nextSeat++;
+                  setNewStudent({
+                    name: '',
+                    email: '',
+                    studentId: `STU-${Date.now().toString().slice(-4)}`,
+                    course: 'B.Tech Computer Science & Engineering',
+                    batch: '2024-2028',
+                    seatNumber: nextSeat > 15 ? 1 : nextSeat,
+                    password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!`,
+                    sendEmail: true,
+                  });
+                  setIsAddStudentOpen(true);
+                }}
                 className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
@@ -879,7 +911,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                       </td>
                       <td className="py-3.5 px-4">
                         <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                          Seat {st.seatNumber || 1}
+                          Seat {st.seatNumber || (idx + 1)}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 font-mono">
@@ -1254,14 +1286,14 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Student Roll / ID</label>
                   <input
                     type="text"
                     value={newStudent.studentId}
                     onChange={(e) => setNewStudent({ ...newStudent, studentId: e.target.value })}
-                    placeholder="STU-2022-301"
+                    placeholder="STU-2024-301"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
                   />
                 </div>
@@ -1271,8 +1303,19 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                     type="text"
                     value={newStudent.batch}
                     onChange={(e) => setNewStudent({ ...newStudent, batch: e.target.value })}
-                    placeholder="2022-2026"
+                    placeholder="2024-2028"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Default Seat (1–15)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="15"
+                    value={newStudent.seatNumber}
+                    onChange={(e) => setNewStudent({ ...newStudent, seatNumber: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold text-amber-600 dark:text-amber-400"
                   />
                 </div>
               </div>
