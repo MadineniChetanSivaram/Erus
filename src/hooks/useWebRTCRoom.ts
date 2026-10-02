@@ -107,6 +107,9 @@ export function useWebRTCRoom({
   const floorSpeakerIdRef = useRef<string | null>(null);
   const handledAiTranscriptIdsRef = useRef<Set<string>>(new Set());
 
+  const isMicMutedRef = useRef<boolean>(isMicMuted);
+  isMicMutedRef.current = isMicMuted;
+
   // Keep the latest UI callbacks without recreating the Socket.IO connection on every React render.
   // The GD room receives frequent transcript/floor updates, so reconnecting on each render can
   // cause clients to miss AI participant speech events. These refs keep handlers current while
@@ -266,6 +269,11 @@ export function useWebRTCRoom({
     return pc;
   }, [attachRemoteAudio, detachRemoteAudio]);
 
+  const detachRemoteAudioRef = useRef(detachRemoteAudio);
+  detachRemoteAudioRef.current = detachRemoteAudio;
+  const getOrCreatePeerConnectionRef = useRef(getOrCreatePeerConnection);
+  getOrCreatePeerConnectionRef.current = getOrCreatePeerConnection;
+
   // 4. Initialize Local Microphone & Real-time Volume Analyzer
   const initLocalMicrophone = useCallback(async () => {
     try {
@@ -326,7 +334,7 @@ export function useWebRTCRoom({
           setLocalVolume(Math.min(100, Math.round((avg / 128) * 100)));
 
           // Detect speaking when volume exceeds threshold (value > 12)
-          const speakingNow = avg > 12 && !isMicMuted;
+          const speakingNow = avg > 12 && !isMicMutedRef.current;
           setIsSpeakingLive(speakingNow);
 
           if (speakingNow) {
@@ -338,7 +346,7 @@ export function useWebRTCRoom({
               socketRef.current.emit('peer-speaking-state', {
                 slotId,
                 isSpeaking: true,
-                micActive: !isMicMuted,
+                micActive: !isMicMutedRef.current,
                 volumeLevel: Math.round(avg),
               });
             }
@@ -348,7 +356,7 @@ export function useWebRTCRoom({
                 socketRef.current?.emit('peer-speaking-state', {
                   slotId,
                   isSpeaking: false,
-                  micActive: !isMicMuted,
+                  micActive: !isMicMutedRef.current,
                   volumeLevel: 0,
                 });
                 speakingStateTimeoutRef.current = null;
@@ -368,7 +376,12 @@ export function useWebRTCRoom({
       setError(err.message || 'Microphone access denied or unavailable.');
       return null;
     }
-  }, [slotId, isMicMuted]);
+  }, [slotId]);
+
+  const initLocalMicrophoneRef = useRef(initLocalMicrophone);
+  initLocalMicrophoneRef.current = initLocalMicrophone;
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
 
   // 5. Connect to Socket.IO Server & Room Signaling
   useEffect(() => {
@@ -386,20 +399,20 @@ export function useWebRTCRoom({
       setConnected(true);
 
       // Acquire microphone (only for student participants - faculty is pure listener)
-      if (currentUser?.role !== 'faculty') {
-        await initLocalMicrophone();
+      if (currentUserRef.current?.role !== 'faculty') {
+        await initLocalMicrophoneRef.current();
       }
 
       // Join the slot room with user metadata
       socket.emit('join-gd-room', {
         slotId,
         user: {
-          id: currentUser?.id || `anon-${socket.id}`,
-          name: currentUser?.name || 'Student Participant',
-          avatar: currentUser?.avatar || '',
-          role: currentUser?.role || 'student',
-          college: currentUser?.college || 'Campus Participant',
-          seatNumber: currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber : undefined,
+          id: currentUserRef.current?.id || `anon-${socket.id}`,
+          name: currentUserRef.current?.name || 'Student Participant',
+          avatar: currentUserRef.current?.avatar || '',
+          role: currentUserRef.current?.role || 'student',
+          college: currentUserRef.current?.college || 'Campus Participant',
+          seatNumber: currentUserRef.current && 'seatNumber' in currentUserRef.current ? (currentUserRef.current as any).seatNumber : undefined,
         },
       });
     });
@@ -417,7 +430,7 @@ export function useWebRTCRoom({
       if (existingPeers && existingPeers.length > 0) {
         for (const remotePeer of existingPeers) {
           try {
-            const pc = getOrCreatePeerConnection(remotePeer.socketId);
+            const pc = getOrCreatePeerConnectionRef.current(remotePeer.socketId);
             const offer = await pc.createOffer({
               offerToReceiveAudio: true,
               offerToReceiveVideo: true,
@@ -443,13 +456,13 @@ export function useWebRTCRoom({
       });
 
       // Prepare peer connection for incoming peer (incoming peer initiates offer in gd-room-joined)
-      getOrCreatePeerConnection(peer.socketId);
+      getOrCreatePeerConnectionRef.current(peer.socketId);
     });
 
     // WebRTC Signaling Relay Received (Offer, Answer, ICE Candidate)
     socket.on('signal-receive', async ({ from, signal }) => {
       if (!active) return;
-      const pc = getOrCreatePeerConnection(from);
+      const pc = getOrCreatePeerConnectionRef.current(from);
 
       try {
         if (signal.sdp) {
@@ -527,7 +540,7 @@ export function useWebRTCRoom({
     // A peer disconnected from the slot
     socket.on('peer-left', ({ socketId: leftSockId }) => {
       if (!active) return;
-      detachRemoteAudio(leftSockId);
+      detachRemoteAudioRef.current(leftSockId);
       const pc = peerConnectionsRef.current.get(leftSockId);
       if (pc) {
         pc.close();
@@ -648,7 +661,7 @@ export function useWebRTCRoom({
 
       socket.disconnect();
     };
-  }, [slotId, currentUser, initLocalMicrophone, getOrCreatePeerConnection, detachRemoteAudio]);
+  }, [slotId, currentUser?.id]);
 
   // Toggle local microphone mute
   const toggleMute = useCallback(() => {

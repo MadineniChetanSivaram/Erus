@@ -5259,17 +5259,31 @@ io.on('connection', (socket) => {
     // Seat allotment (PDF Page 14) - Faculty and Admin are observers and NEVER take a student seat!
     let seatNumber: number | undefined = undefined;
     if (!isObserver) {
-      seatNumber = user?.seatNumber;
-      if (!seatNumber || room.assignedSeats.has(seatNumber)) {
-        for (let s = 1; s <= 15; s++) {
-          if (!room.assignedSeats.has(s)) {
-            seatNumber = s;
-            break;
-          }
+      // 1. Check if this participant is already known in this room (reconnection / refresh protection)
+      const targetUserId = user?.id || socket.id;
+      for (const [existingSockId, existingPeer] of room.peers.entries()) {
+        if (existingPeer.userId === targetUserId || existingSockId === socket.id) {
+          seatNumber = existingPeer.seatNumber;
+          room.peers.delete(existingSockId);
+          if (seatNumber) room.assignedSeats.set(seatNumber, socket.id);
+          break;
         }
-        if (!seatNumber) seatNumber = (room.peers.size % 15) + 1;
       }
-      room.assignedSeats.set(seatNumber, socket.id);
+
+      // 2. If no prior seat, assign requested seat or first free seat (1..15)
+      if (!seatNumber) {
+        seatNumber = user?.seatNumber;
+        if (!seatNumber || room.assignedSeats.has(seatNumber)) {
+          for (let s = 1; s <= 15; s++) {
+            if (!room.assignedSeats.has(s)) {
+              seatNumber = s;
+              break;
+            }
+          }
+          if (!seatNumber) seatNumber = (room.peers.size % 15) + 1;
+        }
+        room.assignedSeats.set(seatNumber, socket.id);
+      }
     }
 
     const peer: LiveRoomPeer = {

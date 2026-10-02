@@ -357,86 +357,108 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Local auto-simulation is retained only for the single-user demo mode.
   const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin');
 
-  // Clean GD room seating: keep enrolled participants in their seats, assign the user their seat, and open remaining desks
+  // Clean GD room seating: deterministic seat mapping (1..capacity).
+  // Assigns current student user to their assigned seat, keeps unique enrolled peers,
+  // and fills remaining slots with available empty desks.
   useEffect(() => {
     setSession((prev) => {
       const capacity = Math.max(2, Math.min(15, prev.maxCapacity || 8));
-      let currentStudents = Array.isArray(prev.students) ? [...prev.students] : [];
-
-      // Filter out any mock/demo AI students or placeholder desks, or any faculty/admin entries
-      currentStudents = currentStudents.filter(
-        (s) =>
-          !s.isEmptySeat &&
-          !s.id?.startsWith('slot-stu-') &&
-          !s.id?.startsWith('seat-') &&
-          !s.name?.startsWith('Seat ') &&
-          (s as any).role !== 'faculty' &&
-          (s as any).role !== 'college_admin' &&
-          !(isFaculty && (s.id === currentUser?.id || s.name === currentUser?.name))
-      );
-
-      // Ensure every enrolled/existing student has a valid unique seatNumber (1..capacity)
+      const seatMap = new Map<number, Student>();
       const usedSeats = new Set<number>();
-      const validStudents: Student[] = [];
 
-      currentStudents.forEach((s, idx) => {
-        let seat = s.seatNumber || (idx + 1);
-        if (seat > capacity || usedSeats.has(seat)) {
+      // 1. If logged-in student, place current user at their assigned seat first
+      const isStudentUser = !isFaculty && currentUser?.role === 'student';
+      let userSeatNum = 1;
+      if (isStudentUser) {
+        userSeatNum = rtcAssignedSeat || (currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber : 1) || 1;
+        if (userSeatNum < 1 || userSeatNum > capacity) userSeatNum = 1;
+        usedSeats.add(userSeatNum);
+
+        seatMap.set(userSeatNum, {
+          id: currentUser?.id || 'speaker-user',
+          name: currentUser?.name || 'Candidate',
+          seatNumber: userSeatNum,
+          college: currentUser?.college || 'Institution',
+          course: (currentUser as any)?.course || 'Engineering',
+          batch: (currentUser as any)?.batch || '2024-2028',
+          avatar: currentUser?.avatar || '',
+          isUser: true,
+          micActive: false,
+          isSpeaking: false,
+          hasRaisedHand: false,
+          cameraActive: false,
+          speakingDurationSeconds: 0,
+          speakingTurns: 0,
+          interruptionCount: 0,
+          questionsAnswered: 0,
+          questionsInitiated: 0,
+          sentiment: 'neutral',
+          isEmptySeat: false,
+          isRealPeer: false,
+          isDemoAI: false,
+        });
+      }
+
+      // 2. Keep other unique enrolled students from session.students
+      const existingStudents = Array.isArray(prev.students) ? prev.students : [];
+      const seenStudentIds = new Set<string>();
+      if (isStudentUser && currentUser?.id) {
+        seenStudentIds.add(currentUser.id);
+      }
+
+      for (const st of existingStudents) {
+        // Skip placeholders, empty seats, demo mocks, faculty, admins, or current user
+        if (
+          !st ||
+          st.isEmptySeat ||
+          st.isUser ||
+          st.id?.startsWith('seat-') ||
+          st.id?.startsWith('slot-stu-') ||
+          st.name?.startsWith('Seat ') ||
+          (st as any).role === 'faculty' ||
+          (st as any).role === 'college_admin' ||
+          (currentUser?.id && st.id === currentUser.id) ||
+          (currentUser?.name && st.name === currentUser.name)
+        ) {
+          continue;
+        }
+
+        // Deduplicate other students by ID or name
+        const dedupKey = st.id || st.name;
+        if (seenStudentIds.has(dedupKey)) continue;
+        seenStudentIds.add(dedupKey);
+
+        // Find an open seat for this student
+        let targetSeat = st.seatNumber;
+        if (!targetSeat || targetSeat > capacity || usedSeats.has(targetSeat)) {
+          targetSeat = undefined;
           for (let sn = 1; sn <= capacity; sn++) {
             if (!usedSeats.has(sn)) {
-              seat = sn;
+              targetSeat = sn;
               break;
             }
           }
         }
-        usedSeats.add(seat);
-        validStudents.push({ ...s, seatNumber: seat, isEmptySeat: false });
-      });
 
-      // Ensure the logged-in student user is assigned their seat
-      if (!isFaculty && currentUser?.role === 'student') {
-        const userSeatNum = rtcAssignedSeat || 1;
-        const userIdx = validStudents.findIndex((s) => s.isUser || s.id === currentUser.id);
-        if (userIdx >= 0) {
-          validStudents[userIdx].isUser = true;
-          validStudents[userIdx].name = currentUser.name || validStudents[userIdx].name;
-          validStudents[userIdx].college = currentUser.college || validStudents[userIdx].college;
-        } else {
-          usedSeats.add(userSeatNum);
-          validStudents.push({
-            id: currentUser.id || 'speaker-user',
-            name: currentUser.name || 'Candidate',
-            seatNumber: userSeatNum,
-            college: currentUser.college || 'Institution',
-            course: (currentUser as any).course || 'Engineering',
-            batch: (currentUser as any).batch || '2024-2028',
-            avatar: currentUser.avatar || '',
-            isUser: true,
-            micActive: isListeningMic,
-            isSpeaking: false,
-            hasRaisedHand: false,
-            cameraActive: isCameraOn,
-            speakingDurationSeconds: 0,
-            speakingTurns: 0,
-            interruptionCount: 0,
-            questionsAnswered: 0,
-            questionsInitiated: 0,
-            sentiment: 'neutral',
+        if (targetSeat && targetSeat <= capacity) {
+          usedSeats.add(targetSeat);
+          seatMap.set(targetSeat, {
+            ...st,
+            seatNumber: targetSeat,
+            isUser: false,
             isEmptySeat: false,
             isRealPeer: false,
-            isDemoAI: false,
           });
         }
       }
 
-      // Fill remaining empty desks up to capacity so round table is complete
-      const finalSeats: Student[] = [...validStudents];
-      for (let seatNum = 1; seatNum <= capacity; seatNum++) {
-        if (!usedSeats.has(seatNum)) {
-          finalSeats.push({
-            id: `seat-${seatNum}-empty`,
-            name: `Seat ${seatNum}`,
-            seatNumber: seatNum,
+      // 3. Fill remaining slots up to capacity with available desks
+      for (let sn = 1; sn <= capacity; sn++) {
+        if (!seatMap.has(sn)) {
+          seatMap.set(sn, {
+            id: `seat-${sn}-empty`,
+            name: `Seat ${sn}`,
+            seatNumber: sn,
             college: 'Available Desk',
             course: '',
             batch: '',
@@ -459,15 +481,29 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }
       }
 
-      finalSeats.sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
+      // Deterministic array ordered 1..capacity
+      const finalSeats: Student[] = [];
+      for (let sn = 1; sn <= capacity; sn++) {
+        const s = seatMap.get(sn);
+        if (s) finalSeats.push(s);
+      }
 
-      const isSame = prev.students && prev.students.length === finalSeats.length &&
-        prev.students.every((s, i) => s.id === finalSeats[i].id && s.name === finalSeats[i].name && s.isEmptySeat === finalSeats[i].isEmptySeat);
+      const isSame =
+        prev.students &&
+        prev.students.length === finalSeats.length &&
+        prev.students.every(
+          (s, i) =>
+            s.id === finalSeats[i].id &&
+            s.seatNumber === finalSeats[i].seatNumber &&
+            s.name === finalSeats[i].name &&
+            s.isUser === finalSeats[i].isUser &&
+            s.isEmptySeat === finalSeats[i].isEmptySeat
+        );
       if (isSame) return prev;
 
       return { ...prev, students: finalSeats };
     });
-  }, [session.id, session.maxCapacity, setSession, isFaculty, currentUser, rtcAssignedSeat, isListeningMic, isCameraOn]);
+  }, [session.id, session.maxCapacity, setSession, isFaculty, currentUser?.id, currentUser?.name, currentUser?.role, rtcAssignedSeat]);
 
   // Active display students: merge connected user with live connected WebRTC peers & available desks
   const activeDisplayStudents = useMemo(() => {
@@ -480,7 +516,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     return sorted.map((st, idx) => {
       const fixedSeatNumber = st.seatNumber || (idx + 1);
-      const isThisSeatUser = targetUserSeat !== null && (fixedSeatNumber === targetUserSeat || (!rtcAssignedSeat && st.isUser));
+      const isThisSeatUser = targetUserSeat !== null && fixedSeatNumber === targetUserSeat;
 
       // Faculty and Admins are observers and NEVER occupy a student seat at the round table
       if ((st as any).role === 'faculty' || (st as any).role === 'college_admin' || (isFaculty && (st.id === currentUser?.id || st.name === currentUser?.name))) {
@@ -521,11 +557,17 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
       }
 
-      // Check if another real peer is connected in this seat (Strictly students only! Never faculty or admin)
-      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber && p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin') ||
-        (fixedSeatNumber === 1 && rtcPeers.find((p) => p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin'));
+      // Check if another real peer is connected in this seat (Strictly students only! Never faculty or admin or the user themselves)
+      const realPeer = rtcPeers.find(
+        (p) =>
+          p.seatNumber === fixedSeatNumber &&
+          p.userId !== currentUser?.id &&
+          p.role === 'student' &&
+          p.role !== 'faculty' &&
+          p.role !== 'college_admin'
+      );
       if (realPeer) {
-        const remoteStream = rtcPeerStreams.get(realPeer.socketId) || (rtcPeers.filter((p) => p.role === 'student').length === 1 ? Array.from(rtcPeerStreams.values())[0] : null);
+        const remoteStream = rtcPeerStreams.get(realPeer.socketId) || null;
         return {
           ...st,
           id: realPeer.userId || st.id,
@@ -539,6 +581,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           speakingTurns: realPeer.speakingTurns || st.speakingTurns,
           speakingDurationSeconds: realPeer.speakingDurationSeconds || st.speakingDurationSeconds,
           isRealPeer: true,
+          isUser: false,
           isEmptySeat: false,
           volumeLevel: realPeer.volumeLevel,
           videoStream: remoteStream,
@@ -570,9 +613,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         ...st,
         seatNumber: fixedSeatNumber,
         isUser: false,
+        isRealPeer: false,
+        isEmptySeat: false,
       };
     });
-  }, [session.students, rtcPeers, rtcPeerStreams, rtcAssignedSeat, currentUser, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn, videoStream]);
+  }, [session.students, rtcPeers, rtcPeerStreams, rtcAssignedSeat, currentUser?.id, currentUser?.name, currentUser?.avatar, currentUser?.college, isFaculty, isListeningMic, rtcIsSpeakingLive, rtcIsMicMuted, isCameraOn, videoStream]);
 
   const latestSpeakerTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
   const activeStudentUser = !isFaculty ? activeDisplayStudents.find((s) => s.isUser) : null;
