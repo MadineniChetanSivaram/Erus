@@ -201,7 +201,7 @@ export function getNextUniqueFacilitatorPrompt(
   if (mostQuiet && mostActive && mostActive.speakingTurns - mostQuiet.speakingTurns >= 2) {
     const inviteTemplates = [
       `Thank you for those points. We'd love to balance the discussion by bringing in ${mostQuiet.name} from Seat ${mostQuiet.seatNumber}. What is your perspective on this topic?`,
-      `That adds a valuable perspective. Let us hear from ${mostQuiet.name} at Seat ${mostQuiet.seatNumber}—how would you assess the practical challenges discussed so far?`,
+      `Thank you. Let us hear from ${mostQuiet.name} at Seat ${mostQuiet.seatNumber}—how would you assess the practical challenges discussed so far?`,
       `Let's invite ${mostQuiet.name} (Seat ${mostQuiet.seatNumber}) to share their insights on how this affects students and professionals.`,
     ];
 

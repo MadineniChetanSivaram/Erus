@@ -4190,7 +4190,7 @@ Generate your response in JSON format with:
         });
 
         const parsed = JSON.parse(geminiResponse.text?.trim() || '{}');
-        const speech = parsed.speech || 'Thank you for your valuable perspective. Who would like to build on this point?';
+        const speech = parsed.speech || 'Thank you. Let us hear another perspective on this issue. Who would like to build on or challenge the points raised?';
         serverAskedQuestions.add(speech);
 
         return res.json({
@@ -4955,6 +4955,78 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
   return room;
 }
 
+export interface UtteranceClassification {
+  category: 'greeting' | 'mic_check' | 'filler' | 'substantive';
+  cleanedThought: string;
+}
+
+export function classifyParticipantUtterance(text: string): UtteranceClassification {
+  const raw = (text || '').trim();
+  if (!raw) {
+    return { category: 'filler', cleanedThought: '' };
+  }
+
+  const lower = raw.toLowerCase();
+  const normalized = lower.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = normalized.split(' ').filter(Boolean);
+
+  // Check 1: Audio / Mic check detection
+  const isMicCheck =
+    /\b(am i audible|can you hear me|is my voice (clear|audible)|is my audio (clear|audible)|mic check|audio check|testing mic|testing audio|test 1 2 3|1 2 3 test|check check|sound check|can everyone hear me|am i clear)\b/i.test(normalized) ||
+    (words.length <= 6 && /\b(audible|hear me|mic check|audio check|testing mic)\b/i.test(normalized));
+
+  if (isMicCheck) {
+    const nonCheckWords = words.filter(
+      (w) => !['hello', 'hlo', 'helo', 'hi', 'hey', 'sir', 'madam', 'everyone', 'all', 'am', 'i', 'audible', 'can', 'you', 'hear', 'me', 'is', 'my', 'voice', 'audio', 'clear', 'mic', 'check', 'test', 'testing', '1', '2', '3', 'one', 'two', 'three', 'to'].includes(w)
+    );
+    if (nonCheckWords.length <= 2) {
+      return { category: 'mic_check', cleanedThought: '' };
+    }
+  }
+
+  // Check 2: Pure Greeting detection (e.g. "hlo", "hello", "good morning everyone")
+  const greetingWords = new Set(['hello', 'hlo', 'helo', 'hi', 'hey', 'namaste', 'vanakkam', 'morning', 'afternoon', 'evening', 'good']);
+  const isPureGreeting = words.every((w) =>
+    greetingWords.has(w) || ['sir', 'madam', 'maam', 'everyone', 'all', 'guys', 'friends', 'team', 'to', 'and', 'there'].includes(w)
+  );
+  if (isPureGreeting && words.length <= 6) {
+    return { category: 'greeting', cleanedThought: '' };
+  }
+
+  // Check 3: Filler words / trivial acknowledgments (e.g. "ok", "okay", "yes", "yeah", "thank you")
+  const fillerTokens = new Set([
+    'ok', 'okay', 'yes', 'yeah', 'yep', 'no', 'nope', 'sure', 'fine', 'alright',
+    'right', 'agree', 'thank', 'thanks', 'you', 'done', 'finished', 'thats', 'that',
+    'is', 'it', 'all', 'hmm', 'well', 'got', 'understood', 'cool', 'sir', 'maam',
+    'actually', 'basically', 'so', 'like'
+  ]);
+  const isPureFiller = words.every((w) => fillerTokens.has(w));
+  if (isPureFiller && words.length <= 5) {
+    return { category: 'filler', cleanedThought: '' };
+  }
+
+  // Check 4: Very short utterance with <= 3 words that match greeting or filler sets
+  if (words.length <= 3) {
+    if (words.some((w) => greetingWords.has(w))) {
+      return { category: 'greeting', cleanedThought: '' };
+    }
+    if (words.some((w) => fillerTokens.has(w))) {
+      return { category: 'filler', cleanedThought: '' };
+    }
+  }
+
+  // Substantive argument: strip conversational preamble to reveal the actual argument
+  const cleaned = raw
+    .replace(/^(hlo|hello|helo|hi|hey|good\s+(morning|afternoon|evening))\s*(everyone|all|sir|madam)?[,.]?\s*/i, '')
+    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that|so according to me)\s*/i, '')
+    .trim();
+
+  return {
+    category: 'substantive',
+    cleanedThought: cleaned || raw,
+  };
+}
+
 function analyzeThoughtHeuristically(
   topic: string,
   speakerName: string,
@@ -4980,23 +5052,23 @@ function analyzeThoughtHeuristically(
   let peerTransition = '';
 
   if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted a critical economic point regarding financial feasibility and operational cost pressures in ${topic}.`;
-    probingFollowup = `However, how can organizations mitigate these financial burdens without compromising service quality or consumer affordability?`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted financial feasibility and operational cost pressures in ${topic}.`;
+    probingFollowup = `How can organizations mitigate these financial burdens without compromising service quality or consumer affordability?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s economic assessment, or do you view the financial returns differently?`;
   } else if (lower.includes('privacy') || lower.includes('data') || lower.includes('security') || lower.includes('hack') || lower.includes('fraud') || lower.includes('breach') || lower.includes('protect')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, your argument regarding data privacy and platform security identifies a paramount vulnerability in ${topic}.`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, your argument focuses on data privacy risks and security vulnerabilities in ${topic}.`;
     probingFollowup = `How can systems maintain end-to-end data integrity without introducing prohibitive friction for everyday users?`;
     peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how would you evaluate ${firstName}'s concerns regarding security, and what policy safeguards would you propose?`;
   } else if (lower.includes('job') || lower.includes('worker') || lower.includes('employ') || lower.includes('labor') || lower.includes('staff') || lower.includes('career') || lower.includes('livelihood')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, you thoughtfully brought up the human dimension of workforce displacement and evolving career roles in ${topic}.`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, you addressed the human dimension of workforce displacement and evolving career roles in ${topic}.`;
     probingFollowup = `As the market transforms, what structured reskilling initiatives should be mandated to protect vulnerable workers from displacement?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment impact, and what solutions would you offer?`;
   } else if (lower.includes('ethic') || lower.includes('bias') || lower.includes('moral') || lower.includes('fair') || lower.includes('responsib') || lower.includes('trust')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential ethical inquiry into fairness and institutional accountability within ${topic}.`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential inquiry into fairness and institutional accountability within ${topic}.`;
     probingFollowup = `How should decision-makers establish transparent ethical guidelines when commercial incentives push in the opposite direction?`;
     peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, do you share ${firstName}'s ethical concerns, or do you believe market competition naturally regulates this?`;
   } else if (lower.includes('rural') || lower.includes('access') || lower.includes('reach') || lower.includes('infrastruct') || lower.includes('tier') || lower.includes('divide')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the vital challenge of equitable regional access and infrastructure disparities in ${topic}.`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the challenge of equitable regional access and infrastructure disparities in ${topic}.`;
     probingFollowup = `What realistic infrastructure investments are required so rural communities can participate on equal footing?`;
     peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s emphasis on accessibility influence your stance on this subject?`;
   } else if (lower.includes('delivery') || lower.includes('speed') || lower.includes('quick') || lower.includes('logistics') || lower.includes('convenien') || lower.includes('customer')) {
@@ -5008,9 +5080,9 @@ function analyzeThoughtHeuristically(
     probingFollowup = `While technology drives efficiency, where must human oversight remain strictly non-negotiable?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s argument regarding technological adoption in this domain?`;
   } else {
-    // Dynamic argument synthesis quoting key clause
+    // Dynamic argument synthesis quoting key clause cleanly
     const snippet = cleaned.length > 55 ? cleaned.slice(0, 55).replace(/\s+\S*$/, '') + '...' : cleaned;
-    coreAnalysis = `${firstName} from ${speakerSeat}, your argument emphasizing that ${snippet || 'this issue demands careful nuance'} presents a valuable perspective on ${topic}.`;
+    coreAnalysis = `${firstName} from ${speakerSeat}, you argued that ${snippet || 'this issue demands careful nuance'}.`;
     probingFollowup = `Considering practical constraints, what potential counter-argument or implementation roadblock must be addressed to make this workable?`;
     peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint, and what counter-arguments or additions would you propose?`;
   }
@@ -5036,23 +5108,51 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   let targetReal: LiveRoomPeer;
   let isSameSpeaker = false;
 
+  // Find what was just spoken by the student to classify their utterance
+  const studentTranscripts = room.transcripts.filter((t) => !t.isFacilitator);
+  const recentSpeakerTranscript = studentTranscripts.slice(-1)[0];
+  const lastFacilitatorIndex = room.transcripts.map((t) => t.isFacilitator).lastIndexOf(true);
+
+  const speakerPeer = Array.from(room.peers.values()).find(
+    (p) => p.userId === completedUserId || (recentSpeakerTranscript && p.userId === recentSpeakerTranscript.speakerId)
+  );
+  const speakerName = speakerPeer?.name || recentSpeakerTranscript?.speakerName || 'Candidate';
+  const speakerFirstName = speakerName.split(' ')[0];
+  const speakerSeat = speakerPeer?.seatNumber ? `Seat ${speakerPeer.seatNumber}` : 'Seat 1';
+
+  // Gather all transcript fragments spoken by this student in this speaking turn
+  const currentTurnTranscripts = room.transcripts
+    .slice(lastFacilitatorIndex + 1)
+    .filter((t) => !t.isFacilitator && (t.speakerId === completedUserId || t.speakerId === speakerPeer?.userId));
+
+  const spokenThought = currentTurnTranscripts.length > 0
+    ? currentTurnTranscripts.map((t) => t.text.trim()).join(' ')
+    : (recentSpeakerTranscript?.text?.trim() || '');
+
+  const utteranceClassification = isOpening
+    ? { category: 'substantive' as const, cleanedThought: '' }
+    : classifyParticipantUtterance(spokenThought);
+
   if (isOpening) {
     room.openingStarted = true;
     const starter = allParticipants[Math.floor(Math.random() * allParticipants.length)];
     targetReal = starter;
     room.initialSpeakerSelected = true;
+  } else if (utteranceClassification.category === 'greeting' || utteranceClassification.category === 'mic_check') {
+    // Participant only checked their mic or greeted the room.
+    // KEEP the floor with them so they can present their actual argument on the topic!
+    targetReal = speakerPeer || allParticipants.find((p) => p.userId === completedUserId) || allParticipants[0];
+    isSameSpeaker = true;
   } else {
-    // A participant just spoke! Determine next target: either another candidate, or probe same candidate if single
+    // Participant shared a thought or filler. Advance floor to the next participant.
     const otherCandidates = allParticipants.filter((p) => p.userId !== completedUserId);
     if (otherCandidates.length > 0) {
-      // Pick next participant who spoke least or longest ago
       otherCandidates.sort((a, b) => {
         return (a.speakingTurns || 0) - (b.speakingTurns || 0) || (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
       });
       targetReal = otherCandidates[0];
       isSameSpeaker = false;
     } else {
-      // Single participant practicing or addressing consecutive question
       targetReal = allParticipants.find((p) => p.userId === completedUserId) || allParticipants[0];
       isSameSpeaker = true;
     }
@@ -5070,61 +5170,54 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
     if (isOpening) {
       invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
+    } else if (utteranceClassification.category === 'mic_check') {
+      invitation = isSameSpeaker
+        ? `Hello ${speakerFirstName} from ${speakerSeat}, your audio is loud and clear. Please go ahead and share your opening thoughts or perspective on "${room.topic}".`
+        : `Your audio is clear, ${speakerFirstName} from ${speakerSeat}. Please present your argument on "${room.topic}", or let us pass the floor to ${targetReal.name} from ${seatStr}.`;
+    } else if (utteranceClassification.category === 'greeting') {
+      invitation = isSameSpeaker
+        ? `Hello ${speakerFirstName} from ${speakerSeat}. You have the floor—please go ahead and put forth your views on "${room.topic}".`
+        : `Hello ${speakerFirstName} from ${speakerSeat}. When you are ready, please present your perspective on "${room.topic}". Otherwise, let us hear opening thoughts from ${targetReal.name} from ${seatStr}.`;
+    } else if (utteranceClassification.category === 'filler') {
+      invitation = isSameSpeaker
+        ? `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments or real-world examples regarding "${room.topic}".`
+        : `Thank you, ${speakerFirstName} from ${speakerSeat}. Let us now hear from ${targetReal.name} from ${seatStr}. ${firstName}, what is your take on "${room.topic}"?`;
     } else {
-      // Find the thought that was just spoken by the student!
-      const studentTranscripts = room.transcripts.filter((t) => !t.isFacilitator);
-      const recentSpeakerTranscript = studentTranscripts.slice(-1)[0];
-      const spokenThought = recentSpeakerTranscript?.text?.trim() || '';
-
-      const speakerPeer = Array.from(room.peers.values()).find(
-        (p) => p.userId === completedUserId || (recentSpeakerTranscript && p.userId === recentSpeakerTranscript.speakerId)
-      );
-      const speakerName = speakerPeer?.name || recentSpeakerTranscript?.speakerName || 'Candidate';
-      const speakerFirstName = speakerName.split(' ')[0];
-      const speakerSeat = speakerPeer?.seatNumber ? `Seat ${speakerPeer.seatNumber}` : 'Seat 1';
-
-      // 1. Generate Heuristic Thought Analysis as reliable baseline
+      // Substantive argument! Analyze the argument and reply accordingly without empty praises.
       invitation = analyzeThoughtHeuristically(
         room.topic,
         speakerName,
         speakerSeat,
-        spokenThought,
+        utteranceClassification.cleanedThought,
         isSameSpeaker ? undefined : targetReal.name,
         isSameSpeaker ? undefined : seatStr
       );
 
-      // 2. If Gemini API is available, generate deeply customized thought analysis and reply
       if (ai) {
         try {
           const promptInstruction = isSameSpeaker
-            ? `You are an insightful live AI moderator of a collegiate Group Discussion on "${room.topic}".
-Participant ${speakerName} from ${speakerSeat} just shared this thought:
-"${spokenThought}"
+            ? `You are an incisive, highly articulate Indian collegiate Group Discussion moderator evaluating "${room.topic}".
+Participant ${speakerName} from ${speakerSeat} just stated:
+"${utteranceClassification.cleanedThought}"
 
-Analyze what ${speakerFirstName} said and reply directly to them:
-1. In 1 concise sentence, analyze the core argument or insight ${speakerFirstName} presented.
-2. In 1 concise sentence, reply with a probing analytical question or counter-perspective asking ${speakerFirstName} to defend or expand their thought.
-Rules:
-- Maximum 38 words.
-- Natural spoken moderator tone.
-- Directly reference the specific idea/thought ${speakerFirstName} shared.
+CRITICAL RULES:
+- ABSOLUTELY NEVER say "Good point", "That is a good point", "You made a valid point", "Valuable perspective", or any flattering praise.
+- Analyze the candidate's exact argument directly in 1 sentence (e.g., "${speakerFirstName} from ${speakerSeat}, you argued that [concise summary of candidate's specific premise].").
+- Follow immediately with 1 sharp analytical counter-question or practical challenge testing their logic (e.g., asking how to overcome cost constraints, regulatory hurdles, or unintended risks).
 - Address ${speakerFirstName} from ${speakerSeat}.
-- Write plain text without markdown or bullet points.`
-            : `You are an insightful live AI moderator of a collegiate Group Discussion on "${room.topic}".
-Participant ${speakerName} from ${speakerSeat} just shared this thought:
-"${spokenThought}"
+- Maximum 36 words total. Plain text only. Natural spoken moderator cadence.`
+            : `You are an incisive, highly articulate Indian collegiate Group Discussion moderator evaluating "${room.topic}".
+Participant ${speakerName} from ${speakerSeat} just stated:
+"${utteranceClassification.cleanedThought}"
 
-Next participant to speak is ${targetReal.name} from ${seatStr}.
+The next speaker to take the floor is ${targetReal.name} from ${seatStr}.
 
-Analyze what ${speakerFirstName} said and reply accordingly:
-1. In 1 concise sentence, analyze the key point made by ${speakerFirstName}.
-2. In 1 concise sentence, bridge to ${targetReal.name} from ${seatStr}, asking ${firstName} a specific question comparing, contrasting, or evaluating ${speakerFirstName}'s specific argument.
-Rules:
-- Maximum 40 words.
-- Natural spoken moderator tone.
-- Directly reference the specific idea/thought ${speakerFirstName} shared.
-- Address both ${speakerFirstName} and ${targetReal.name} with their seat numbers.
-- Write plain text without markdown or bullet points.`;
+CRITICAL RULES:
+- ABSOLUTELY NEVER say "Good point", "That is a good point", "You made a valid point", "Valuable perspective", or any flattering praise.
+- Summarize ${speakerFirstName}'s specific argument in 1 crisp sentence (e.g., "${speakerFirstName} from ${speakerSeat}, you pointed out that [concise summary of candidate's specific premise].").
+- Bridge directly to ${targetReal.name} from ${seatStr} in 1 sentence, asking ${firstName} to evaluate, counter, or build upon ${speakerFirstName}'s specific thesis.
+- Address both ${speakerFirstName} from ${speakerSeat} and ${targetReal.name} from ${seatStr}.
+- Maximum 40 words total. Plain text only. Natural spoken moderator cadence.`;
 
           const response = await ai.models.generateContent({
             model: 'gemini-3.7-flash',
@@ -5132,7 +5225,15 @@ Rules:
           });
           const genText = response.text?.trim();
           if (genText && genText.length > 20) {
-            invitation = genText;
+            // Strip any accidental canned praise phrases
+            let sanitized = genText
+              .replace(/^(that is a |that's a )?(good|great|valid|valuable|nice|excellent)\s+point[,.]?\s*/i, '')
+              .replace(/^thank you[,.]?\s+(that is a |that's a )?(good|great|valid|valuable)\s+point[,.]?\s*/i, '')
+              .trim();
+            if (sanitized.length > 0) {
+              sanitized = sanitized.charAt(0).toUpperCase() + sanitized.slice(1);
+              invitation = sanitized;
+            }
           }
         } catch (err) {
           console.warn('[AI Thought Analysis Error, using heuristic]:', err);
@@ -5157,7 +5258,11 @@ Rules:
     persistTranscriptToMongoDB(transcript);
     io.to('room-' + room.slotId).emit('facilitator-intervention', {
       text: invitation,
-      action: isOpening ? 'opening' : 'thought_analysis_reply',
+      action: isOpening
+        ? 'opening'
+        : (utteranceClassification.category === 'mic_check' || utteranceClassification.category === 'greeting')
+          ? 'audio_confirmation'
+          : 'thought_analysis_reply',
       targetUserId: targetReal.userId,
       targetSeatNumber: targetReal.seatNumber,
       transcript
