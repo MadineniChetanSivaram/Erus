@@ -4803,6 +4803,7 @@ interface LiveGDRoomState {
   openingStarted?: boolean;
   facilitatorHandoffCount: number;
   facilitatorHandoffStreak: number;
+  speechYieldTimer?: NodeJS.Timeout;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -4912,100 +4913,188 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
   return room;
 }
 
+function analyzeThoughtHeuristically(
+  topic: string,
+  speakerName: string,
+  speakerSeat: string,
+  spokenText: string,
+  targetName?: string,
+  targetSeat?: string
+): string {
+  const firstName = speakerName.split(' ')[0];
+  const targetFirstName = targetName ? targetName.split(' ')[0] : '';
+  const isSamePerson = !targetName || targetName === speakerName;
+
+  const raw = (spokenText || '').trim();
+  const lower = raw.toLowerCase();
+
+  // Extract cleanest core statement by stripping conversational preamble
+  const cleaned = raw
+    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that)/i, '')
+    .trim();
+
+  let coreAnalysis = '';
+  let probingFollowup = '';
+  let peerTransition = '';
+
+  if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted a critical economic point regarding financial feasibility and operational cost pressures in ${topic}.`;
+    probingFollowup = `However, how can organizations mitigate these financial burdens without compromising service quality or consumer affordability?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s economic assessment, or do you view the financial returns differently?`;
+  } else if (lower.includes('privacy') || lower.includes('data') || lower.includes('security') || lower.includes('hack') || lower.includes('fraud') || lower.includes('breach') || lower.includes('protect')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, your argument regarding data privacy and platform security identifies a paramount vulnerability in ${topic}.`;
+    probingFollowup = `How can systems maintain end-to-end data integrity without introducing prohibitive friction for everyday users?`;
+    peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how would you evaluate ${firstName}'s concerns regarding security, and what policy safeguards would you propose?`;
+  } else if (lower.includes('job') || lower.includes('worker') || lower.includes('employ') || lower.includes('labor') || lower.includes('staff') || lower.includes('career') || lower.includes('livelihood')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you thoughtfully brought up the human dimension of workforce displacement and evolving career roles in ${topic}.`;
+    probingFollowup = `As the market transforms, what structured reskilling initiatives should be mandated to protect vulnerable workers from displacement?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment impact, and what solutions would you offer?`;
+  } else if (lower.includes('ethic') || lower.includes('bias') || lower.includes('moral') || lower.includes('fair') || lower.includes('responsib') || lower.includes('trust')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential ethical inquiry into fairness and institutional accountability within ${topic}.`;
+    probingFollowup = `How should decision-makers establish transparent ethical guidelines when commercial incentives push in the opposite direction?`;
+    peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, do you share ${firstName}'s ethical concerns, or do you believe market competition naturally regulates this?`;
+  } else if (lower.includes('rural') || lower.includes('access') || lower.includes('reach') || lower.includes('infrastruct') || lower.includes('tier') || lower.includes('divide')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the vital challenge of equitable regional access and infrastructure disparities in ${topic}.`;
+    probingFollowup = `What realistic infrastructure investments are required so rural communities can participate on equal footing?`;
+    peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s emphasis on accessibility influence your stance on this subject?`;
+  } else if (lower.includes('delivery') || lower.includes('speed') || lower.includes('quick') || lower.includes('logistics') || lower.includes('convenien') || lower.includes('customer')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, your observation regarding customer convenience and rapid fulfillment touches the operational heart of ${topic}.`;
+    probingFollowup = `Does the push for instant delivery compromise employee well-being and environmental sustainability? How should that balance be struck?`;
+    peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you respond to ${firstName}'s analysis of customer convenience versus operational sustainability?`;
+  } else if (lower.includes('tech') || lower.includes('ai') || lower.includes('automat') || lower.includes('digital') || lower.includes('platform') || lower.includes('tool')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, your insight on technological scalability and automated efficiency provides a strong practical foundation for ${topic}.`;
+    probingFollowup = `While technology drives efficiency, where must human oversight remain strictly non-negotiable?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s argument regarding technological adoption in this domain?`;
+  } else {
+    // Dynamic argument synthesis quoting key clause
+    const snippet = cleaned.length > 55 ? cleaned.slice(0, 55).replace(/\s+\S*$/, '') + '...' : cleaned;
+    coreAnalysis = `${firstName} from ${speakerSeat}, your argument emphasizing that ${snippet || 'this issue demands careful nuance'} presents a valuable perspective on ${topic}.`;
+    probingFollowup = `Considering practical constraints, what potential counter-argument or implementation roadblock must be addressed to make this workable?`;
+    peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint, and what counter-arguments or additions would you propose?`;
+  }
+
+  return isSamePerson ? `${coreAnalysis} ${probingFollowup}` : `${coreAnalysis} ${peerTransition}`;
+}
+
 async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string) {
   if (room.turnTimer) clearTimeout(room.turnTimer);
   room.turnTimer = undefined;
+  if (room.speechYieldTimer) {
+    clearTimeout(room.speechYieldTimer);
+    room.speechYieldTimer = undefined;
+  }
   if (room.status !== 'active') return;
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   const allParticipants: any[] = realStudents;
   if (!allParticipants.length) return;
 
-  // Round-robin rule: nobody may receive a second turn until every active
-  // participant has completed the current round.
-  const minimumTurns = Math.min(...allParticipants.map((p) => Number(p.speakingTurns || 0)));
-  const currentRoundCandidates = allParticipants.filter(
-    (p) => Number(p.speakingTurns || 0) === minimumTurns
-  );
+  const isOpening = !room.openingStarted;
 
-  const completedMatches = currentRoundCandidates.some(
-    (p) => p.id === completedUserId || p.userId === completedUserId
-  );
-  const isNewRoundBoundary = currentRoundCandidates.length === allParticipants.length;
-  const candidates: any[] =
-    completedMatches && !isNewRoundBoundary && currentRoundCandidates.length > 1
-      ? currentRoundCandidates.filter((p) => p.id !== completedUserId && p.userId !== completedUserId)
-      : currentRoundCandidates;
+  let targetReal: LiveRoomPeer;
+  let isSameSpeaker = false;
 
-  if (!candidates.length) return;
-
-  // Randomize only the opening turn
-  if (!room.initialSpeakerSelected && allParticipants.length > 1) {
+  if (isOpening) {
+    room.openingStarted = true;
     const starter = allParticipants[Math.floor(Math.random() * allParticipants.length)];
-    candidates.splice(0, candidates.length, starter);
+    targetReal = starter;
     room.initialSpeakerSelected = true;
+  } else {
+    // A participant just spoke! Determine next target: either another candidate, or probe same candidate if single
+    const otherCandidates = allParticipants.filter((p) => p.userId !== completedUserId);
+    if (otherCandidates.length > 0) {
+      // Pick next participant who spoke least or longest ago
+      otherCandidates.sort((a, b) => {
+        return (a.speakingTurns || 0) - (b.speakingTurns || 0) || (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
+      });
+      targetReal = otherCandidates[0];
+      isSameSpeaker = false;
+    } else {
+      // Single participant practicing or addressing consecutive question
+      targetReal = allParticipants.find((p) => p.userId === completedUserId) || allParticipants[0];
+      isSameSpeaker = true;
+    }
   }
 
   room.turnTimer = setTimeout(async () => {
     room.turnTimer = undefined;
     if (room.currentSpeakerId) return;
-    const now = Date.now();
 
-    candidates.sort((a, b) => {
-      return (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0);
-    });
-
-    let target = candidates[0];
-    if (room.nextSpeakerId) {
-      const handedOff = candidates.find((p) => p.id === room.nextSpeakerId || p.userId === room.nextSpeakerId);
-      if (handedOff) target = handedOff;
-      room.nextSpeakerId = undefined;
-    }
-    const isOpening = !room.openingStarted;
-    if (isOpening) {
-      target = candidates[Math.floor(Math.random() * candidates.length)];
-      room.openingStarted = true;
-    }
-    const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-10).map((t) => t.speakerName + ': ' + t.text).join('\n');
-
-    const targetReal = target as LiveRoomPeer;
     room.waitingForParticipantId = targetReal.userId;
     const firstName = targetReal.name.split(' ')[0];
     const seatStr = targetReal.seatNumber ? `Seat ${targetReal.seatNumber}` : 'your seat';
 
     let invitation = '';
+
     if (isOpening) {
       invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
     } else {
-      const recentSpeakerTranscript = room.transcripts.filter((t) => !t.isFacilitator).slice(-1)[0];
-      const prevSpeakerName = recentSpeakerTranscript ? recentSpeakerTranscript.speakerName.split(' ')[0] : null;
+      // Find the thought that was just spoken by the student!
+      const studentTranscripts = room.transcripts.filter((t) => !t.isFacilitator);
+      const recentSpeakerTranscript = studentTranscripts.slice(-1)[0];
+      const spokenThought = recentSpeakerTranscript?.text?.trim() || '';
 
-      const questionTemplates = [
-        `Thank you${prevSpeakerName ? ', ' + prevSpeakerName : ''}. Let us now hear from ${targetReal.name} at ${seatStr}. ${firstName}, what is your perspective on this same question?`,
-        `Thank you${prevSpeakerName ? ', ' + prevSpeakerName : ''}. Turning to ${targetReal.name} at ${seatStr}: ${firstName}, do you agree with this viewpoint, or would you counter it?`,
-        `Good point by ${prevSpeakerName || 'our peer'}. Let us invite ${targetReal.name} from ${seatStr} into the discussion. ${firstName}, how would you evaluate this argument?`,
-        `Thank you. Let us hear from ${targetReal.name} at ${seatStr} next. ${firstName}, what real-world evidence would you add to this discussion?`,
-        `Let us maintain balanced participation. ${targetReal.name} from ${seatStr}, ${firstName}, what is your take on this question?`
-      ];
-      invitation = questionTemplates[Math.floor(Math.random() * questionTemplates.length)];
-    }
+      const speakerPeer = Array.from(room.peers.values()).find(
+        (p) => p.userId === completedUserId || (recentSpeakerTranscript && p.userId === recentSpeakerTranscript.speakerId)
+      );
+      const speakerName = speakerPeer?.name || recentSpeakerTranscript?.speakerName || 'Candidate';
+      const speakerFirstName = speakerName.split(' ')[0];
+      const speakerSeat = speakerPeer?.seatNumber ? `Seat ${speakerPeer.seatNumber}` : 'Seat 1';
 
-    if (ai) {
-      try {
-        const promptInstruction = isOpening
-          ? `You are the live AI moderator of a collegiate Group Discussion on "${room.topic}". The session has just begun. Welcome the participants and call upon ${targetReal.name} from ${seatStr} to open the discussion with their opening thoughts. Write ONE natural moderator sentence under 28 words. ALWAYS mention "${targetReal.name}" and "${seatStr}".`
-          : `You are the live AI moderator of a collegiate Group Discussion on "${room.topic}". Call upon ${targetReal.name} from ${seatStr} to give their turn on the question under discussion. Recent discussion:\n${recentHistory || '(none)'}\nWrite ONE natural moderator sentence under 25 words. ALWAYS address ${targetReal.name} and ${seatStr} explicitly.`;
+      // 1. Generate Heuristic Thought Analysis as reliable baseline
+      invitation = analyzeThoughtHeuristically(
+        room.topic,
+        speakerName,
+        speakerSeat,
+        spokenThought,
+        isSameSpeaker ? undefined : targetReal.name,
+        isSameSpeaker ? undefined : seatStr
+      );
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
-          contents: promptInstruction,
-        });
-        const genText = response.text?.trim();
-        if (genText) {
-          invitation = genText;
+      // 2. If Gemini API is available, generate deeply customized thought analysis and reply
+      if (ai) {
+        try {
+          const promptInstruction = isSameSpeaker
+            ? `You are an insightful live AI moderator of a collegiate Group Discussion on "${room.topic}".
+Participant ${speakerName} from ${speakerSeat} just shared this thought:
+"${spokenThought}"
+
+Analyze what ${speakerFirstName} said and reply directly to them:
+1. In 1 concise sentence, analyze the core argument or insight ${speakerFirstName} presented.
+2. In 1 concise sentence, reply with a probing analytical question or counter-perspective asking ${speakerFirstName} to defend or expand their thought.
+Rules:
+- Maximum 38 words.
+- Natural spoken moderator tone.
+- Directly reference the specific idea/thought ${speakerFirstName} shared.
+- Address ${speakerFirstName} from ${speakerSeat}.
+- Write plain text without markdown or bullet points.`
+            : `You are an insightful live AI moderator of a collegiate Group Discussion on "${room.topic}".
+Participant ${speakerName} from ${speakerSeat} just shared this thought:
+"${spokenThought}"
+
+Next participant to speak is ${targetReal.name} from ${seatStr}.
+
+Analyze what ${speakerFirstName} said and reply accordingly:
+1. In 1 concise sentence, analyze the key point made by ${speakerFirstName}.
+2. In 1 concise sentence, bridge to ${targetReal.name} from ${seatStr}, asking ${firstName} a specific question comparing, contrasting, or evaluating ${speakerFirstName}'s specific argument.
+Rules:
+- Maximum 40 words.
+- Natural spoken moderator tone.
+- Directly reference the specific idea/thought ${speakerFirstName} shared.
+- Address both ${speakerFirstName} and ${targetReal.name} with their seat numbers.
+- Write plain text without markdown or bullet points.`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.7-flash',
+            contents: promptInstruction,
+          });
+          const genText = response.text?.trim();
+          if (genText && genText.length > 20) {
+            invitation = genText;
+          }
+        } catch (err) {
+          console.warn('[AI Thought Analysis Error, using heuristic]:', err);
         }
-      } catch (err) {
-        console.warn('[AI Turn Invitation Error]:', err);
       }
     }
 
@@ -5026,7 +5115,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     persistTranscriptToMongoDB(transcript);
     io.to('room-' + room.slotId).emit('facilitator-intervention', {
       text: invitation,
-      action: isOpening ? 'opening' : 'next_turn',
+      action: isOpening ? 'opening' : 'thought_analysis_reply',
       targetUserId: targetReal.userId,
       targetSeatNumber: targetReal.seatNumber,
       transcript
@@ -5346,6 +5435,10 @@ io.on('connection', (socket) => {
         floorVersion: room.floorVersion,
       });
     } else if (room.currentSpeakerSocketId === socket.id) {
+      if (room.speechYieldTimer) {
+        clearTimeout(room.speechYieldTimer);
+        room.speechYieldTimer = undefined;
+      }
       // Current speaker finished speaking
       room.currentSpeakerId = null;
       room.currentSpeakerSocketId = null;
@@ -5437,6 +5530,29 @@ io.on('connection', (socket) => {
       studentId: peer.userId,
       seatNumber: peer.seatNumber,
     });
+
+    // Reset prior speech yield timer and set auto-yield after statement completion
+    if (room.speechYieldTimer) {
+      clearTimeout(room.speechYieldTimer);
+      room.speechYieldTimer = undefined;
+    }
+
+    // Automatically yield floor after 2.2 seconds of statement inactivity so AI facilitator analyzes and replies
+    room.speechYieldTimer = setTimeout(() => {
+      room.speechYieldTimer = undefined;
+      if (room.currentSpeakerId === peer.userId || room.currentSpeakerSocketId === socket.id) {
+        room.currentSpeakerId = null;
+        room.currentSpeakerSocketId = null;
+        room.waitingForParticipantId = undefined;
+        room.floorVersion += 1;
+        io.to(`room-${safeSlotId}`).emit('floor-state', {
+          speakerId: null,
+          speakerSocketId: null,
+          floorVersion: room.floorVersion,
+        });
+        scheduleNextTurn(room, peer.userId);
+      }
+    }, 2200);
   });
 
   // 5. Peer Disconnect Cleanup

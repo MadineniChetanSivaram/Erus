@@ -270,6 +270,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     startSession: rtcStartSession,
     requestAiIntervention: rtcRequestAiIntervention,
     broadcastFacilitatorSpeech: rtcBroadcastFacilitatorSpeech,
+    notifySpeakingFinished: rtcNotifySpeakingFinished,
     aiParticipants: rtcAiParticipants,
     simulationMode: rtcSimulationMode,
   } = useWebRTCRoom({
@@ -1047,12 +1048,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Broadcast live to all connected peers in the room via WebRTC Socket.IO (PDF Page 5, FR-1)
     rtcBroadcastTranscript(text, elapsedSeconds, newEntry.id);
 
-    // If triggered without live mic (e.g. Quick Speaking Point clicked), vocalize in authentic Indian English so it is audible to everyone in the room
-    if (!isListeningMic && !isFaculty) {
-      roomVoice.speakAsStudent(userStudent, text);
-    }
-
-    // Update user stats in state
+    // Update user stats and mark speaking while delivering statement
     setSession((prev) => ({
       ...prev,
       silenceTimerSeconds: 0,
@@ -1085,19 +1081,29 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       console.warn(e);
     }
 
-    // Auto-yield speech after a short delay to simulate presentation completion
-    setTimeout(() => {
+    const yieldFloorAndNotify = () => {
       setSession((prev) => ({
         ...prev,
         currentSpeakerId: null,
         students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
       }));
-
-      // If auto simulate is enabled, automatically shift to the person who didn't speak yet!
+      rtcNotifySpeakingFinished();
       if (autoSimulatePeers) {
         executeNextTurn(userStudent.id);
       }
-    }, 4000);
+    };
+
+    // If triggered without live mic (e.g. Quick Speaking Point clicked or typed), vocalize in authentic Indian English so it is audible to everyone
+    if (!isListeningMic && !isFaculty) {
+      roomVoice.speakAsStudent(userStudent, text, () => {
+        yieldFloorAndNotify();
+      });
+    } else {
+      // With live microphone, yield floor after brief pause so AI Facilitator analyzes the thought and replies accordingly
+      setTimeout(() => {
+        yieldFloorAndNotify();
+      }, 1600);
+    }
   };
 
   handleSendUserStatementRef.current = handleSendUserStatement;

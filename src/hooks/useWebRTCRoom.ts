@@ -777,6 +777,18 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
+  // Explicitly notify room that participant has yielded the floor
+  const notifySpeakingFinished = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.emit('peer-speaking-state', {
+        slotId,
+        isSpeaking: false,
+        micActive: !isMicMuted,
+        volumeLevel: 0,
+      });
+    }
+  }, [slotId, isMicMuted]);
+
   return {
     connected,
     assignedSeat,
@@ -794,6 +806,7 @@ export function useWebRTCRoom({
     startSession,
     requestAiIntervention,
     broadcastFacilitatorSpeech,
+    notifySpeakingFinished,
     error,
   };
 }
