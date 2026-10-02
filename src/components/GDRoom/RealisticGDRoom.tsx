@@ -111,7 +111,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // a real participant is speaking, so it is disabled for live GDs.
   const [autoSimulatePeers, setAutoSimulatePeers] = useState(false);
   const [invitedStudentPrompt, setInvitedStudentPrompt] = useState<{ student: Student; reason: string; promptText?: string } | null>(null);
-  const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(session.roomLayout || 'round_table');
+  const [currentLayout, setCurrentLayout] = useState<GDRoomLayoutType>(() => {
+    try {
+      const saved = localStorage.getItem('erus_gd_room_layout');
+      if (saved && ['round_table', 'speaker_middle', 'classroom'].includes(saved)) {
+        return saved as GDRoomLayoutType;
+      }
+    } catch {}
+    return session.roomLayout || 'round_table';
+  });
 
   const hasInitiatedOpeningRef = useRef<boolean>(false);
   const isTransitioningTurnRef = useRef<boolean>(false);
@@ -215,10 +223,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   };
 
   useEffect(() => {
-    if (session.roomLayout) {
+    if (session.roomLayout && session.roomLayout !== currentLayout) {
+      try {
+        const saved = localStorage.getItem('erus_gd_room_layout');
+        if (saved && saved !== session.roomLayout) {
+          return;
+        }
+      } catch {}
       setCurrentLayout(session.roomLayout);
     }
-  }, [session.roomLayout]);
+  }, [session.roomLayout, currentLayout]);
 
   // Synchronize webcam live state to user's student state (only when currentUser is a student participant)
   useEffect(() => {
@@ -231,6 +245,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   const handleLayoutChange = (newLayout: GDRoomLayoutType) => {
     setCurrentLayout(newLayout);
+    try {
+      localStorage.setItem('erus_gd_room_layout', newLayout);
+    } catch {}
     setSession((prev) => ({ ...prev, roomLayout: newLayout }));
     if (onUpdateLayout) {
       onUpdateLayout(newLayout);
@@ -500,14 +517,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
 
       // Check if another real peer is connected in this seat (Strictly students only! Never faculty or admin)
-      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber && p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin');
+      const realPeer = rtcPeers.find((p) => p.seatNumber === fixedSeatNumber && p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin') ||
+        (fixedSeatNumber === 1 && rtcPeers.find((p) => p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin'));
       if (realPeer) {
-        const remoteStream = rtcPeerStreams.get(realPeer.socketId) || null;
+        const remoteStream = rtcPeerStreams.get(realPeer.socketId) || (rtcPeers.filter((p) => p.role === 'student').length === 1 ? Array.from(rtcPeerStreams.values())[0] : null);
         return {
           ...st,
-          id: realPeer.userId,
+          id: realPeer.userId || st.id,
           seatNumber: fixedSeatNumber,
-          name: realPeer.name,
+          name: realPeer.name || st.name,
           avatar: realPeer.avatar || st.avatar,
           college: realPeer.college || st.college,
           isSpeaking: realPeer.isSpeaking,
@@ -563,8 +581,19 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   
   const liveEnlargedStudent = useMemo(() => {
     if (!enlargedStudent) return null;
-    return activeDisplayStudents.find((s) => s.id === enlargedStudent.id) || enlargedStudent;
-  }, [enlargedStudent, activeDisplayStudents]);
+    const matched = activeDisplayStudents.find(
+      (s) => s.id === enlargedStudent.id || (s.seatNumber && s.seatNumber === enlargedStudent.seatNumber)
+    );
+    if (!matched) return enlargedStudent;
+    if (!matched.videoStream && !matched.isUser && rtcPeerStreams.size > 0) {
+      const peer = rtcPeers.find((p) => p.seatNumber === matched.seatNumber || p.userId === matched.id);
+      const stream = peer ? rtcPeerStreams.get(peer.socketId) : Array.from(rtcPeerStreams.values())[0];
+      if (stream) {
+        return { ...matched, videoStream: stream };
+      }
+    }
+    return matched;
+  }, [enlargedStudent, activeDisplayStudents, rtcPeerStreams, rtcPeers]);
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -3157,24 +3186,39 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <User className="w-16 h-16 opacity-30 mb-2" />
                   <p className="text-sm">Empty Desk • Awaiting Candidate</p>
                 </div>
-              ) : (liveEnlargedStudent.isUser ? (isCameraOn && videoStream) : (liveEnlargedStudent.videoStream && liveEnlargedStudent.cameraActive !== false)) ? (
-                <VideoStreamPlayer 
-                  stream={(liveEnlargedStudent.isUser ? videoStream : liveEnlargedStudent.videoStream)!}
-                  muted={liveEnlargedStudent.isUser}
-                  className={`w-full h-full object-cover ${liveEnlargedStudent.isUser ? 'transform -scale-x-100' : ''}`}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center text-slate-400 p-6 text-center">
-                  <div className="w-24 h-24 rounded-full bg-indigo-600/90 flex items-center justify-center text-3xl font-extrabold text-white uppercase shadow-xl mb-3">
-                    {liveEnlargedStudent.name.charAt(0)}
-                  </div>
-                  <p className="text-sm font-semibold text-slate-200">{liveEnlargedStudent.name}</p>
-                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                    <VideoOff className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Camera is currently off</span>
-                  </p>
-                </div>
-              )}
+              ) : (() => {
+                  const effectiveStream = liveEnlargedStudent.isUser 
+                    ? (isCameraOn ? videoStream : null)
+                    : (liveEnlargedStudent.videoStream || (rtcPeerStreams.size > 0 ? Array.from(rtcPeerStreams.values())[0] : null));
+                  
+                  const hasActiveStream = !!(effectiveStream && (effectiveStream.getVideoTracks().length > 0 || (effectiveStream as any).active));
+                  const isCameraActive = liveEnlargedStudent.isUser 
+                    ? isCameraOn 
+                    : (liveEnlargedStudent.cameraActive !== false);
+
+                  if (effectiveStream && (hasActiveStream || isCameraActive)) {
+                    return (
+                      <VideoStreamPlayer 
+                        stream={effectiveStream}
+                        muted={liveEnlargedStudent.isUser}
+                        className={`w-full h-full object-cover ${liveEnlargedStudent.isUser ? 'transform -scale-x-100' : ''}`}
+                      />
+                    );
+                  }
+
+                  return (
+                    <div className="flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                      <div className="w-24 h-24 rounded-full bg-indigo-600/90 flex items-center justify-center text-3xl font-extrabold text-white uppercase shadow-xl mb-3">
+                        {liveEnlargedStudent.name.charAt(0)}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-200">{liveEnlargedStudent.name}</p>
+                      <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                        <VideoOff className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Camera is currently off</span>
+                      </p>
+                    </div>
+                  );
+                })()}
 
               {/* Live Speaker Animation Aura */}
               {liveEnlargedStudent.isSpeaking && (

@@ -170,18 +170,19 @@ export function useWebRTCRoom({
     pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionsRef.current.set(peerSocketId, pc);
 
-    // Initialize bidirectional audio & video transceivers so SDP negotiation always supports both media types
+    // Initialize audio & video transceivers so SDP negotiation always supports media exchange
     try {
       if (pc.getTransceivers().length === 0) {
-        pc.addTransceiver('audio', { direction: 'sendrecv' });
-        pc.addTransceiver('video', { direction: 'sendrecv' });
+        const isFaculty = currentUser?.role === 'faculty';
+        pc.addTransceiver('audio', { direction: isFaculty ? 'recvonly' : 'sendrecv' });
+        pc.addTransceiver('video', { direction: isFaculty ? 'recvonly' : 'sendrecv' });
       }
     } catch (e) {
       console.warn('[WebRTC Transceiver init]:', e);
     }
 
-    // Add local microphone audio track to the connection
-    if (localStreamRef.current) {
+    // Add local microphone audio track to the connection (students only)
+    if (localStreamRef.current && currentUser?.role !== 'faculty') {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         const senders = pc.getSenders();
@@ -195,11 +196,16 @@ export function useWebRTCRoom({
     }
 
     // Add local webcam video track if camera is currently enabled
-    if (videoStreamRef.current && isCameraOnRef.current) {
+    if (videoStreamRef.current && isCameraOnRef.current && currentUser?.role !== 'faculty') {
       const videoTrack = videoStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
-        const senders = pc.getSenders();
-        const videoSender = senders.find((s) => s.track?.kind === 'video' || (s as any).kind === 'video');
+        const videoTransceiver = pc.getTransceivers().find(
+          (t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video'
+        ) || pc.getTransceivers()[1];
+        const videoSender = videoTransceiver?.sender || pc.getSenders().find((s) => s.track?.kind === 'video');
+        if (videoTransceiver) {
+          try { videoTransceiver.direction = 'sendrecv'; } catch (e) {}
+        }
         if (videoSender) {
           videoSender.replaceTrack(videoTrack).catch(() => {});
         } else {
@@ -223,23 +229,30 @@ export function useWebRTCRoom({
       const incomingStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
       
       let peerStream = peerStreamsRef.current.get(peerSocketId);
-      if (!peerStream) {
-        peerStream = new MediaStream();
-        peerStreamsRef.current.set(peerSocketId, peerStream);
-      }
+      const existingTracks = peerStream ? peerStream.getTracks() : [];
+      const newTracks = incomingStream.getTracks();
       
-      const tracks = (event.streams && event.streams[0]) ? event.streams[0].getTracks() : [event.track];
-      tracks.forEach((track) => {
-        if (!peerStream!.getTracks().some((t) => t.id === track.id)) {
-          peerStream!.addTrack(track);
+      const combinedTracks = [...existingTracks];
+      newTracks.forEach((t) => {
+        if (!combinedTracks.some((ct) => ct.id === t.id)) {
+          combinedTracks.push(t);
         }
       });
 
+      // Fresh MediaStream instance guarantees React re-render
+      const updatedStream = new MediaStream(combinedTracks);
+      peerStreamsRef.current.set(peerSocketId, updatedStream);
       setPeerStreams(new Map(peerStreamsRef.current));
+
+      combinedTracks.forEach((track) => {
+        track.onunmute = () => {
+          setPeerStreams(new Map(peerStreamsRef.current));
+        };
+      });
 
       // Stream audio track to browser speakers
       if (event.track.kind === 'audio' || incomingStream.getAudioTracks().length > 0) {
-        attachRemoteAudio(peerSocketId, incomingStream);
+        attachRemoteAudio(peerSocketId, updatedStream);
       }
     };
 
@@ -429,21 +442,8 @@ export function useWebRTCRoom({
         return [...filtered, peer];
       });
 
-      // Prepare peer connection and actively offer to incoming peer to guarantee connectivity
-      try {
-        const pc = getOrCreatePeerConnection(peer.socketId);
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true,
-        });
-        await pc.setLocalDescription(offer);
-        socket.emit('signal-send', {
-          to: peer.socketId,
-          signal: { sdp: offer },
-        });
-      } catch (e) {
-        console.warn('[WebRTC peer-joined offer error]:', e);
-      }
+      // Prepare peer connection for incoming peer (incoming peer initiates offer in gd-room-joined)
+      getOrCreatePeerConnection(peer.socketId);
     });
 
     // WebRTC Signaling Relay Received (Offer, Answer, ICE Candidate)
@@ -454,6 +454,17 @@ export function useWebRTCRoom({
       try {
         if (signal.sdp) {
           if (signal.sdp.type === 'offer') {
+            const isOfferCollision = pc.signalingState !== 'stable';
+            const isPolite = (socket.id || '') < from;
+            if (isOfferCollision) {
+              if (!isPolite) {
+                // Impolite peer ignores colliding offer; remote polite peer will roll back
+                return;
+              }
+              // Polite peer rolls back local offer to accept incoming offer
+              await pc.setLocalDescription({ type: 'rollback' });
+            }
+
             await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
 
             // Drain queued ICE candidates received before remote description was ready
@@ -472,20 +483,24 @@ export function useWebRTCRoom({
               signal: { sdp: answer },
             });
           } else if (signal.sdp.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+            if (pc.signalingState === 'have-local-offer') {
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
 
-            // Drain queued ICE candidates received before remote description was ready
-            const queued = iceCandidateQueueRef.current.get(from) || [];
-            for (const cand of queued) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(cand));
-              } catch (err) {}
+              // Drain queued ICE candidates received before remote description was ready
+              const queued = iceCandidateQueueRef.current.get(from) || [];
+              for (const cand of queued) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (err) {}
+              }
+              iceCandidateQueueRef.current.delete(from);
             }
-            iceCandidateQueueRef.current.delete(from);
           }
         } else if (signal.candidate) {
           if (pc.remoteDescription && pc.remoteDescription.type) {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            } catch (candErr) {}
           } else {
             const q = iceCandidateQueueRef.current.get(from) || [];
             q.push(signal.candidate);
@@ -682,10 +697,15 @@ export function useWebRTCRoom({
 
     peerConnectionsRef.current.forEach(async (pc, peerSocketId) => {
       try {
-        const senders = pc.getSenders();
-        const videoSender = senders.find((s) => s.track?.kind === 'video' || (s as any).kind === 'video');
+        const videoTransceiver = pc.getTransceivers().find(
+          (t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video'
+        ) || pc.getTransceivers()[1];
+        const videoSender = videoTransceiver?.sender || pc.getSenders().find((s) => s.track?.kind === 'video');
 
         if (videoTrack) {
+          if (videoTransceiver) {
+            try { videoTransceiver.direction = 'sendrecv'; } catch (e) {}
+          }
           if (videoSender) {
             await videoSender.replaceTrack(videoTrack);
           } else {

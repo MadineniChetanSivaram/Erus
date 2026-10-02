@@ -250,6 +250,7 @@ function GDAppContent() {
             return {
               ...prev,
               ...fresh,
+              roomLayout: prev.roomLayout || fresh.roomLayout || 'round_table',
               students: (prev.students && prev.students.length > 0) ? prev.students : fresh.students,
             };
           });
@@ -1288,6 +1289,9 @@ function GDAppContent() {
             currentUser={currentUser}
             bookedSlotId={studentBookedSlotId}
             onUpdateLayout={(newLayout) => {
+              try {
+                localStorage.setItem('erus_gd_room_layout', newLayout);
+              } catch {}
               setSession((prev) => ({ ...prev, roomLayout: newLayout }));
               setAvailableSlots((prev) =>
                 prev.map((s) => (s.id === session.id ? { ...s, roomLayout: newLayout } : s))
