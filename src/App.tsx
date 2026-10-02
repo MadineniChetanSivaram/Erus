@@ -435,12 +435,12 @@ function GDAppContent() {
     facilitatorVoice.setMuted(voiceMuted);
   }, [voiceMuted]);
 
-  // Stop any active AI speech when outside of the discussion room or when session is not actively ongoing
+  // Stop any active AI speech when navigating away from the discussion room
   useEffect(() => {
-    if (currentTab !== 'room' || session.status !== 'active') {
+    if (currentTab !== 'room') {
       facilitatorVoice.stop();
     }
-  }, [currentTab, session.status]);
+  }, [currentTab]);
 
   // Main session elapsed timer & silence deadlock tracker (Strictly active only when room is live)
   useEffect(() => {

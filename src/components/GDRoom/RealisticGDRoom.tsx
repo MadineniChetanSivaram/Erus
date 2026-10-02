@@ -209,7 +209,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     videoStream,
     toggleCamera,
     cameraError,
-    audioLevel,
+    audioLevel: userMediaAudioLevel,
     startAudioAnalyser,
     stopAudioAnalyser,
   } = useUserMedia();
@@ -352,6 +352,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
   });
 
+  // Authoritative microphone volume level derived from active WebRTC stream
+  const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
@@ -838,8 +840,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }
       }
       setIsListeningMic(false);
-      stopAudioAnalyser();
-      rtcSetMicEnabled(false);
+      await rtcSetMicEnabled(false);
       if (!isFaculty) {
         setSession((prev) => ({
           ...prev,
@@ -855,15 +856,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         aiVoiceResumeTimerRef.current = null;
       }
 
-      // Explicitly prompt/verify microphone access
-      try {
-        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-        }
-      } catch (micErr) {
-        console.warn('Microphone permission request:', micErr);
-      }
-
       isListeningMicRef.current = true;
       setIsListeningMic(true);
 
@@ -877,8 +869,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           console.warn('Speech recognition start error (WebRTC audio will still stream):', e);
         }
       }
-      startAudioAnalyser();
-      rtcSetMicEnabled(true);
+      await rtcSetMicEnabled(true);
       if (!isFaculty) {
         setSession((prev) => ({
           ...prev,
