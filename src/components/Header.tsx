@@ -170,7 +170,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <FileText className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
-              <span>{isStudent ? 'My Assessment Report' : 'Student Reports'}</span>
+              <span>{isStudent ? 'My Reports & GD Journey' : 'Student Reports'}</span>
             </button>
           )}
 

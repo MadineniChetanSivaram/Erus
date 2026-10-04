@@ -28,7 +28,8 @@ import {
   FileText,
   Bookmark,
   Tag,
-  Lock
+  Lock,
+  Compass
 } from 'lucide-react';
 import { 
   StudentAssessmentReport, 
@@ -39,6 +40,7 @@ import {
 import { AuthUser } from '../../types/auth';
 import { SAMPLE_REPORT_RAHUL, generateStudentReport } from '../../data/mockGDData';
 import { GDComparisonReport } from './GDComparisonReport';
+import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory } from '../../utils/studentReportHistory';
 import confetti from 'canvas-confetti';
 
@@ -129,7 +131,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   const isStudent = currentUser?.role === 'student';
   const isFaculty = currentUser?.role === 'faculty';
 
-  const [activeReportTab, setActiveReportTab] = useState<'single' | 'comparison'>('single');
+  const [activeReportTab, setActiveReportTab] = useState<'single' | 'comparison' | 'journey'>('single');
 
   // Find the active student for this user
   const userStudent = (session?.students && session.students.length > 0)
@@ -413,6 +415,16 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     );
   }
 
+  if (activeReportTab === 'journey') {
+    return (
+      <StudentGDJourneyProfile
+        currentReport={currentReport}
+        currentUser={currentUser}
+        onBackToSessionReport={() => setActiveReportTab('single')}
+      />
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       
@@ -605,6 +617,21 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             <span>GD Comparison & Evolution Report</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-extrabold border border-emerald-300 dark:border-emerald-800">
               Δ Previous vs Current
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveReportTab('journey')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeReportTab === 'journey'
+                ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs ring-1 ring-slate-900/5 dark:ring-white/10'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5 text-indigo-500" />
+            <span>My GD Journey &amp; Growth Profile</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-extrabold border border-indigo-300 dark:border-indigo-800">
+              ⭐ 78/100 Readiness
             </span>
           </button>
         </div>

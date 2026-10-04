@@ -1284,6 +1284,7 @@ function GDAppContent() {
               // Students never start a GD. They only enter after the assigned
               // faculty starts it; Socket.IO/polling will update the status.
             }}
+            onViewJourneyProfile={() => setCurrentTab('report')}
           />
         )}
 

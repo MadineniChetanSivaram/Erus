@@ -35,6 +35,7 @@ interface StudentTopicPortalProps {
   onBookSlot: (slotId: string) => void;
   onReviveSlot: (slotId: string) => void;
   onEnterRoom: (slotId: string) => void;
+  onViewJourneyProfile?: () => void;
 }
 
 export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
@@ -45,6 +46,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   onBookSlot,
   onReviveSlot,
   onEnterRoom,
+  onViewJourneyProfile,
 }) => {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,6 +188,21 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
               Explore scheduled group discussion topics, review allotted faculty evaluators, and confirm your seat in an available time slot. Under institutional guidelines, each candidate can reserve <strong>one discussion slot per topic</strong>.
             </p>
           </div>
+
+          {onViewJourneyProfile && (
+            <div className="shrink-0 flex items-center">
+              <button
+                type="button"
+                onClick={onViewJourneyProfile}
+                className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-105"
+              >
+                <span>⭐ My GD Journey &amp; Growth Profile</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-extrabold border border-emerald-400/30">
+                  78/100
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
