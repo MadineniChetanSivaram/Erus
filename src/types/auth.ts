@@ -52,6 +52,7 @@ export interface CollegeInfo {
   studentCount?: number;
   facultyCount?: number;
   slotCount?: number;
+  studentLimit?: number;
   adminEmail?: string;
   adminName?: string;
   adminPassword?: string;

@@ -504,6 +504,121 @@ export async function createCollegeSlot(payload: any) {
   return { success: true, slot: newSlot };
 }
 
+export async function updateCollegeStudentLimit(
+  collegeIdOrCode: string,
+  studentLimit: number
+): Promise<{ success: boolean; college?: any; slots?: any[]; studentLimit?: number; error?: string }> {
+  const limitNum = Math.max(1, studentLimit || 60);
+
+  // Update local storage cache
+  try {
+    const local = getLocalCustomColleges();
+    const updated = local.map((c: any) => {
+      if (c.id === collegeIdOrCode || c.code?.toUpperCase() === collegeIdOrCode.toUpperCase()) {
+        return { ...c, studentLimit: limitNum };
+      }
+      return c;
+    });
+    localStorage.setItem(CUSTOM_COLLEGES_KEY, JSON.stringify(updated));
+  } catch {}
+
+  try {
+    const res = await fetch(`/api/admin/colleges/${encodeURIComponent(collegeIdOrCode)}/limit`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentLimit: limitNum }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    console.warn('Error updating college student limit:', e);
+  }
+  return { success: true, studentLimit: limitNum };
+}
+
+export async function generateCollegeSlots(
+  collegeCode: string,
+  studentLimit?: number
+): Promise<{ success: boolean; slots?: any[]; studentLimit?: number; message?: string }> {
+  const code = (collegeCode || 'DIT').toUpperCase();
+  try {
+    const res = await fetch('/api/college/generate-slots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collegeCode: code, studentLimit }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.slots && Array.isArray(data.slots)) {
+        saveLocalSlots(code, data.slots);
+      }
+      return data;
+    }
+  } catch (e) {
+    console.warn('Error generating college slots:', e);
+  }
+  return { success: false, message: 'Failed to generate slots' };
+}
+
+export async function allotSlotTopicAndFaculty(
+  slotId: string,
+  collegeCode: string,
+  data: {
+    topic: string;
+    description?: string;
+    slotName?: string;
+    assignedFacultyId: string;
+    assignedFacultyName: string;
+    assignedFacultyEmail?: string;
+    assignedFacultyDept?: string;
+    slotTiming?: string;
+    slotDate?: string;
+  }
+): Promise<{ success: boolean; slot?: any; error?: string }> {
+  const code = (collegeCode || 'DIT').toUpperCase();
+
+  // Update local slots cache immediately
+  try {
+    const local = getLocalSlots(code);
+    const updated = local.map((s: any) => {
+      if (s.id === slotId) {
+        return {
+          ...s,
+          ...data,
+          topic: data.topic,
+          slotName: data.slotName || (s.slotName?.includes('Slot') ? `${s.slotName.split(':')[0]}: ${data.topic}` : data.topic),
+          assignedFacultyId: data.assignedFacultyId,
+          assignedFacultyName: data.assignedFacultyName,
+          assignedFacultyEmail: data.assignedFacultyEmail || s.assignedFacultyEmail,
+          assignedFacultyDept: data.assignedFacultyDept || s.assignedFacultyDept,
+          slotTiming: data.slotTiming || s.slotTiming,
+          slotDate: data.slotDate || s.slotDate,
+        };
+      }
+      return s;
+    });
+    saveLocalSlots(code, updated);
+  } catch {}
+
+  try {
+    const res = await fetch(`/api/college/slots/${encodeURIComponent(slotId)}/allot`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, collegeCode: code }),
+    });
+    if (res.ok) {
+      const resData = await res.json();
+      return resData;
+    }
+  } catch (e) {
+    console.warn('Error allotting slot topic and faculty:', e);
+  }
+
+  return { success: true };
+}
+
 // ==========================================
 // SUPER ADMIN CLIENT API HELPERS
 // ==========================================

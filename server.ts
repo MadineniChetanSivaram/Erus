@@ -55,6 +55,7 @@ interface BackendCollege {
   studentCount: number;
   facultyCount: number;
   slotCount: number;
+  studentLimit?: number;
   adminEmail?: string;
   adminName?: string;
   adminPassword?: string;
@@ -378,6 +379,7 @@ async function syncMongoDBWithPersistentState() {
           studentCount: c.studentCount || 0,
           facultyCount: c.facultyCount || 0,
           slotCount: c.slotCount || 0,
+          studentLimit: (c as any).studentLimit || 60,
           adminEmail: c.adminEmail || c.contactEmail,
           adminName: c.adminName || `${normCode} Administrator`,
           adminPassword: c.adminPassword || '',
@@ -663,6 +665,7 @@ async function persistCollegeToMongoDB(col: BackendCollege) {
         studentCount: col.studentCount || 0,
         facultyCount: col.facultyCount || 0,
         slotCount: col.slotCount || 0,
+        studentLimit: col.studentLimit || 60,
         adminEmail: col.adminEmail || '',
         adminName: col.adminName || '',
         adminPassword: col.adminPassword || '',
@@ -735,11 +738,11 @@ function ensureSlotParticipants(slot: BackendCollegeSlotItem, code: string): Bac
   const colStudents = persistentState.students[code] || [];
   const colStudentMap = new Map<string, BackendCollegeStudentItem>(colStudents.map((s) => [s.id, s]));
 
-  // Keep ONLY students who have actually booked this specific slot
+  // Keep students who are assigned to this slot or who booked this specific slot
   const validStudents: any[] = [];
   if (Array.isArray(slot.students)) {
     for (const s of slot.students) {
-      if (s && !s.isEmptySeat && !s.id?.startsWith('slot-stu-') && bookedStudentIds.has(s.id)) {
+      if (s && !s.isEmptySeat) {
         if (!validStudents.some((v) => v.id === s.id)) {
           validStudents.push(s);
         }
@@ -821,9 +824,151 @@ async function deleteSlotFromMongoDB(slotId: string) {
     await GDBookingModel.deleteMany({ sessionId: slotId });
     await TranscriptEntryModel.deleteMany({ sessionId: slotId });
     await AssessmentReportModel.deleteMany({ sessionId: slotId });
-  } catch (e: any) {
-    console.warn('[MongoDB] Delete slot error:', e.message);
+  } catch (e: any) {}
+}
+
+function generateRandomSlotsForCollege(code: string, studentLimit?: number): BackendCollegeSlotItem[] {
+  const normCode = normalizeCollegeCode(code);
+  const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === normCode);
+  const limit = studentLimit || col?.studentLimit || 60;
+  const numSlots = Math.max(1, Math.ceil(limit / 15));
+
+  // Registered students for this college
+  const registered = [...(persistentState.students[normCode] || [])];
+  // Shuffle registered students
+  for (let i = registered.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [registered[i], registered[j]] = [registered[j], registered[i]];
   }
+
+  // Default timing blocks
+  const timings = [
+    '10:00 AM - 10:15 AM',
+    '10:30 AM - 10:45 AM',
+    '11:00 AM - 11:15 AM',
+    '11:30 AM - 11:45 AM',
+    '12:00 PM - 12:15 PM',
+    '02:00 PM - 02:15 PM',
+    '02:30 PM - 02:45 PM',
+    '03:00 PM - 03:15 PM',
+    '03:30 PM - 03:45 PM',
+    '04:00 PM - 04:15 PM',
+  ];
+
+  const poolOfNames = [
+    'Aarav Sharma', 'Priya Nair', 'Rohan Gupta', 'Ananya Deshmukh', 'Karan Verma',
+    'Ishita Patel', 'Aditya Singh', 'Sneha Kulkarni', 'Vikram Malhotra', 'Divya Iyer',
+    'Rahul Mehta', 'Neha Joshi', 'Siddharth Rao', 'Pooja Reddy', 'Manish Choudhary',
+    'Tanvi Bhat', 'Akash Sen', 'Meera Pillai', 'Rishabh Tiwari', 'Shreya Banerjee',
+    'Varun Nambiar', 'Ritu Saxena', 'Kunal Kapoor', 'Simran Kaur', 'Arjun Namboodiri',
+    'Anjali Menon', 'Gaurav Das', 'Swati Mishra', 'Nikhil Agarwal', 'Kavita Hegde'
+  ];
+
+  const branches = [
+    'B.Tech Computer Science & Engineering',
+    'B.Tech Information Technology',
+    'B.Tech Electronics & Communication',
+    'B.Tech Artificial Intelligence & Data Science',
+    'B.Tech Mechanical Engineering',
+  ];
+
+  let studentPoolIndex = 0;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const generatedSlots: BackendCollegeSlotItem[] = [];
+
+  for (let sIdx = 0; sIdx < numSlots; sIdx++) {
+    const slotStudents: any[] = [];
+    const slotId = `slot-${normCode.toLowerCase()}-${sIdx + 1}-${Date.now()}`;
+    const timing = timings[sIdx % timings.length];
+
+    // Pick 15 students
+    for (let seat = 1; seat <= 15; seat++) {
+      let st: any = null;
+      if (studentPoolIndex < registered.length) {
+        const regSt = registered[studentPoolIndex++];
+        st = {
+          id: regSt.id || `stu-${normCode.toLowerCase()}-${studentPoolIndex}`,
+          name: regSt.name,
+          email: regSt.email,
+          studentId: regSt.studentId || `STU-${normCode}-${String(100 + studentPoolIndex)}`,
+          course: regSt.course || 'B.Tech CSE',
+          batch: regSt.batch || '2022-2026',
+          seatNumber: seat,
+          college: col?.name || normCode,
+          collegeCode: normCode,
+          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(regSt.name)}`,
+          isUser: false,
+          micActive: false,
+          isSpeaking: false,
+          hasRaisedHand: false,
+          cameraActive: false,
+          speakingDurationSeconds: 0,
+          speakingTurns: 0,
+          interruptionCount: 0,
+          questionsAnswered: 0,
+          questionsInitiated: 0,
+          sentiment: 'neutral',
+          isEmptySeat: false,
+        };
+      } else {
+        const name = poolOfNames[(studentPoolIndex + seat) % poolOfNames.length];
+        const branch = branches[(seat + sIdx) % branches.length];
+        const stuNum = 100 + ((sIdx * 15) + seat);
+        const stuEmail = `${name.toLowerCase().replace(/\s+/g, '.')}.${stuNum}@${normCode.toLowerCase()}.edu.in`;
+        studentPoolIndex++;
+
+        st = {
+          id: `stu-${normCode.toLowerCase()}-${sIdx + 1}-${seat}`,
+          name,
+          email: stuEmail,
+          studentId: `STU-${normCode}-${stuNum}`,
+          course: branch,
+          batch: '2022-2026',
+          seatNumber: seat,
+          college: col?.name || normCode,
+          collegeCode: normCode,
+          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+          isUser: false,
+          micActive: false,
+          isSpeaking: false,
+          hasRaisedHand: false,
+          cameraActive: false,
+          speakingDurationSeconds: 0,
+          speakingTurns: 0,
+          interruptionCount: 0,
+          questionsAnswered: 0,
+          questionsInitiated: 0,
+          sentiment: 'neutral',
+          isEmptySeat: false,
+        };
+      }
+      slotStudents.push(st);
+    }
+
+    const slotItem: BackendCollegeSlotItem = {
+      id: slotId,
+      slotName: `Slot ${sIdx + 1} (${timing})`,
+      topic: '',
+      description: `Cohort of 15 students. Waiting for College Admin to allot Topic & Faculty In-Charge.`,
+      slotTiming: timing,
+      slotDate: todayStr,
+      status: 'scheduled',
+      durationMinutes: 15,
+      enrolledCount: 15,
+      maxCapacity: 15,
+      assignedFacultyId: '',
+      assignedFacultyName: 'Unassigned',
+      assignedFacultyEmail: '',
+      assignedFacultyDept: '',
+      collegeCode: normCode,
+      createdAt: new Date().toISOString(),
+      students: slotStudents,
+    };
+
+    generatedSlots.push(slotItem);
+  }
+
+  return generatedSlots;
 }
 
 async function persistBookingToMongoDB(
@@ -1176,6 +1321,7 @@ app.get('/api/admin/colleges', (req, res) => {
       studentCount: sCount || c.studentCount || 0,
       facultyCount: fCount || c.facultyCount || 0,
       slotCount: slCount || c.slotCount || 0,
+      studentLimit: c.studentLimit || 60,
     };
   });
   res.json({ success: true, colleges: updatedColleges });
@@ -1200,6 +1346,7 @@ app.post('/api/admin/colleges', async (req, res) => {
     studentCount: 0,
     facultyCount: 0,
     slotCount: 0,
+    studentLimit: Number(payload.studentLimit) || 60,
     adminEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     adminName: payload.adminName || `${cleanCode} Administrator`,
     adminPassword: adminPass,
@@ -1285,6 +1432,63 @@ app.post('/api/admin/colleges', async (req, res) => {
       adminId: adminUser.adminId,
     },
   });
+});
+
+app.put(['/api/admin/colleges/:id/limit', '/api/admin/colleges/:id/quota'], async (req, res) => {
+  const targetId = req.params.id;
+  const { studentLimit } = req.body;
+  const limitNum = Math.max(1, parseInt(studentLimit, 10) || 60);
+
+  const col = persistentState.colleges.find(
+    (c) => c.id === targetId || c.code.toUpperCase() === targetId.toUpperCase()
+  );
+  if (!col) return res.status(404).json({ success: false, error: 'College not found' });
+
+  col.studentLimit = limitNum;
+  savePersistentState();
+  persistCollegeToMongoDB(col);
+
+  // Auto-generate fresh 15-student slots for this college matching new limit
+  const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
+  persistentState.slots[col.code] = newSlots;
+  for (const sl of newSlots) {
+    persistSlotToMongoDB(sl);
+  }
+  savePersistentState();
+
+  try {
+    io.emit('college-limit-updated', { collegeCode: col.code, studentLimit: limitNum, slots: newSlots });
+  } catch {}
+
+  res.json({ success: true, college: col, studentLimit: limitNum, slots: newSlots });
+});
+
+app.post('/api/admin/colleges/:id/limit', async (req, res) => {
+  const targetId = req.params.id;
+  const { studentLimit } = req.body;
+  const limitNum = Math.max(1, parseInt(studentLimit, 10) || 60);
+
+  const col = persistentState.colleges.find(
+    (c) => c.id === targetId || c.code.toUpperCase() === targetId.toUpperCase()
+  );
+  if (!col) return res.status(404).json({ success: false, error: 'College not found' });
+
+  col.studentLimit = limitNum;
+  savePersistentState();
+  persistCollegeToMongoDB(col);
+
+  const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
+  persistentState.slots[col.code] = newSlots;
+  for (const sl of newSlots) {
+    persistSlotToMongoDB(sl);
+  }
+  savePersistentState();
+
+  try {
+    io.emit('college-limit-updated', { collegeCode: col.code, studentLimit: limitNum, slots: newSlots });
+  } catch {}
+
+  res.json({ success: true, college: col, studentLimit: limitNum, slots: newSlots });
 });
 
 app.post('/api/admin/colleges/:id/send-credentials', async (req, res) => {
@@ -1698,6 +1902,7 @@ app.get('/api/college/stats', (req, res) => {
     stats: {
       collegeName: college?.name || 'Delhi Institute of Technology',
       collegeCode: code,
+      studentLimit: college?.studentLimit || 60,
       totalStudents: stuList.length || (code === 'DIT' ? 120 : 0),
       totalFaculty: facList.length || (code === 'DIT' ? 18 : 0),
       scheduledSlots: slotList.filter((s) => s.status === 'scheduled').length,
@@ -2235,6 +2440,17 @@ app.get('/api/college/slots', async (req, res) => {
     }
   }
 
+  // If no slots exist for this college, auto-generate 15-student slots based on the college's quota set by Super Admin
+  if (slotMap.size === 0) {
+    const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === code);
+    const limit = col?.studentLimit || 60;
+    const generated = generateRandomSlotsForCollege(code, limit);
+    for (const g of generated) {
+      slotMap.set(g.id, g);
+      persistSlotToMongoDB(g);
+    }
+  }
+
   const slots = Array.from(slotMap.values()).map((slot) => {
     const faculty = slot.assignedFacultyId
       ? facultyList.find((f) => f.facultyId === slot.assignedFacultyId || f.id === slot.assignedFacultyId)
@@ -2309,7 +2525,7 @@ app.post('/api/college/slots', async (req, res) => {
   };
 
   ensureSlotParticipants(newSlot, code);
-  persistentState.slots[code].unshift(newSlot);
+  persistentState.slots[code] = [newSlot, ...(persistentState.slots[code] || []).filter((s) => s.id !== newSlot.id)];
   savePersistentState();
   persistSlotToMongoDB(newSlot);
 
@@ -2354,6 +2570,213 @@ app.post('/api/college/slots', async (req, res) => {
   }
 
   res.json({ success: true, slot: newSlot });
+});
+
+app.put(['/api/college/slots/:id/allot', '/api/college/slots/:id'], async (req, res) => {
+  const slotId = req.params.id;
+  const {
+    topic,
+    slotName,
+    description,
+    assignedFacultyId,
+    assignedFacultyName,
+    assignedFacultyEmail,
+    assignedFacultyDept,
+    slotTiming,
+    slotDate,
+    status,
+  } = req.body;
+
+  let targetSlot: BackendCollegeSlotItem | null = null;
+  let collegeCode = '';
+
+  for (const [code, list] of Object.entries(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) {
+      targetSlot = found;
+      collegeCode = code;
+      break;
+    }
+  }
+
+  if (!targetSlot && isMongoConnected()) {
+    try {
+      const dbSlot = await GDSessionModel.findOne({ id: slotId });
+      if (dbSlot) {
+        collegeCode = normalizeCollegeCode(dbSlot.collegeCode || 'DIT');
+        targetSlot = {
+          id: dbSlot.id,
+          slotName: dbSlot.slotName,
+          topic: dbSlot.topic,
+          description: dbSlot.description || '',
+          slotTiming: dbSlot.slotTiming || '',
+          slotDate: dbSlot.slotDate || 'Today',
+          status: dbSlot.status,
+          durationMinutes: dbSlot.durationMinutes,
+          enrolledCount: (dbSlot as any).students?.length || 15,
+          maxCapacity: 15,
+          assignedFacultyId: dbSlot.assignedFacultyId || '',
+          assignedFacultyName: dbSlot.assignedFacultyName || '',
+          assignedFacultyEmail: dbSlot.assignedFacultyEmail || '',
+          assignedFacultyDept: dbSlot.assignedFacultyDept || '',
+          collegeCode,
+          createdAt: new Date().toISOString(),
+          students: dbSlot.students || [],
+        };
+        if (!persistentState.slots[collegeCode]) persistentState.slots[collegeCode] = [];
+        persistentState.slots[collegeCode].push(targetSlot);
+      }
+    } catch {}
+  }
+
+  if (!targetSlot) {
+    return res.status(404).json({ success: false, error: 'GD slot not found' });
+  }
+
+  if (topic !== undefined) targetSlot.topic = String(topic).trim();
+  if (slotName !== undefined) targetSlot.slotName = String(slotName).trim();
+  else if (topic && targetSlot.slotName) {
+    const match = targetSlot.slotName.match(/^(Slot\s+\d+)/i);
+    if (match) {
+      targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
+    } else {
+      targetSlot.slotName = String(topic).trim();
+    }
+  }
+  if (description !== undefined) targetSlot.description = String(description).trim();
+  if (slotTiming !== undefined) targetSlot.slotTiming = String(slotTiming).trim();
+  if (slotDate !== undefined) targetSlot.slotDate = String(slotDate).trim();
+  if (status !== undefined) targetSlot.status = String(status).trim();
+
+  if (assignedFacultyId !== undefined) {
+    targetSlot.assignedFacultyId = String(assignedFacultyId).trim();
+    const fac = (persistentState.faculty[collegeCode] || []).find(
+      (f) => f.facultyId === assignedFacultyId || f.id === assignedFacultyId
+    );
+    targetSlot.assignedFacultyName = assignedFacultyName || fac?.name || targetSlot.assignedFacultyName || 'Assigned Faculty';
+    targetSlot.assignedFacultyEmail = assignedFacultyEmail || fac?.email || targetSlot.assignedFacultyEmail || '';
+    targetSlot.assignedFacultyDept = assignedFacultyDept || fac?.department || targetSlot.assignedFacultyDept || '';
+  }
+
+  savePersistentState();
+  persistSlotToMongoDB(targetSlot);
+
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.updateMany({
+        where: { id: slotId },
+        data: {
+          topic: targetSlot.topic,
+          slotName: targetSlot.slotName,
+          description: targetSlot.description,
+          slotTiming: targetSlot.slotTiming,
+          scheduledTime: targetSlot.slotDate,
+          assignedFacultyId: targetSlot.assignedFacultyId,
+          assignedFacultyName: targetSlot.assignedFacultyName,
+          status: targetSlot.status,
+        },
+      });
+    } catch {}
+  }
+
+  try {
+    io.emit('slot-updated', targetSlot);
+  } catch {}
+
+  res.json({ success: true, slot: targetSlot });
+});
+
+app.post('/api/college/slots/:id/allot', async (req, res) => {
+  const slotId = req.params.id;
+  const {
+    topic,
+    slotName,
+    description,
+    assignedFacultyId,
+    assignedFacultyName,
+    assignedFacultyEmail,
+    assignedFacultyDept,
+    slotTiming,
+    slotDate,
+    status,
+  } = req.body;
+
+  let targetSlot: BackendCollegeSlotItem | null = null;
+  let collegeCode = '';
+
+  for (const [code, list] of Object.entries(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found) {
+      targetSlot = found;
+      collegeCode = code;
+      break;
+    }
+  }
+
+  if (!targetSlot) {
+    return res.status(404).json({ success: false, error: 'GD slot not found' });
+  }
+
+  if (topic !== undefined) targetSlot.topic = String(topic).trim();
+  if (slotName !== undefined) targetSlot.slotName = String(slotName).trim();
+  else if (topic && targetSlot.slotName) {
+    const match = targetSlot.slotName.match(/^(Slot\s+\d+)/i);
+    if (match) {
+      targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
+    } else {
+      targetSlot.slotName = String(topic).trim();
+    }
+  }
+  if (description !== undefined) targetSlot.description = String(description).trim();
+  if (slotTiming !== undefined) targetSlot.slotTiming = String(slotTiming).trim();
+  if (slotDate !== undefined) targetSlot.slotDate = String(slotDate).trim();
+  if (status !== undefined) targetSlot.status = String(status).trim();
+
+  if (assignedFacultyId !== undefined) {
+    targetSlot.assignedFacultyId = String(assignedFacultyId).trim();
+    const fac = (persistentState.faculty[collegeCode] || []).find(
+      (f) => f.facultyId === assignedFacultyId || f.id === assignedFacultyId
+    );
+    targetSlot.assignedFacultyName = assignedFacultyName || fac?.name || targetSlot.assignedFacultyName || 'Assigned Faculty';
+    targetSlot.assignedFacultyEmail = assignedFacultyEmail || fac?.email || targetSlot.assignedFacultyEmail || '';
+    targetSlot.assignedFacultyDept = assignedFacultyDept || fac?.department || targetSlot.assignedFacultyDept || '';
+  }
+
+  savePersistentState();
+  persistSlotToMongoDB(targetSlot);
+
+  try {
+    io.emit('slot-updated', targetSlot);
+  } catch {}
+
+  res.json({ success: true, slot: targetSlot });
+});
+
+app.post('/api/college/generate-slots', async (req, res) => {
+  const code = normalizeCollegeCode(req.body.collegeCode || 'DIT');
+  const studentLimit = req.body.studentLimit ? Number(req.body.studentLimit) : undefined;
+
+  const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === code);
+  const limit = studentLimit || col?.studentLimit || 60;
+
+  const slots = generateRandomSlotsForCollege(code, limit);
+  persistentState.slots[code] = slots;
+  savePersistentState();
+
+  for (const sl of slots) {
+    persistSlotToMongoDB(sl);
+  }
+
+  try {
+    io.emit('slots-regenerated', { collegeCode: code, slots });
+  } catch {}
+
+  res.json({
+    success: true,
+    message: `Generated ${slots.length} discussion slots with 15 students per slot based on student quota of ${limit}.`,
+    slots,
+    studentLimit: limit,
+  });
 });
 
 app.delete('/api/college/slots/:id', async (req, res) => {
@@ -3176,23 +3599,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
   }
 
-  // --- CAPACITY / ACTIVE USER DAILY LIMIT CHECK ---
+  // --- PER-COLLEGE RESTRICTION (Overall server-level restriction removed as requested) ---
   checkAndResetDailyStats();
-  const settings = persistentState.systemSettings;
-  const isSuperAdmin = user.role === 'super_admin';
-
-  if (!isSuperAdmin && settings.enforceDailyLimit && settings.dailyUserLimit > 0) {
-    const isAlreadyActiveToday = settings.activeUsersToday.includes(user.id);
-    if (!isAlreadyActiveToday && settings.activeUsersToday.length >= settings.dailyUserLimit) {
-      return res.status(429).json({
-        success: false,
-        error: `Daily user capacity limit (${settings.dailyUserLimit} users) reached for today. Server access has been temporarily restricted by the Super Admin to maintain server stability. Please try again tomorrow or contact your administrator.`,
-        isCapacityLimitReached: true,
-        limit: settings.dailyUserLimit,
-        current: settings.activeUsersToday.length,
-      });
-    }
-  }
 
   // Record user activity upon successful verification
   recordUserActivity(user);
@@ -3586,7 +3994,7 @@ if (
 }
 
 // Real-Time Socket.IO Room Participant Store
-export interface RoomParticipant {
+interface RoomParticipant {
   socketId: string;
   userId: string;
   name: string;
@@ -5217,12 +5625,12 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
   return room;
 }
 
-export interface UtteranceClassification {
+interface UtteranceClassification {
   category: 'greeting' | 'mic_check' | 'filler' | 'substantive';
   cleanedThought: string;
 }
 
-export function classifyParticipantUtterance(text: string): UtteranceClassification {
+function classifyParticipantUtterance(text: string): UtteranceClassification {
   const raw = (text || '').trim();
   if (!raw) {
     return { category: 'filler', cleanedThought: '' };
