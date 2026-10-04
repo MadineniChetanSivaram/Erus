@@ -29,7 +29,8 @@ import {
   Bookmark,
   Tag,
   Lock,
-  Compass
+  Compass,
+  Volume2
 } from 'lucide-react';
 import { 
   StudentAssessmentReport, 
@@ -673,6 +674,49 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2.5 text-xs text-emerald-800 dark:text-emerald-200 font-semibold no-print">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>{endorsementSuccessMessage}</span>
+        </div>
+      )}
+
+      {/* Discussion Audio Archive & Playback Player */}
+      {(session?.recordingUrl || currentReport?.recordingUrl) && (
+        <div className="no-print p-4 rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-indigo-500/10 dark:from-teal-950/40 dark:via-emerald-950/40 dark:to-indigo-950/40 border border-teal-500/30 dark:border-teal-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+              <Volume2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  Live GD Discussion Recording
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 border border-teal-300 dark:border-teal-700">
+                  Audio Archive (.webm)
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Listen to the full multi-speaker discussion audio, evaluate your speaking turns, and review faculty interjections.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+            <audio
+              controls
+              src={session?.recordingUrl || currentReport?.recordingUrl}
+              className="h-8 w-52 sm:w-64"
+            />
+            <a
+              href={session?.recordingUrl || currentReport?.recordingUrl}
+              download={`GD-${session?.id || 'session'}-Recording.webm`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1.5 shadow-xs transition-all"
+              title="Download audio recording to device"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download</span>
+            </a>
+          </div>
         </div>
       )}
 

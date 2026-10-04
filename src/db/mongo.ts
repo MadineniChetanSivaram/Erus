@@ -269,6 +269,10 @@ export interface IGDSession extends Document {
   currentSpeakerId?: string | null;
   startedAt?: number;
   students?: any[];
+  recordingUrl?: string;
+  recordingDurationSeconds?: number;
+  recordingFileSize?: number;
+  recordedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -308,6 +312,10 @@ const GDSessionSchema = new Schema<IGDSession>(
     currentSpeakerId: { type: String, default: null },
     startedAt: { type: Number, default: Date.now },
     students: { type: [Schema.Types.Mixed], default: [] },
+    recordingUrl: { type: String, default: '' },
+    recordingDurationSeconds: { type: Number, default: 0 },
+    recordingFileSize: { type: Number, default: 0 },
+    recordedAt: { type: Date, default: null },
   },
   { timestamps: true, collection: 'gd_sessions', autoIndex: false }
 );

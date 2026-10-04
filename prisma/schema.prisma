@@ -88,6 +88,10 @@ model GDSession {
   assignedFacultyName String?
   collegeId           String?
   college             College?          @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+  recordingUrl        String?
+  recordingDuration   Int?
+  recordingFileSize   Int?
+  recordedAt          DateTime?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   transcripts         TranscriptEntry[]

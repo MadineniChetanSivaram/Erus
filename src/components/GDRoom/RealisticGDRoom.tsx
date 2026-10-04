@@ -43,13 +43,16 @@ import {
   Tag,
   Maximize2,
   Minimize2,
-  X
+  X,
+  Download,
+  Volume2
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType, FacultyLiveNote } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { roomVoice, facilitatorVoice } from '../../utils/speechSynthesis';
 import { useUserMedia } from '../../utils/useUserMedia';
 import { useWebRTCRoom } from '../../hooks/useWebRTCRoom';
+import { useGDRecorder } from '../../utils/gdRecorder';
 import { 
   getNextUniqueFacilitatorPrompt, 
   sessionQuestionTracker,
@@ -254,6 +257,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
+  // Ref to hold live GD recorder for seamless event triggers
+  const gdRecorderRef = useRef<any>(null);
+
   // Real-Time Multi-User WebRTC Audio/Video Mesh & Room Signaling
   const {
     connected: isSocketConnected,
@@ -288,6 +294,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
     onSessionEnded: () => {
       // Synchronized GD termination: faculty has completed the GD, so student view automatically finishes & evaluates
+      if (gdRecorderRef.current?.isRecording) {
+        gdRecorderRef.current.stopAndUploadRecording(session.slotId || session.id).catch(() => {});
+      }
       onFinishSession();
     },
     onNewTranscript: (newTx) => {
@@ -357,12 +366,40 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
   });
 
+  // Automated Live Discussion Multi-Stream Audio/Speech Recorder
+  const gdRecorder = useGDRecorder({
+    slotId: session.slotId || session.id || 'slot-1',
+    isSessionActive: session.status === 'active',
+    localStream: videoStream,
+    peerStreams: rtcPeerStreams,
+    autoStartOnActive: true,
+  });
+  gdRecorderRef.current = gdRecorder;
+
+  // Conclude or leave GD discussion with automatic audio recording preservation
+  const handleConcludeOrLeaveSession = useCallback(async () => {
+    if (gdRecorder.isRecording) {
+      try {
+        await gdRecorder.stopAndUploadRecording(session.slotId || session.id);
+      } catch (recErr) {
+        console.warn('[GD Room] Recording upload on exit failed:', recErr);
+      }
+    }
+    if (isFaculty) {
+      rtcFinishSession();
+    }
+    onFinishSession();
+  }, [gdRecorder, session.slotId, session.id, isFaculty, rtcFinishSession, onFinishSession]);
+
   // Synchronized GD termination watch: if session status changes to 'completed', finish GD for student
   useEffect(() => {
     if (session.status === 'completed' && currentUser?.role === 'student') {
+      if (gdRecorderRef.current?.isRecording) {
+        gdRecorderRef.current.stopAndUploadRecording(session.slotId || session.id).catch(() => {});
+      }
       onFinishSession();
     }
-  }, [session.status, currentUser?.role, onFinishSession]);
+  }, [session.status, session.slotId, session.id, currentUser?.role, onFinishSession]);
 
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
@@ -1507,6 +1544,29 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>Faculty: <strong>{session?.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
               </span>
+
+              {/* Live Audio Recording Status Indicator */}
+              {gdRecorder.isRecording ? (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1.5 shadow-2xs animate-pulse" title="GD discussion audio is actively being recorded and stored to ERUS server">
+                  <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping inline-block" />
+                  <span className="font-mono">REC {gdRecorder.formattedDuration}</span>
+                </span>
+              ) : (gdRecorder.recordingUrl || session.recordingUrl) ? (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 shadow-2xs">
+                  <Volume2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Discussion Recorded</span>
+                  <a
+                    href={gdRecorder.recordingUrl || session.recordingUrl}
+                    download={`GD-Recording-${session.id}.webm`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline text-[10px] ml-1 text-emerald-800 dark:text-emerald-200 hover:text-emerald-950"
+                    title="Download audio recording (.webm)"
+                  >
+                    Download
+                  </a>
+                </span>
+              ) : null}
             </div>
             
             {/* Topic */}
@@ -1537,7 +1597,26 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(gdRecorder.recordingUrl || session.recordingUrl) && (
+                    <div className="flex items-center gap-1.5 bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-xl border border-purple-200 dark:border-purple-800 shadow-2xs">
+                      <audio
+                        controls
+                        src={gdRecorder.recordingUrl || session.recordingUrl}
+                        className="h-7 w-44 sm:w-52"
+                      />
+                      <a
+                        href={gdRecorder.recordingUrl || session.recordingUrl}
+                        download={`GD-Recording-${session.id}.webm`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-lg bg-purple-100 hover:bg-purple-200 dark:bg-purple-900 text-purple-700 dark:text-purple-300 transition-colors"
+                        title="Download GD Recording (.webm)"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  )}
                   <button
                     onClick={() => onSelectSlot && onSelectSlot(session.id)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/20 transition-all cursor-pointer"
@@ -1711,8 +1790,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <button
                   id="finish-session-btn"
                   onClick={() => {
-                    rtcFinishSession();
-                    onFinishSession();
+                    handleConcludeOrLeaveSession();
                   }}
                   disabled={!isSessionActive}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-700/20 dark:shadow-emerald-900/30 transition-all active:scale-95 disabled:opacity-50"
@@ -2488,8 +2566,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <button
                     id="leave-call-btn"
                     onClick={() => {
-                      if (isFaculty) rtcFinishSession();
-                      onFinishSession();
+                      handleConcludeOrLeaveSession();
                     }}
                     className="px-4 py-2.5 rounded-full font-bold text-xs bg-red-600 hover:bg-red-700 text-white shadow-lg flex items-center gap-2 cursor-pointer transition-all ml-1 sm:ml-2"
                     title={isFaculty ? 'Finish Observation & Review Reports' : 'Leave Group Discussion & View Assessment Report'}

@@ -37,7 +37,8 @@ import {
   Target,
   Activity,
   Gauge,
-  Compass
+  Compass,
+  Volume2
 } from 'lucide-react';
 import { CollegeAdminUser } from '../../types/auth';
 import { GDSession } from '../../types/gd';
@@ -1541,6 +1542,20 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                         <FileText className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">Reports</span>
                       </button>
+                    )}
+
+                    {sl.status === 'completed' && sl.recordingUrl && (
+                      <a
+                        href={sl.recordingUrl}
+                        download={`GD-${sl.id}-Recording.webm`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2 px-3 rounded-xl border border-teal-300 dark:border-teal-800/80 bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/50 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer truncate shadow-2xs"
+                        title="Listen to or download full audio recording of this completed GD session"
+                      >
+                        <Volume2 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Audio</span>
+                      </a>
                     )}
                   </div>
                 </div>

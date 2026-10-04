@@ -24,7 +24,8 @@ import {
   HelpCircle,
   CheckCircle,
   SlidersHorizontal,
-  ArrowUpRight
+  ArrowUpRight,
+  Volume2
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { INITIAL_SESSION } from '../../data/mockGDData';
@@ -284,6 +285,28 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </div>
           )}
 
+          {safeSession.recordingUrl && (
+            <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-1.5 rounded-xl shadow-2xs">
+              <Volume2 className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 ml-1" />
+              <audio
+                controls
+                src={safeSession.recordingUrl}
+                className="h-7 w-44 sm:w-52"
+              />
+              <a
+                href={safeSession.recordingUrl}
+                download={`GD-${safeSession.id}-Recording.webm`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs"
+                title="Download full audio recording of this GD (.webm)"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Audio</span>
+              </a>
+            </div>
+          )}
+
           <button
             id="download-transcript-btn"
             onClick={handleExportTranscript}
@@ -388,6 +411,20 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                         </button>
 
                         <div className="flex items-center gap-2 shrink-0">
+                          {sl.recordingUrl && (
+                            <a
+                              href={sl.recordingUrl}
+                              download={`GD-${sl.id}-Recording.webm`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 flex items-center gap-1 transition-all"
+                              title="Listen to or download full audio recording of this GD session"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Audio</span>
+                            </a>
+                          )}
+
                           <button
                             onClick={() => handleOpenSlotRoom(sl.id)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${

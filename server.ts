@@ -41,6 +41,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'erus_super_secret_jwt_key_2026';
 
 app.use(express.json());
 
+// Raw binary parser for multi-track audio/video discussion recordings
+app.use(
+  ['/api/sessions/:id/recording', '/api/college/slots/:id/recording'],
+  express.raw({ type: ['audio/*', 'video/*', 'application/octet-stream'], limit: '150mb' })
+);
+
+// Setup uploads/recordings storage directory and serve static recording files
+const RECORDINGS_DIR = path.join(process.cwd(), 'uploads', 'recordings');
+if (!fs.existsSync(RECORDINGS_DIR)) {
+  fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+}
+app.use('/uploads/recordings', express.static(RECORDINGS_DIR));
+
 // ==========================================
 // PERSISTENT DATA STORE (Server-Side)
 // ==========================================
@@ -106,6 +119,10 @@ interface BackendCollegeSlotItem {
   collegeCode: string;
   createdAt: string;
   students?: any[];
+  recordingUrl?: string;
+  recordingDurationSeconds?: number;
+  recordingFileSize?: number;
+  recordedAt?: string;
 }
 
 function normalizeCollegeCode(rawCode?: string): string {
@@ -809,6 +826,10 @@ async function persistSlotToMongoDB(slot: BackendCollegeSlotItem) {
         assignedFacultyEmail: slot.assignedFacultyEmail || '',
         assignedFacultyDept: slot.assignedFacultyDept || '',
         students: slot.students || [],
+        recordingUrl: slot.recordingUrl || '',
+        recordingDurationSeconds: slot.recordingDurationSeconds || 0,
+        recordingFileSize: slot.recordingFileSize || 0,
+        recordedAt: slot.recordedAt || null,
       },
       { upsert: true, new: true }
     );
@@ -2397,6 +2418,10 @@ app.get('/api/college/slots', async (req, res) => {
           assignedFacultyDept: s.assignedFacultyDept || '',
           collegeCode: code,
           students: s.students || [],
+          recordingUrl: (s as any).recordingUrl || existing.recordingUrl || '',
+          recordingDurationSeconds: (s as any).recordingDurationSeconds || existing.recordingDurationSeconds || 0,
+          recordingFileSize: (s as any).recordingFileSize || existing.recordingFileSize || 0,
+          recordedAt: (s as any).recordedAt ? new Date((s as any).recordedAt).toISOString() : (existing.recordedAt || ''),
           createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
         });
       }
@@ -2432,6 +2457,10 @@ app.get('/api/college/slots', async (req, res) => {
           assignedFacultyId: s.assignedFacultyId || '',
           assignedFacultyName: s.assignedFacultyName || '',
           collegeCode: code,
+          recordingUrl: (s as any).recordingUrl || existing.recordingUrl || '',
+          recordingDurationSeconds: (s as any).recordingDuration || existing.recordingDurationSeconds || 0,
+          recordingFileSize: (s as any).recordingFileSize || existing.recordingFileSize || 0,
+          recordedAt: (s as any).recordedAt ? (s as any).recordedAt.toISOString() : (existing.recordedAt || ''),
           createdAt: s.createdAt.toISOString(),
         });
       }
@@ -2943,6 +2972,220 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
   res.json({ success: true, slotId, status: 'active' });
 });
 
+// ==========================================
+// GD SESSION RECORDING & MEDIA PERSISTENCE
+// ==========================================
+app.post(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], async (req, res) => {
+  const slotId = req.params.id;
+  if (!slotId) {
+    return res.status(400).json({ success: false, error: 'Session slotId is required' });
+  }
+
+  const durationSeconds = parseInt(
+    (req.query.duration as string) ||
+    (req.headers['x-recording-duration'] as string) ||
+    '0',
+    10
+  );
+  const recordedBy = (req.headers['x-recorded-by'] as string) || '';
+
+  const contentType = (req.headers['content-type'] as string) || 'audio/webm';
+  let ext = 'webm';
+  if (contentType.includes('ogg')) ext = 'ogg';
+  else if (contentType.includes('mp4')) ext = 'mp4';
+  else if (contentType.includes('wav')) ext = 'wav';
+
+  const safeSlotId = slotId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `gd-recording-${safeSlotId}-${Date.now()}.${ext}`;
+  const filePath = path.join(RECORDINGS_DIR, filename);
+
+  let fileSizeBytes = 0;
+  try {
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      await fs.promises.writeFile(filePath, req.body);
+      fileSizeBytes = req.body.length;
+    } else {
+      // Pipe stream if not parsed as buffer
+      await new Promise<void>((resolve, reject) => {
+        const writeStream = fs.createWriteStream(filePath);
+        req.pipe(writeStream);
+        writeStream.on('finish', () => {
+          try {
+            const stat = fs.statSync(filePath);
+            fileSizeBytes = stat.size;
+          } catch {}
+          resolve();
+        });
+        writeStream.on('error', (err) => reject(err));
+      });
+    }
+
+    if (fileSizeBytes === 0) {
+      return res.status(400).json({ success: false, error: 'Empty recording stream received' });
+    }
+
+    const recordingUrl = `/uploads/recordings/${filename}`;
+    const recordedAt = new Date().toISOString();
+
+    // 1. Update in-memory persistentState
+    let targetSlot: any = null;
+    for (const list of Object.values(persistentState.slots)) {
+      const found = list.find((s) => s.id === slotId);
+      if (found) {
+        targetSlot = found;
+        break;
+      }
+    }
+
+    if (targetSlot) {
+      targetSlot.recordingUrl = recordingUrl;
+      targetSlot.recordingDurationSeconds = durationSeconds;
+      targetSlot.recordingFileSize = fileSizeBytes;
+      targetSlot.recordedAt = recordedAt;
+      savePersistentState();
+    }
+
+    // 2. Persist to MongoDB
+    if (isMongoConnected()) {
+      try {
+        await GDSessionModel.updateOne(
+          { id: slotId },
+          {
+            $set: {
+              recordingUrl,
+              recordingDurationSeconds: durationSeconds,
+              recordingFileSize: fileSizeBytes,
+              recordedAt: new Date(),
+            },
+          }
+        );
+      } catch (mErr: any) {
+        console.warn('[MongoDB] Recording metadata save warning:', mErr.message);
+      }
+    }
+
+    // 3. Persist to PostgreSQL Prisma
+    if (isDbConnected && prisma) {
+      try {
+        await prisma.gDSession.update({
+          where: { id: slotId },
+          data: {
+            recordingUrl,
+            recordingDuration: durationSeconds,
+            recordingFileSize: fileSizeBytes,
+            recordedAt: new Date(),
+          },
+        });
+      } catch (pErr: any) {
+        console.warn('[Database] Recording metadata save warning:', pErr.message);
+      }
+    }
+
+    // 4. Broadcast live socket event so all dashboards refresh immediately
+    const eventPayload = {
+      slotId,
+      recordingUrl,
+      durationSeconds,
+      fileSizeBytes,
+      recordedAt,
+      recordedBy,
+    };
+    io.to(`room-${slotId}`).emit('session-recording-saved', eventPayload);
+    io.emit('session-recording-saved', eventPayload);
+
+    console.log(`[GD Recording] Saved recording for session "${slotId}": ${filename} (${fileSizeBytes} bytes, ${durationSeconds}s)`);
+
+    return res.json({
+      success: true,
+      slotId,
+      recordingUrl,
+      durationSeconds,
+      fileSizeBytes,
+      recordedAt,
+    });
+  } catch (saveErr: any) {
+    console.error(`[GD Recording] Failed to save recording for session "${slotId}":`, saveErr);
+    return res.status(500).json({ success: false, error: saveErr.message || 'Failed to save recording file' });
+  }
+});
+
+app.get(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], async (req, res) => {
+  const slotId = req.params.id;
+  if (!slotId) return res.status(400).json({ success: false, error: 'slotId is required' });
+
+  // 1. Check in persistentState
+  for (const list of Object.values(persistentState.slots)) {
+    const found = list.find((s) => s.id === slotId);
+    if (found && found.recordingUrl) {
+      return res.json({
+        success: true,
+        slotId,
+        recordingUrl: found.recordingUrl,
+        durationSeconds: found.recordingDurationSeconds || 0,
+        fileSizeBytes: found.recordingFileSize || 0,
+        recordedAt: found.recordedAt || null,
+      });
+    }
+  }
+
+  // 2. Check MongoDB
+  if (isMongoConnected()) {
+    try {
+      const dbSlot = await GDSessionModel.findOne({ id: slotId });
+      if (dbSlot && (dbSlot as any).recordingUrl) {
+        return res.json({
+          success: true,
+          slotId,
+          recordingUrl: (dbSlot as any).recordingUrl,
+          durationSeconds: (dbSlot as any).recordingDurationSeconds || 0,
+          fileSizeBytes: (dbSlot as any).recordingFileSize || 0,
+          recordedAt: (dbSlot as any).recordedAt || null,
+        });
+      }
+    } catch {}
+  }
+
+  // 3. Check Prisma
+  if (isDbConnected && prisma) {
+    try {
+      const pSlot = await prisma.gDSession.findUnique({ where: { id: slotId } });
+      if (pSlot && pSlot.recordingUrl) {
+        return res.json({
+          success: true,
+          slotId,
+          recordingUrl: pSlot.recordingUrl,
+          durationSeconds: pSlot.recordingDuration || 0,
+          fileSizeBytes: pSlot.recordingFileSize || 0,
+          recordedAt: pSlot.recordedAt ? pSlot.recordedAt.toISOString() : null,
+        });
+      }
+    } catch {}
+  }
+
+  return res.status(404).json({ success: false, error: 'No recording found for this session slot' });
+});
+
+app.get('/api/recordings', (req, res) => {
+  try {
+    if (!fs.existsSync(RECORDINGS_DIR)) {
+      return res.json({ success: true, count: 0, recordings: [] });
+    }
+    const files = fs.readdirSync(RECORDINGS_DIR);
+    const recordings = files.map((file) => {
+      const stat = fs.statSync(path.join(RECORDINGS_DIR, file));
+      return {
+        filename: file,
+        url: `/uploads/recordings/${file}`,
+        sizeBytes: stat.size,
+        createdAt: stat.birthtime.toISOString(),
+      };
+    });
+    return res.json({ success: true, count: recordings.length, recordings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 // --- FACULTY ASSIGNED SESSION ENDPOINTS ---
 app.get('/api/faculty/sessions', async (req, res) => {
@@ -3022,6 +3265,10 @@ app.get('/api/faculty/sessions', async (req, res) => {
           collegeCode: code,
           createdAt: s.createdAt.toISOString(),
           students: (merged.get(s.id) as any)?.students,
+          recordingUrl: (s as any).recordingUrl || (merged.get(s.id) as any)?.recordingUrl || '',
+          recordingDurationSeconds: (s as any).recordingDuration || (merged.get(s.id) as any)?.recordingDurationSeconds || 0,
+          recordingFileSize: (s as any).recordingFileSize || (merged.get(s.id) as any)?.recordingFileSize || 0,
+          recordedAt: (s as any).recordedAt ? (s as any).recordedAt.toISOString() : ((merged.get(s.id) as any)?.recordedAt || ''),
         });
       }
       slots = Array.from(merged.values()).sort(

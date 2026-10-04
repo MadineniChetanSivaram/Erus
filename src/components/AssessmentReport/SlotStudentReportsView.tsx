@@ -21,7 +21,8 @@ import {
   TrendingUp, 
   Building2, 
   Star,
-  RefreshCw
+  RefreshCw,
+  Volume2
 } from 'lucide-react';
 import { fetchSlotReports } from '../../utils/authApi';
 import { formatSlotDate } from '../../utils/studentBooking';
@@ -243,7 +244,25 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-center">
+        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+          {slot?.recordingUrl && (
+            <div className="flex items-center gap-2 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 p-1 rounded-xl shadow-2xs">
+              <Volume2 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 ml-1.5" />
+              <audio controls src={slot.recordingUrl} className="h-7 w-40 sm:w-48" />
+              <a
+                href={slot.recordingUrl}
+                download={`GD-${slotId}-Recording.webm`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1 transition-all"
+                title="Download discussion audio (.webm)"
+              >
+                <Download className="w-3 h-3" />
+                <span className="hidden sm:inline">Audio</span>
+              </a>
+            </div>
+          )}
+
           <button
             onClick={handleExportCsv}
             disabled={mergedStudentReports.length === 0}

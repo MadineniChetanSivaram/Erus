@@ -73,6 +73,10 @@ export interface GDSession {
   assignedFacultyEmail?: string;
   assignedFacultyDept?: string;
   facultyLiveNotes?: FacultyLiveNote[];
+  recordingUrl?: string;
+  recordingDurationSeconds?: number;
+  recordedAt?: string;
+  recordingFileSize?: number;
 }
 
 export interface FacultyLiveNote {
@@ -141,6 +145,7 @@ export interface StudentAssessmentReport {
   interruptions: number;
   questionsAnswered: number;
   questionsInitiated: number;
+  recordingUrl?: string;
   skills: {
     english: SkillScore;        // 20%
     fluency: SkillScore;        // 20%

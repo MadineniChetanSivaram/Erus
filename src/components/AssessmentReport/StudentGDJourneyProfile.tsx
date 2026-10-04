@@ -535,6 +535,45 @@ export const StudentGDJourneyProfile: React.FC<StudentGDJourneyProfileProps> = (
         </div>
       </div>
 
+      {/* Discussion Audio Archive Player */}
+      {currentReport?.recordingUrl && (
+        <div className="no-print p-4 rounded-3xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+              <Volume2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  Recorded Discussion Audio Archive
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 border border-teal-300 dark:border-teal-700">
+                  Audio (.webm)
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Play back this session's full audio track to self-critique fluency, volume, and conversational turn-taking.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+            <audio controls src={currentReport.recordingUrl} className="h-8 w-52 sm:w-64" />
+            <a
+              href={currentReport.recordingUrl}
+              download={`GD-Recording-${currentReport.studentId || 'student'}.webm`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1.5 shadow-xs transition-all"
+              title="Download audio recording"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download</span>
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* 4. Historical "MY GD JOURNEY" Record / Log Table (Page 10 of Specification) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm dark:shadow-xl space-y-4 transition-colors">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
