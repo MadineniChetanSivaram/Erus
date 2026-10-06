@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-// Detect best supported MIME type for MediaRecorder across modern browsers
+// Detect best supported audio MIME type
 export function getBestSupportedAudioMimeType(): string {
   if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return 'audio/webm';
   const candidates = [
@@ -18,6 +18,24 @@ export function getBestSupportedAudioMimeType(): string {
     }
   }
   return '';
+}
+
+// Detect best supported video MIME type for grid video recording
+export function getBestSupportedVideoMimeType(): string {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return 'video/webm';
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4',
+  ];
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+  return 'video/webm';
 }
 
 export interface UploadRecordingResponse {
@@ -43,7 +61,7 @@ export async function uploadGDRecording(
   if (!blob || blob.size === 0) throw new Error('Recording blob is empty');
 
   const headers: Record<string, string> = {
-    'Content-Type': blob.type || 'audio/webm',
+    'Content-Type': blob.type || 'video/webm',
     'x-recording-duration': String(durationSeconds || 0),
   };
   if (recordedBy) {
@@ -86,11 +104,25 @@ export function downloadRecordingLocally(blob: Blob, filename?: string) {
   }, 1000);
 }
 
+export interface GDParticipantTile {
+  id: string;
+  name: string;
+  college?: string;
+  seatNumber?: number;
+  isSpeaking?: boolean;
+  cameraActive?: boolean;
+  videoStream?: MediaStream | null;
+}
+
 export interface UseGDRecorderOptions {
   slotId: string;
   isSessionActive: boolean;
   localStream?: MediaStream | null;
   peerStreams?: Map<string, MediaStream>;
+  recordVideo?: boolean;
+  enabled?: boolean;
+  topicTitle?: string;
+  participantTiles?: GDParticipantTile[];
   autoStartOnActive?: boolean;
   onRecordingComplete?: (recordingUrl: string, blob: Blob) => void;
 }
@@ -113,15 +145,85 @@ export interface UseGDRecorderReturn {
   downloadLocalCopy: (filename?: string) => void;
 }
 
+// Canvas rendering helper functions
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fill?: string,
+  stroke?: string,
+  strokeWidth = 1
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function clipRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.clip();
+}
+
+function getInitials(name: string): string {
+  if (!name) return 'S';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 /**
- * Unified React hook for recording live Group Discussion audio & peer discussions,
- * managing Web Audio stream mixing, duration timer, and automated cloud upload.
+ * Unified React hook for recording live Group Discussion video grid & mixed audio.
+ * When enabled (typically ONLY on faculty portal), renders an in-browser composite
+ * video grid of all students, their webcam feeds, and speaking indicators.
  */
 export function useGDRecorder({
   slotId,
   isSessionActive,
   localStream,
   peerStreams,
+  recordVideo = true,
+  enabled = true,
+  topicTitle = 'Group Discussion',
+  participantTiles = [],
   autoStartOnActive = true,
   onRecordingComplete,
 }: UseGDRecorderOptions): UseGDRecorderReturn {
@@ -143,7 +245,23 @@ export function useGDRecorder({
   const durationCounterRef = useRef<number>(0);
   const mimeTypeRef = useRef<string>('');
 
-  // Format seconds to mm:ss or hh:mm:ss
+  // Video compositing refs
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRenderIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const videoPoolRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const participantTilesRef = useRef<GDParticipantTile[]>(participantTiles);
+  const topicTitleRef = useRef<string>(topicTitle);
+
+  // Keep refs in sync with latest props
+  useEffect(() => {
+    participantTilesRef.current = participantTiles;
+  }, [participantTiles]);
+
+  useEffect(() => {
+    topicTitleRef.current = topicTitle;
+  }, [topicTitle]);
+
+  // Format seconds to mm:ss
   const formattedDuration = `${Math.floor(recordingDurationSeconds / 60)
     .toString()
     .padStart(2, '0')}:${(recordingDurationSeconds % 60).toString().padStart(2, '0')}`;
@@ -173,7 +291,7 @@ export function useGDRecorder({
 
   // Update mixer whenever local stream or peer streams arrive/change
   useEffect(() => {
-    if (!isRecording) return;
+    if (!enabled || !isRecording) return;
     if (localStream) {
       mixStreamIntoDestination(localStream);
     }
@@ -182,10 +300,229 @@ export function useGDRecorder({
         mixStreamIntoDestination(peerStream);
       }
     }
-  }, [isRecording, localStream, peerStreams, mixStreamIntoDestination]);
+  }, [enabled, isRecording, localStream, peerStreams, mixStreamIntoDestination]);
+
+  // Video rendering loop for composite grid
+  const startCanvasVideoCompositor = useCallback((canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Run at 20 FPS (every 50ms)
+    videoRenderIntervalRef.current = setInterval(() => {
+      const width = canvas.width;
+      const height = canvas.height;
+      const tiles = participantTilesRef.current.filter((t) => !t.id.includes('empty'));
+      const activeTopic = topicTitleRef.current || 'Group Discussion';
+
+      // 1. Canvas Background
+      ctx.fillStyle = '#080d1a';
+      ctx.fillRect(0, 0, width, height);
+
+      // 2. Room Header Bar (top 64px)
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, width, 64);
+
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, 64);
+      ctx.lineTo(width, 64);
+      ctx.stroke();
+
+      // Brand badge
+      drawRoundedRect(ctx, 20, 16, 175, 32, 8, '#064e3b', '#10b981', 1);
+      ctx.fillStyle = '#34d399';
+      ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+      ctx.fillText('🎙️ ERUS ACADEMY GD', 30, 36);
+
+      // Topic Title
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px Inter, system-ui, sans-serif';
+      const truncatedTopic =
+        activeTopic.length > 60 ? activeTopic.substring(0, 57) + '...' : activeTopic;
+      ctx.fillText(`Topic: ${truncatedTopic}`, 215, 37);
+
+      // Timer & Live REC Badge
+      const timerSecs = durationCounterRef.current;
+      const timerText = `${Math.floor(timerSecs / 60)
+        .toString()
+        .padStart(2, '0')}:${(timerSecs % 60).toString().padStart(2, '0')}`;
+
+      drawRoundedRect(ctx, width - 185, 16, 165, 32, 8, '#1e293b');
+      // Red pulsing dot
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(width - 165, 32, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#f87171';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(`REC ${timerText}`, width - 150, 36);
+
+      // Participant count
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.fillText(`(${tiles.length} Participants)`, width - 85, 36);
+
+      // 3. Grid Layout calculation
+      const margin = 20;
+      const gap = 14;
+      const headerH = 64;
+      const gridW = width - margin * 2;
+      const gridH = height - headerH - margin * 2;
+
+      const N = Math.max(1, tiles.length);
+      let cols = 2;
+      let rows = 1;
+      if (N <= 2) {
+        cols = 2;
+        rows = 1;
+      } else if (N <= 4) {
+        cols = 2;
+        rows = 2;
+      } else if (N <= 6) {
+        cols = 3;
+        rows = 2;
+      } else if (N <= 8) {
+        cols = 4;
+        rows = 2;
+      } else {
+        cols = 4;
+        rows = 3;
+      }
+
+      const tileW = (gridW - (cols - 1) * gap) / cols;
+      const tileH = (gridH - (rows - 1) * gap) / rows;
+
+      // 4. Render Each Participant Tile
+      tiles.forEach((tile, idx) => {
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        const x = margin + col * (tileW + gap);
+        const y = headerH + margin + row * (tileH + gap);
+
+        // Tile base background
+        drawRoundedRect(ctx, x, y, tileW, tileH, 12, '#1e293b');
+
+        // Look up video element for this stream
+        let videoEl = videoPoolRef.current.get(tile.id);
+        if (tile.videoStream && tile.videoStream.getVideoTracks().length > 0) {
+          if (!videoEl) {
+            videoEl = document.createElement('video');
+            videoEl.muted = true;
+            videoEl.autoplay = true;
+            videoEl.playsInline = true;
+            videoEl.srcObject = tile.videoStream;
+            videoEl.play().catch(() => {});
+            videoPoolRef.current.set(tile.id, videoEl);
+          } else if (videoEl.srcObject !== tile.videoStream) {
+            videoEl.srcObject = tile.videoStream;
+            videoEl.play().catch(() => {});
+          }
+        }
+
+        const hasWorkingCamera =
+          videoEl &&
+          videoEl.readyState >= 2 &&
+          !videoEl.paused &&
+          tile.cameraActive !== false;
+
+        if (hasWorkingCamera) {
+          // Draw video element with aspect-cover inside rounded rect
+          ctx.save();
+          clipRoundedRect(ctx, x, y, tileW, tileH, 12);
+          const vw = videoEl.videoWidth || 640;
+          const vh = videoEl.videoHeight || 480;
+          const scale = Math.max(tileW / vw, tileH / vh);
+          const sw = vw * scale;
+          const sh = vh * scale;
+          const sx = x + (tileW - sw) / 2;
+          const sy = y + (tileH - sh) / 2;
+          ctx.drawImage(videoEl, sx, sy, sw, sh);
+          ctx.restore();
+        } else {
+          // Draw elegant avatar tile
+          ctx.save();
+          clipRoundedRect(ctx, x, y, tileW, tileH, 12);
+          const grad = ctx.createLinearGradient(x, y, x + tileW, y + tileH);
+          grad.addColorStop(0, '#1e293b');
+          grad.addColorStop(1, '#0f172a');
+          ctx.fillStyle = grad;
+          ctx.fillRect(x, y, tileW, tileH);
+
+          // Avatar circle
+          const radius = Math.min(tileW, tileH) * 0.22;
+          const cx = x + tileW / 2;
+          const cy = y + tileH / 2 - 12;
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.fillStyle = '#334155';
+          ctx.fill();
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Initials
+          ctx.fillStyle = '#f1f5f9';
+          ctx.font = `bold ${Math.round(radius * 0.9)}px Inter, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(getInitials(tile.name), cx, cy);
+          ctx.restore();
+        }
+
+        // Active speaker highlight border
+        if (tile.isSpeaking) {
+          drawRoundedRect(ctx, x, y, tileW, tileH, 12, undefined, '#10b981', 3.5);
+        } else {
+          drawRoundedRect(ctx, x, y, tileW, tileH, 12, undefined, '#334155', 1);
+        }
+
+        // Bottom student details pill
+        const pillH = 34;
+        const pillY = y + tileH - pillH;
+        ctx.save();
+        clipRoundedRect(ctx, x, y, tileW, tileH, 12);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fillRect(x, pillY, tileW, pillH);
+
+        // Student name and seat
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const displayName = `${tile.seatNumber ? `[Seat ${tile.seatNumber}] ` : ''}${tile.name}`;
+        ctx.fillText(displayName, x + 10, pillY + pillH / 2);
+
+        // Speaking badge or college tag
+        if (tile.isSpeaking) {
+          const badgeX = x + tileW - 90;
+          drawRoundedRect(ctx, badgeX, pillY + 6, 82, 22, 6, '#065f46', '#10b981', 1);
+          ctx.fillStyle = '#6ee7b7';
+          ctx.font = 'bold 10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('🎙️ Speaking', badgeX + 41, pillY + 17);
+        } else if (tile.college) {
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '10px Inter, sans-serif';
+          ctx.textAlign = 'right';
+          const shortCollege =
+            tile.college.length > 20 ? tile.college.substring(0, 18) + '..' : tile.college;
+          ctx.fillText(shortCollege, x + tileW - 10, pillY + pillH / 2);
+        }
+        ctx.restore();
+      });
+    }, 50); // 20 FPS
+  }, []);
 
   // Start recording
   const startRecording = useCallback(async (): Promise<boolean> => {
+    // If recording is disabled (e.g. on student portal), do not run
+    if (!enabled) {
+      return false;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       return true; // Already recording
     }
@@ -214,7 +551,6 @@ export function useGDRecorder({
       if (localStream && localStream.getAudioTracks().length > 0) {
         mixStreamIntoDestination(localStream);
       } else {
-        // Fallback: request microphone for recording
         try {
           const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
           mixStreamIntoDestination(mic);
@@ -239,12 +575,32 @@ export function useGDRecorder({
         osc.start();
       }
 
-      const mixedStream = dest.stream;
-      const bestMime = getBestSupportedAudioMimeType();
-      mimeTypeRef.current = bestMime;
+      let recordingStream: MediaStream;
+      let chosenMime = '';
 
-      const recorderOptions: MediaRecorderOptions = bestMime ? { mimeType: bestMime } : {};
-      const recorder = new MediaRecorder(mixedStream, recorderOptions);
+      if (recordVideo && typeof document !== 'undefined') {
+        // Setup 720p HD Canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        canvasRef.current = canvas;
+
+        startCanvasVideoCompositor(canvas);
+
+        const canvasStream = canvas.captureStream(20);
+        const videoTrack = canvasStream.getVideoTracks()[0];
+        const mixedAudioTracks = dest.stream.getAudioTracks();
+
+        recordingStream = new MediaStream([videoTrack, ...mixedAudioTracks]);
+        chosenMime = getBestSupportedVideoMimeType();
+      } else {
+        recordingStream = dest.stream;
+        chosenMime = getBestSupportedAudioMimeType();
+      }
+
+      mimeTypeRef.current = chosenMime;
+      const recorderOptions: MediaRecorderOptions = chosenMime ? { mimeType: chosenMime } : {};
+      const recorder = new MediaRecorder(recordingStream, recorderOptions);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -259,7 +615,20 @@ export function useGDRecorder({
           timerIntervalRef.current = null;
         }
 
-        const mime = mimeTypeRef.current || 'audio/webm';
+        if (videoRenderIntervalRef.current) {
+          clearInterval(videoRenderIntervalRef.current);
+          videoRenderIntervalRef.current = null;
+        }
+
+        // Clean up video elements pool
+        videoPoolRef.current.forEach((el) => {
+          try {
+            el.srcObject = null;
+          } catch {}
+        });
+        videoPoolRef.current.clear();
+
+        const mime = mimeTypeRef.current || (recordVideo ? 'video/webm' : 'audio/webm');
         const finalBlob = new Blob(chunksRef.current, { type: mime });
         setRecordingBlob(finalBlob);
 
@@ -292,14 +661,26 @@ export function useGDRecorder({
         setRecordingDurationSeconds(durationCounterRef.current);
       }, 1000);
 
-      console.log(`[GD Recorder] Discussion recording started (format: ${bestMime || 'default'})`);
+      console.log(
+        `[GD Recorder] Live ${recordVideo ? 'Video Grid' : 'Audio'} recording started (format: ${
+          chosenMime || 'default'
+        })`
+      );
       return true;
     } catch (err: any) {
       console.error('[GD Recorder] Failed to start MediaRecorder:', err);
       setIsRecording(false);
       return false;
     }
-  }, [localStream, peerStreams, mixStreamIntoDestination, onRecordingComplete]);
+  }, [
+    enabled,
+    localStream,
+    peerStreams,
+    recordVideo,
+    startCanvasVideoCompositor,
+    mixStreamIntoDestination,
+    onRecordingComplete,
+  ]);
 
   // Pause
   const pauseRecording = useCallback(() => {
@@ -336,7 +717,7 @@ export function useGDRecorder({
 
       const handleStop = () => {
         rec.removeEventListener('stop', handleStop);
-        const mime = mimeTypeRef.current || 'audio/webm';
+        const mime = mimeTypeRef.current || (recordVideo ? 'video/webm' : 'audio/webm');
         const finalBlob = new Blob(chunksRef.current, { type: mime });
         resolve(finalBlob);
       };
@@ -348,11 +729,12 @@ export function useGDRecorder({
         resolve(null);
       }
     });
-  }, [recordingBlob]);
+  }, [recordingBlob, recordVideo]);
 
   // Stop and automatically upload recording to server
   const stopAndUploadRecording = useCallback(
     async (overrideSlotId?: string): Promise<UploadRecordingResponse | null> => {
+      if (!enabled) return null;
       const targetSlot = overrideSlotId || slotId;
       if (!targetSlot) return null;
 
@@ -362,7 +744,7 @@ export function useGDRecorder({
       try {
         const finalBlob = await stopRecording();
         if (!finalBlob || finalBlob.size === 0) {
-          console.warn('[GD Recorder] No audio chunks captured to upload');
+          console.warn('[GD Recorder] No audio/video chunks captured to upload');
           setIsUploading(false);
           return null;
         }
@@ -383,28 +765,29 @@ export function useGDRecorder({
         return null;
       }
     },
-    [slotId, stopRecording, recordingDurationSeconds]
+    [enabled, slotId, stopRecording, recordingDurationSeconds]
   );
 
   // Download local copy
   const downloadLocalCopy = useCallback(
     (filename?: string) => {
+      const ext = recordVideo ? 'webm' : 'webm';
       if (recordingBlob) {
-        downloadRecordingLocally(recordingBlob, filename || `GD-${slotId}-${Date.now()}.webm`);
+        downloadRecordingLocally(recordingBlob, filename || `GD-${slotId}-${Date.now()}.${ext}`);
       } else if (chunksRef.current.length > 0) {
-        const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || 'audio/webm' });
-        downloadRecordingLocally(blob, filename || `GD-${slotId}-${Date.now()}.webm`);
+        const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || 'video/webm' });
+        downloadRecordingLocally(blob, filename || `GD-${slotId}-${Date.now()}.${ext}`);
       }
     },
-    [recordingBlob, slotId]
+    [recordingBlob, slotId, recordVideo]
   );
 
-  // Auto-start recording when session becomes active (if autoStartOnActive is true)
+  // Auto-start recording when session becomes active (ONLY when enabled)
   useEffect(() => {
-    if (autoStartOnActive && isSessionActive && !isRecording && !recordingUrl) {
+    if (enabled && autoStartOnActive && isSessionActive && !isRecording && !recordingUrl) {
       startRecording();
     }
-  }, [autoStartOnActive, isSessionActive, isRecording, recordingUrl, startRecording]);
+  }, [enabled, autoStartOnActive, isSessionActive, isRecording, recordingUrl, startRecording]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -412,6 +795,15 @@ export function useGDRecorder({
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
+      if (videoRenderIntervalRef.current) {
+        clearInterval(videoRenderIntervalRef.current);
+      }
+      videoPoolRef.current.forEach((el) => {
+        try {
+          el.srcObject = null;
+        } catch {}
+      });
+      videoPoolRef.current.clear();
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stop();

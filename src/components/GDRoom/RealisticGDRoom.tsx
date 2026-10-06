@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Mic, 
   MicOff, 
@@ -44,8 +44,7 @@ import {
   Maximize2,
   Minimize2,
   X,
-  Download,
-  Volume2
+  Download
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry, GDFacilitatorPhase, GDRoomLayoutType, FacultyLiveNote } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -129,9 +128,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const lastFacilitatorInterventionTimeRef = useRef<number>(0);
 
   const isFaculty = currentUser?.role === 'faculty';
+  const isFacultyOrAdmin = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
   const canStartSession = isFaculty;
   const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
+  const [showVideoModal, setShowVideoModal] = useState(false);
   // Faculty Live Observation Notes State (Enhancement 4)
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
   const [noteTargetStudentId, setNoteTargetStudentId] = useState<string>(session?.students?.[0]?.id || '');
@@ -294,7 +295,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
     onSessionEnded: () => {
       // Synchronized GD termination: faculty has completed the GD, so student view automatically finishes & evaluates
-      if (gdRecorderRef.current?.isRecording) {
+      if (isFacultyOrAdmin && gdRecorderRef.current?.isRecording) {
         gdRecorderRef.current.stopAndUploadRecording(session.slotId || session.id).catch(() => {});
       }
       onFinishSession();
@@ -366,40 +367,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
   });
 
-  // Automated Live Discussion Multi-Stream Audio/Speech Recorder
-  const gdRecorder = useGDRecorder({
-    slotId: session.slotId || session.id || 'slot-1',
-    isSessionActive: session.status === 'active',
-    localStream: videoStream,
-    peerStreams: rtcPeerStreams,
-    autoStartOnActive: true,
-  });
-  gdRecorderRef.current = gdRecorder;
-
-  // Conclude or leave GD discussion with automatic audio recording preservation
-  const handleConcludeOrLeaveSession = useCallback(async () => {
-    if (gdRecorder.isRecording) {
-      try {
-        await gdRecorder.stopAndUploadRecording(session.slotId || session.id);
-      } catch (recErr) {
-        console.warn('[GD Room] Recording upload on exit failed:', recErr);
-      }
-    }
-    if (isFaculty) {
-      rtcFinishSession();
-    }
-    onFinishSession();
-  }, [gdRecorder, session.slotId, session.id, isFaculty, rtcFinishSession, onFinishSession]);
-
   // Synchronized GD termination watch: if session status changes to 'completed', finish GD for student
   useEffect(() => {
     if (session.status === 'completed' && currentUser?.role === 'student') {
-      if (gdRecorderRef.current?.isRecording) {
-        gdRecorderRef.current.stopAndUploadRecording(session.slotId || session.id).catch(() => {});
-      }
+      // Students do NOT record or upload — faculty portal is the single authoritative recorder!
       onFinishSession();
     }
-  }, [session.status, session.slotId, session.id, currentUser?.role, onFinishSession]);
+  }, [session.status, currentUser?.role, onFinishSession]);
 
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
@@ -718,6 +692,44 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     isCameraOn,
     videoStream,
   ]);
+
+  // Automated Live Discussion Multi-Stream Video/Audio Recorder (Runs ONLY on faculty/admin portal)
+  // Prevents duplicate recordings and avoids draining mobile devices/student laptops
+  const gdRecorder = useGDRecorder({
+    slotId: session.slotId || session.id || 'slot-1',
+    isSessionActive: session.status === 'active',
+    localStream: isFacultyOrAdmin ? videoStream : null,
+    peerStreams: rtcPeerStreams,
+    recordVideo: isFacultyOrAdmin,
+    enabled: isFacultyOrAdmin,
+    topicTitle: session.topic || (session as any).topicTitle || 'Group Discussion',
+    participantTiles: activeDisplayStudents.map((st) => ({
+      id: st.id,
+      name: st.name,
+      college: st.college,
+      seatNumber: st.seatNumber,
+      isSpeaking: st.isSpeaking,
+      cameraActive: st.cameraActive,
+      videoStream: st.videoStream,
+    })),
+    autoStartOnActive: true,
+  });
+  gdRecorderRef.current = gdRecorder;
+
+  // Conclude or leave GD discussion with automatic video recording preservation
+  const handleConcludeOrLeaveSession = useCallback(async () => {
+    if (isFacultyOrAdmin && gdRecorder.isRecording) {
+      try {
+        await gdRecorder.stopAndUploadRecording(session.slotId || session.id);
+      } catch (recErr) {
+        console.warn('[GD Room] Recording upload on exit failed:', recErr);
+      }
+    }
+    if (isFaculty) {
+      rtcFinishSession();
+    }
+    onFinishSession();
+  }, [isFacultyOrAdmin, gdRecorder, session.slotId, session.id, isFaculty, rtcFinishSession, onFinishSession]);
 
   const latestSpeakerTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
   const activeStudentUser = !isFaculty ? activeDisplayStudents.find((s) => s.isUser) : null;
@@ -1545,26 +1557,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <span>Faculty: <strong>{session?.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
               </span>
 
-              {/* Live Audio Recording Status Indicator */}
-              {gdRecorder.isRecording ? (
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1.5 shadow-2xs animate-pulse" title="GD discussion audio is actively being recorded and stored to ERUS server">
+              {/* Live Video Recording Status Indicator (Recorded strictly from Faculty portal) */}
+              {isFacultyOrAdmin && gdRecorder.isRecording ? (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1.5 shadow-2xs animate-pulse" title="GD discussion video grid is actively being recorded and stored to ERUS server">
                   <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping inline-block" />
-                  <span className="font-mono">REC {gdRecorder.formattedDuration}</span>
+                  <span className="font-mono">REC {gdRecorder.formattedDuration} (Video Grid)</span>
+                </span>
+              ) : !isFacultyOrAdmin && isSessionActive ? (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50/70 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 flex items-center gap-1.5 shadow-2xs" title="Session is being recorded by the faculty evaluator">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                  <span className="font-mono">Session Recording Active</span>
                 </span>
               ) : (gdRecorder.recordingUrl || session.recordingUrl) ? (
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 shadow-2xs">
-                  <Volume2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Discussion Recorded</span>
-                  <a
-                    href={gdRecorder.recordingUrl || session.recordingUrl}
-                    download={`GD-Recording-${session.id}.webm`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline text-[10px] ml-1 text-emerald-800 dark:text-emerald-200 hover:text-emerald-950"
-                    title="Download audio recording (.webm)"
+                  <Video className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Discussion Video Saved</span>
+                  <button
+                    onClick={() => setShowVideoModal(true)}
+                    className="underline text-[10px] ml-1 text-emerald-800 dark:text-emerald-200 hover:text-emerald-950 cursor-pointer font-bold"
                   >
-                    Download
-                  </a>
+                    Watch
+                  </button>
                 </span>
               ) : null}
             </div>
@@ -1600,18 +1613,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <div className="flex items-center gap-2 flex-wrap">
                   {(gdRecorder.recordingUrl || session.recordingUrl) && (
                     <div className="flex items-center gap-1.5 bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-xl border border-purple-200 dark:border-purple-800 shadow-2xs">
-                      <audio
-                        controls
-                        src={gdRecorder.recordingUrl || session.recordingUrl}
-                        className="h-7 w-44 sm:w-52"
-                      />
+                      <button
+                        onClick={() => setShowVideoModal(true)}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                        title="Watch full recorded video of this GD session"
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                        <span>Watch GD Video</span>
+                      </button>
                       <a
                         href={gdRecorder.recordingUrl || session.recordingUrl}
-                        download={`GD-Recording-${session.id}.webm`}
+                        download={`GD-Video-${session.id}.webm`}
                         target="_blank"
                         rel="noreferrer"
                         className="p-1.5 rounded-lg bg-purple-100 hover:bg-purple-200 dark:bg-purple-900 text-purple-700 dark:text-purple-300 transition-colors"
-                        title="Download GD Recording (.webm)"
+                        title="Download GD Video (.webm)"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </a>
@@ -3460,6 +3476,70 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <span>Time Spoken: <strong className="text-white font-mono">{Math.floor(liveEnlargedStudent.speakingDurationSeconds / 60)}m {liveEnlargedStudent.speakingDurationSeconds % 60}s</strong></span>
               </div>
               <span className="text-[11px] text-slate-500">Double-click any seat to enlarge • Press Esc to minimize</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GD Video Recording Playback Modal */}
+      {showVideoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowVideoModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Video className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Recorded Group Discussion Video
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Topic: {session?.topic || 'Group Discussion'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVideoModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+              <video
+                controls
+                autoPlay
+                src={gdRecorder.recordingUrl || session.recordingUrl}
+                className="w-full h-full object-contain"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Single Master Video • Recorded by Faculty Portal</span>
+              </span>
+              <a
+                href={gdRecorder.recordingUrl || session.recordingUrl}
+                download={`GD-Video-${session.id}.webm`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Video</span>
+              </a>
             </div>
           </div>
         </div>
