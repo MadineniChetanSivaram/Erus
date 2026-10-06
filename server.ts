@@ -5961,47 +5961,75 @@ function analyzeThoughtHeuristically(
 
   // Extract cleanest core statement by stripping conversational preamble
   const cleaned = raw
-    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that)/i, '')
+    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that|what i feel is that|personally i think)/i, '')
     .trim();
 
   let coreAnalysis = '';
   let probingFollowup = '';
   let peerTransition = '';
 
-  if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue')) {
+  if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue') || lower.includes('budget')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted financial feasibility and operational cost pressures in ${topic}.`;
     probingFollowup = `How can organizations mitigate these financial burdens without compromising service quality or consumer affordability?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s economic assessment, or do you view the financial returns differently?`;
-  } else if (lower.includes('privacy') || lower.includes('data') || lower.includes('security') || lower.includes('hack') || lower.includes('fraud') || lower.includes('breach') || lower.includes('protect')) {
+  } else if (lower.includes('privacy') || lower.includes('data') || lower.includes('security') || lower.includes('hack') || lower.includes('fraud') || lower.includes('breach') || lower.includes('protect') || lower.includes('surveillance')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, your argument focuses on data privacy risks and security vulnerabilities in ${topic}.`;
     probingFollowup = `How can systems maintain end-to-end data integrity without introducing prohibitive friction for everyday users?`;
     peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how would you evaluate ${firstName}'s concerns regarding security, and what policy safeguards would you propose?`;
-  } else if (lower.includes('job') || lower.includes('worker') || lower.includes('employ') || lower.includes('labor') || lower.includes('staff') || lower.includes('career') || lower.includes('livelihood')) {
+  } else if (lower.includes('job') || lower.includes('worker') || lower.includes('employ') || lower.includes('labor') || lower.includes('staff') || lower.includes('career') || lower.includes('livelihood') || lower.includes('layoff')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, you addressed the human dimension of workforce displacement and evolving career roles in ${topic}.`;
     probingFollowup = `As the market transforms, what structured reskilling initiatives should be mandated to protect vulnerable workers from displacement?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment impact, and what solutions would you offer?`;
-  } else if (lower.includes('ethic') || lower.includes('bias') || lower.includes('moral') || lower.includes('fair') || lower.includes('responsib') || lower.includes('trust')) {
+  } else if (lower.includes('ethic') || lower.includes('bias') || lower.includes('moral') || lower.includes('fair') || lower.includes('responsib') || lower.includes('trust') || lower.includes('discrim')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential inquiry into fairness and institutional accountability within ${topic}.`;
     probingFollowup = `How should decision-makers establish transparent ethical guidelines when commercial incentives push in the opposite direction?`;
     peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, do you share ${firstName}'s ethical concerns, or do you believe market competition naturally regulates this?`;
+  } else if (lower.includes('environment') || lower.includes('climate') || lower.includes('pollution') || lower.includes('carbon') || lower.includes('green') || lower.includes('sustainab') || lower.includes('waste') || lower.includes('eco')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the vital dimension of environmental sustainability and ecological consequences in ${topic}.`;
+    probingFollowup = `How can industries balance ambitious growth targets with strict zero-carbon or green compliance commitments?`;
+    peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s environmental perspective align with your position on this topic?`;
+  } else if (lower.includes('policy') || lower.includes('law') || lower.includes('rule') || lower.includes('govern') || lower.includes('regulat') || lower.includes('legal') || lower.includes('mandat')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out the regulatory landscape and the necessity of enforceable policy standards in ${topic}.`;
+    probingFollowup = `Are existing legal frameworks agile enough to handle these emerging challenges, or is proactive legislation required?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you believe government intervention is the answer here, or should industry self-regulate?`;
+  } else if (lower.includes('education') || lower.includes('student') || lower.includes('learn') || lower.includes('school') || lower.includes('college') || lower.includes('skill') || lower.includes('curriculum')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you emphasized the educational dimension and the widening gap between theory and practical industry skills in ${topic}.`;
+    probingFollowup = `What systemic reforms should academic institutions prioritize to bridge this capability gap effectively?`;
+    peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s arguments regarding education and practical preparation?`;
+  } else if (lower.includes('health') || lower.includes('mental') || lower.includes('medical') || lower.includes('patient') || lower.includes('doctor') || lower.includes('hospital') || lower.includes('stress')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you focused on the critical implications for public health, well-being, and institutional healthcare capacity in ${topic}.`;
+    probingFollowup = `How can high-stress environments prevent burnout while maintaining operational excellence?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s focus on health and well-being within this discussion?`;
   } else if (lower.includes('rural') || lower.includes('access') || lower.includes('reach') || lower.includes('infrastruct') || lower.includes('tier') || lower.includes('divide')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the challenge of equitable regional access and infrastructure disparities in ${topic}.`;
-    probingFollowup = `What realistic infrastructure investments are required so rural communities can participate on equal footing?`;
+    probingFollowup = `What realistic infrastructure investments are required so underserved communities can participate on equal footing?`;
     peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s emphasis on accessibility influence your stance on this subject?`;
   } else if (lower.includes('delivery') || lower.includes('speed') || lower.includes('quick') || lower.includes('logistics') || lower.includes('convenien') || lower.includes('customer')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, your observation regarding customer convenience and rapid fulfillment touches the operational heart of ${topic}.`;
-    probingFollowup = `Does the push for instant delivery compromise employee well-being and environmental sustainability? How should that balance be struck?`;
+    probingFollowup = `Does the push for instant delivery compromise employee well-being and operational safety? How should that balance be struck?`;
     peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you respond to ${firstName}'s analysis of customer convenience versus operational sustainability?`;
-  } else if (lower.includes('tech') || lower.includes('ai') || lower.includes('automat') || lower.includes('digital') || lower.includes('platform') || lower.includes('tool')) {
+  } else if (lower.includes('tech') || lower.includes('ai') || lower.includes('automat') || lower.includes('digital') || lower.includes('platform') || lower.includes('tool') || lower.includes('software')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, your insight on technological scalability and automated efficiency provides a strong practical foundation for ${topic}.`;
     probingFollowup = `While technology drives efficiency, where must human oversight remain strictly non-negotiable?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s argument regarding technological adoption in this domain?`;
   } else {
-    // Dynamic argument synthesis quoting key clause cleanly
+    // Dynamic argument synthesis quoting key clause cleanly with rotating moderator styles
     const snippet = cleaned.length > 55 ? cleaned.slice(0, 55).replace(/\s+\S*$/, '') + '...' : cleaned;
-    coreAnalysis = `${firstName} from ${speakerSeat}, you argued that ${snippet || 'this issue demands careful nuance'}.`;
-    probingFollowup = `Considering practical constraints, what potential counter-argument or implementation roadblock must be addressed to make this workable?`;
-    peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint, and what counter-arguments or additions would you propose?`;
+    const styleIndex = (speakerName.length + (targetName?.length || 0)) % 3;
+
+    if (styleIndex === 0) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out that ${snippet || 'this issue demands careful nuance'}.`;
+      probingFollowup = `Considering practical constraints, what potential counter-argument or implementation roadblock must be addressed?`;
+      peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint, and what counter-arguments or additions would you propose?`;
+    } else if (styleIndex === 1) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, your emphasis that ${snippet || 'we must weigh the trade-offs carefully'} raises a pivotal point in ${topic}.`;
+      probingFollowup = `What real-world evidence or metric would prove that this approach is viable on a large scale?`;
+      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s perspective, or do you see a different challenge?`;
+    } else {
+      coreAnalysis = `${firstName} from ${speakerSeat}, arguing that ${snippet || 'this issue requires structured planning'} introduces a critical dimension to our discussion.`;
+      probingFollowup = `How can decision-makers execute on this without creating unintended consequences?`;
+      peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s point, and how would you build upon it?`;
+    }
   }
 
   return isSamePerson ? `${coreAnalysis} ${probingFollowup}` : `${coreAnalysis} ${peerTransition}`;
@@ -6136,11 +6164,13 @@ CRITICAL RULES:
 - Address both ${speakerFirstName} from ${speakerSeat} and ${targetReal.name} from ${seatStr}.
 - Maximum 40 words total. Plain text only. Natural spoken moderator cadence.`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.7-flash',
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+          const aiPromise = ai.models.generateContent({
+            model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
             contents: promptInstruction,
           });
-          const genText = response.text?.trim();
+          const response: any = await Promise.race([aiPromise, timeoutPromise]);
+          const genText = response?.text?.trim();
           if (genText && genText.length > 20) {
             // Strip any accidental canned praise phrases
             let sanitized = genText
@@ -6153,7 +6183,7 @@ CRITICAL RULES:
             }
           }
         } catch (err) {
-          console.warn('[AI Thought Analysis Error, using heuristic]:', err);
+          // Clean fallback to built-in semantic engine without interrupting discussion
         }
       }
     }
@@ -6214,18 +6244,23 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
 
   const fallbackQuestions = [
     `${candidateName} ${seatStr}, since the floor is quiet, what is one practical example that supports your position on "${room.topic}"?`,
-    `${candidateName} ${seatStr}, ${firstName}, what is the strongest concern you see with the viewpoint discussed so far?`,
-    `${candidateName} ${seatStr}, how could this idea be implemented realistically in an Indian college or workplace?`,
-    `${candidateName} ${seatStr}, ${firstName}, who is most affected by this issue, and why should their perspective matter?`,
-    `${candidateName} ${seatStr}, if you had to challenge one assumption in this discussion, which would you challenge?`,
-    `${candidateName} ${seatStr}, ${firstName}, what evidence or outcome would convince you that this approach is actually working?`
+    `${candidateName} ${seatStr}, ${firstName}, what is the strongest concern or counter-argument you see with the viewpoint discussed so far?`,
+    `${candidateName} ${seatStr}, how could this idea be implemented realistically in an Indian college or workplace environment?`,
+    `${candidateName} ${seatStr}, ${firstName}, who is most affected by this issue, and why should their perspective matter in this debate?`,
+    `${candidateName} ${seatStr}, if you had to challenge one core assumption in this discussion so far, which would you challenge?`,
+    `${candidateName} ${seatStr}, ${firstName}, what tangible evidence or outcome would convince you that this approach is truly viable?`,
+    `${candidateName} ${seatStr}, looking at the long-term trade-offs, what unintended consequence might arise if we rush into this?`,
+    `${candidateName} ${seatStr}, ${firstName}, how would you balance the economic demands against ethical responsibilities in "${room.topic}"?`,
+    `${candidateName} ${seatStr}, what policy or structural reform would be needed before this solution could succeed on ground?`,
+    `${candidateName} ${seatStr}, ${firstName}, the group has explored several angles; what fresh angle or missed dimension can you bring to "${room.topic}"?`
   ];
   let deadlockQuestion = fallbackQuestions[(room.deadlockCount - 1) % fallbackQuestions.length];
 
   if (ai) {
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+      const aiPromise = ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
         contents: `You are the live moderator of an Indian collegiate Group Discussion.
 Topic: "${room.topic}"
 Candidate to call: "${candidateName} ${seatStr}"
@@ -6239,10 +6274,11 @@ Call exactly ${candidateName} ${seatStr} by name and seat number to give them th
 Ask a clear question on "${room.topic}".
 Do not mention AI.`,
       });
-      const generated = response.text?.trim();
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const generated = response?.text?.trim();
       if (generated) deadlockQuestion = generated;
     } catch (err) {
-      console.warn('[AI Deadlock Question Error]:', err);
+      // Clean fallback without interrupting discussion
     }
   }
 
