@@ -112,24 +112,9 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   const [isSavingAllotment, setIsSavingAllotment] = useState(false);
   const [isRegeneratingSlots, setIsRegeneratingSlots] = useState(false);
 
-  const PRESET_TOPICS = [
-    'Impact of Generative AI on Tech Hiring & Software Engineering',
-    'Electric Vehicles vs Hydrogen Fuel Cells in Indian Transportation',
-    'Work From Home vs Return to Office: Long Term Productivity & Mental Health',
-    'Fintech Revolution: Digital Rupee (CBDC) vs Traditional Banking',
-    'Data Privacy vs National Security in the Age of Global Surveillance',
-    'Sustainability vs Rapid Industrial Development in Emerging Markets',
-    'Role of Social Media Algorithms in Democratic Elections & Discourse',
-    'Autonomous Vehicles: Ethical Dilemmas & Legal Accountability',
-    'Moonlighting in Corporate Sector: Ethical Breach or Employee Right?',
-    'Should Standardized Testing Remain the Benchmark for Higher Education Admissions?'
-  ];
-
   const [allotForm, setAllotForm] = useState({
-    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-    isCustomTopic: false,
-    customTopic: '',
-    description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
+    topic: '',
+    description: '',
     assignedFacultyId: '',
     assignedFacultyName: '',
     assignedFacultyDept: '',
@@ -209,8 +194,8 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
 
   const [newSlot, setNewSlot] = useState({
     slotName: 'Slot 1: Campus Placement Screening',
-    topic: 'Impact of Generative AI on Tech Hiring & Software Engineering',
-    description: 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
+    topic: '',
+    description: '',
     durationMinutes: 15,
     difficulty: 'Intermediate',
     slotDate: new Date().toISOString().split('T')[0],
@@ -310,7 +295,6 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     setAllottingSlot(slot);
     const existingTopic = slot.topic || '';
     const isTopicPending = !existingTopic || existingTopic.toLowerCase().includes('pending');
-    const isCustom = !isTopicPending && !PRESET_TOPICS.includes(existingTopic);
 
     let defaultFacultyId = slot.assignedFacultyId || '';
     let defaultFacultyName = slot.assignedFacultyName || '';
@@ -328,9 +312,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     }
 
     setAllotForm({
-      topic: isTopicPending ? PRESET_TOPICS[0] : (isCustom ? 'custom' : existingTopic),
-      isCustomTopic: isCustom,
-      customTopic: isCustom ? existingTopic : '',
+      topic: isTopicPending ? '' : existingTopic,
       description: slot.description && !slot.description.toLowerCase().includes('pending') ? slot.description : '',
       assignedFacultyId: defaultFacultyId,
       assignedFacultyName: defaultFacultyName,
@@ -344,12 +326,10 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     e.preventDefault();
     if (!allottingSlot) return;
 
-    const chosenTopic = allotForm.isCustomTopic
-      ? allotForm.customTopic.trim()
-      : allotForm.topic;
+    const chosenTopic = allotForm.topic.trim();
 
     if (!chosenTopic) {
-      alert('Please select or specify a discussion topic.');
+      alert('Please enter a discussion topic.');
       return;
     }
 
@@ -2697,61 +2677,20 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
             </div>
 
             <form onSubmit={handleSaveAllotment} className="space-y-4 text-xs">
-              {/* Discussion Topic Selection */}
+              {/* Discussion Topic Input */}
               <div>
                 <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   Discussion Topic
                 </label>
-                <select
-                  value={allotForm.isCustomTopic ? 'custom' : allotForm.topic}
-                  onChange={(e) => {
-                    if (e.target.value === 'custom') {
-                      setAllotForm((prev) => ({
-                        ...prev,
-                        isCustomTopic: true,
-                        topic: 'custom',
-                        customTopic: prev.customTopic || '',
-                      }));
-                    } else {
-                      setAllotForm((prev) => ({
-                        ...prev,
-                        isCustomTopic: false,
-                        topic: e.target.value,
-                        customTopic: '',
-                      }));
-                    }
-                  }}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-medium"
-                >
-                  <optgroup label="Popular GD Topics">
-                    {PRESET_TOPICS.map((top, idx) => (
-                      <option key={idx} value={top}>
-                        {top}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Custom Option">
-                    <option value="custom">✨ Enter Custom Discussion Topic...</option>
-                  </optgroup>
-                </select>
+                <textarea
+                  rows={2}
+                  value={allotForm.topic}
+                  onChange={(e) => setAllotForm({ ...allotForm, topic: e.target.value })}
+                  placeholder="Enter the discussion or debate topic..."
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
               </div>
-
-              {/* Custom Topic Input if selected */}
-              {allotForm.isCustomTopic && (
-                <div className="animate-fade-in">
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Custom Topic Title
-                  </label>
-                  <input
-                    type="text"
-                    value={allotForm.customTopic}
-                    onChange={(e) => setAllotForm({ ...allotForm, customTopic: e.target.value })}
-                    placeholder="Enter custom debate or discussion topic..."
-                    required={allotForm.isCustomTopic}
-                    className="w-full px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/20 font-medium focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-              )}
 
               {/* Topic Description */}
               <div>
