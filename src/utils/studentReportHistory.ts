@@ -135,10 +135,9 @@ export function getStudentReportHistory(studentIdentifier: string, currentReport
     console.warn('Failed to load report history:', e);
   }
 
-  // If no stored history and currentReport is provided, initialize with current and baseline previous
+  // If no stored history and currentReport is provided, initialize with current report only
   if (currentReport) {
-    const baseline = createBaselinePreviousReport(currentReport);
-    const initialHistory = [currentReport, baseline];
+    const initialHistory = [currentReport];
     saveStudentReportHistory(studentIdentifier, initialHistory);
     return initialHistory;
   }

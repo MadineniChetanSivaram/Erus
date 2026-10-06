@@ -366,9 +366,9 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           grade,
           facultyEndorsement: {
             endorsed: true,
-            facultyName: currentUser?.name || 'Dr. Sunita Rao',
-            facultyId: (currentUser as any)?.facultyId || 'FAC-CSE-102',
-            designation: (currentUser as any)?.designation || 'Professor & Head of Department',
+            facultyName: currentUser?.name || 'Faculty Evaluator',
+            facultyId: (currentUser as any)?.facultyId || 'FAC-001',
+            designation: (currentUser as any)?.designation || 'Faculty Evaluator',
             remarks: facultyRemarks,
             endorsedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
             adjustedScores: true,
@@ -805,7 +805,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                     </span>
                   </div>
                   <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">
-                    Evaluated by {currentReport.facultyEndorsement?.facultyName || 'Dr. Sunita Rao'} ({currentReport.facultyEndorsement?.designation || 'Faculty Evaluator'}) on {currentReport.facultyEndorsement?.endorsedAt}
+                    Evaluated by {currentReport.facultyEndorsement?.facultyName || 'Faculty Evaluator'} ({currentReport.facultyEndorsement?.designation || 'Faculty In-Charge'}) on {currentReport.facultyEndorsement?.endorsedAt}
                   </p>
                   {currentReport.facultyEndorsement?.remarks && (
                     <p className="text-xs text-slate-800 dark:text-slate-200 mt-1 italic">
@@ -1176,7 +1176,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           <div className="text-right space-y-3">
             <div className="inline-block text-center border-t border-slate-400 dark:border-slate-600 pt-1 min-w-[200px]">
               <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                {currentReport.facultyEndorsement?.facultyName || 'Dr. Sunita Rao'}
+                {currentReport.facultyEndorsement?.facultyName || 'Faculty Evaluator'}
               </span>
               <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-mono">
                 {currentReport.facultyEndorsement?.designation || 'Head of Department / Faculty Evaluator'}

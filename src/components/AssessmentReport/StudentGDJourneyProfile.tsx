@@ -38,6 +38,7 @@ import {
 import { StudentAssessmentReport } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { downloadStudentReport, StudentReportType } from '../../utils/managementReports';
+import { getStudentReportHistory } from '../../utils/studentReportHistory';
 
 interface StudentGDJourneyProfileProps {
   currentReport: StudentAssessmentReport;
@@ -50,86 +51,46 @@ export const StudentGDJourneyProfile: React.FC<StudentGDJourneyProfileProps> = (
   currentUser,
   onBackToSessionReport,
 }) => {
-  const studentName = currentReport.studentName || currentUser?.name || 'Rahul Sharma';
-  const collegeName = currentReport.college || currentUser?.college || 'BMS Institute of Technology & Management';
-  const studentId = currentReport.studentId || currentUser?.id || 'STU-2024-001';
+  const studentName = currentReport.studentName || currentUser?.name || 'Student Participant';
+  const collegeName = currentReport.college || currentUser?.college || 'Academic Institution';
+  const studentId = currentReport.studentId || currentUser?.id || 'STU-001';
 
-  // 9-Dimension Skill Wheel Data (Page 9 of Specification)
+  // 9-Dimension Skill Wheel Data derived from report skills
   const skillWheelData = [
-    { subject: 'Fluency', score: 78, benchmark: 70, fullMark: 100, category: 'Speaking' },
-    { subject: 'Clarity', score: 82, benchmark: 75, fullMark: 100, category: 'Speaking' },
-    { subject: 'Vocabulary', score: 74, benchmark: 65, fullMark: 100, category: 'Language' },
-    { subject: 'Grammar', score: 71, benchmark: 70, fullMark: 100, category: 'Language' },
-    { subject: 'Pronunciation', score: 80, benchmark: 70, fullMark: 100, category: 'Speaking' },
-    { subject: 'Confidence', score: 83, benchmark: 75, fullMark: 100, category: 'Presentation' },
-    { subject: 'Critical Thinking', score: 76, benchmark: 65, fullMark: 100, category: 'Thinking' },
-    { subject: 'Listening', score: 69, benchmark: 70, fullMark: 100, category: 'Interaction' },
-    { subject: 'Leadership', score: 72, benchmark: 60, fullMark: 100, category: 'Interaction' },
+    { subject: 'Fluency', score: Math.round(((currentReport.skills?.fluency?.score || 14) / 20) * 100), benchmark: 70, fullMark: 100, category: 'Speaking' },
+    { subject: 'Clarity', score: Math.round(((currentReport.skills?.clarity?.score || 11) / 15) * 100), benchmark: 75, fullMark: 100, category: 'Speaking' },
+    { subject: 'English', score: Math.round(((currentReport.skills?.english?.score || 15) / 20) * 100), benchmark: 70, fullMark: 100, category: 'Language' },
+    { subject: 'Grammar', score: Math.round(((currentReport.skills?.english?.score || 15) / 20) * 95), benchmark: 70, fullMark: 100, category: 'Language' },
+    { subject: 'Confidence', score: Math.round(((currentReport.skills?.confidence?.score || 11) / 15) * 100), benchmark: 75, fullMark: 100, category: 'Presentation' },
+    { subject: 'Critical Thinking', score: Math.round(((currentReport.skills?.contentQuality?.score || 11) / 15) * 100), benchmark: 65, fullMark: 100, category: 'Thinking' },
+    { subject: 'Listening', score: Math.round(((currentReport.skills?.collaboration?.score || 8) / 10) * 100), benchmark: 70, fullMark: 100, category: 'Interaction' },
+    { subject: 'Leadership', score: Math.round(((currentReport.skills?.leadership?.score || 4) / 5) * 100), benchmark: 60, fullMark: 100, category: 'Interaction' },
   ];
 
-  // Month-over-Month Progress Timeline Data (Page 9 of Specification: 58 -> 78, +20 points)
-  const progressTimelineData = [
-    { month: 'Month 1', score: 58, benchmark: 60, change: 'Baseline', topic: 'Renewable Energy vs Nuclear Power' },
-    { month: 'Month 2', score: 64, benchmark: 63, change: '+6 pts', topic: 'Cryptocurrency & Financial Regulation' },
-    { month: 'Month 3', score: 71, benchmark: 67, change: '+7 pts', topic: 'Work From Home vs Office Culture' },
-    { month: 'Month 4', score: 78, benchmark: 70, change: '+7 pts', topic: 'AI Ethics in Autonomous Systems' },
-  ];
+  // Load actual stored history for this student
+  const rawHistory = getStudentReportHistory(studentId || studentName, currentReport);
+  const historySessions = rawHistory.map((rep, idx) => ({
+    id: rep.sessionId || `GD-SES-${idx + 1}`,
+    date: rep.generatedAt || 'Recent',
+    topic: rep.topic || 'Group Discussion',
+    duration: `${rep.durationMinutes || 15} Mins`,
+    score: rep.overallScore || 0,
+    percentile: `${Math.min(99, Math.max(10, Math.round((rep.overallScore || 65) * 0.95)))}th`,
+    grade: rep.grade || 'Evaluated',
+    status: 'Completed',
+    delta: idx === 0 ? 'Current' : 'Previous',
+    feedback: rep.aiSummary || 'Participation recorded and evaluated.',
+    facultyEvaluator: rep.facultyEndorsement?.facultyName || 'AI Evaluator',
+  }));
 
-  // Historical "MY GD JOURNEY" Table Data (Page 10 of Specification)
-  const historySessions = [
-    {
-      id: 'GD-SES-004',
-      date: '28 Oct 2024',
-      topic: 'AI Ethics in Autonomous Systems & Robotics',
-      duration: '20 Mins',
-      score: 78,
-      percentile: '88th',
-      grade: 'Very Good',
-      status: 'Completed',
-      delta: '+7 pts',
-      feedback: 'Highly articulate opening, referenced factual safety frameworks, balanced turn allocation.',
-      facultyEvaluator: 'Dr. Sunita Rao',
-    },
-    {
-      id: 'GD-SES-003',
-      date: '14 Oct 2024',
-      topic: 'Work From Home vs Office Culture in IT Industry',
-      duration: '20 Mins',
-      score: 71,
-      percentile: '80th',
-      grade: 'Good',
-      status: 'Completed',
-      delta: '+7 pts',
-      feedback: 'Strong counter-argument synthesis, maintained conversational poise, reduced filler hesitations.',
-      facultyEvaluator: 'Prof. Ananya Sen',
-    },
-    {
-      id: 'GD-SES-002',
-      date: '29 Sep 2024',
-      topic: 'Cryptocurrency & Global Financial Regulations',
-      duration: '15 Mins',
-      score: 64,
-      percentile: '72nd',
-      grade: 'Good',
-      status: 'Completed',
-      delta: '+6 pts',
-      feedback: 'Constructive participation, could offer more real-world banking statistics.',
-      facultyEvaluator: 'Dr. Sunita Rao',
-    },
-    {
-      id: 'GD-SES-001',
-      date: '15 Sep 2024',
-      topic: 'Renewable Energy Transitions vs Nuclear Power',
-      duration: '15 Mins',
-      score: 58,
-      percentile: '60th',
-      grade: 'Average',
-      status: 'Completed',
-      delta: 'Baseline',
-      feedback: 'Needs improvement in conversational flow and reducing vocal hesitations (uh/um).',
-      facultyEvaluator: 'Prof. Rajesh K',
-    },
-  ];
+  // Progress timeline data from real sessions
+  const progressTimelineData = historySessions.map((s, idx) => ({
+    month: `Session ${idx + 1}`,
+    score: s.score,
+    benchmark: 70,
+    change: idx === 0 ? 'Baseline' : `${s.score} pts`,
+    topic: s.topic,
+  }));
 
   const handleDownload = (type: StudentReportType) => {
     downloadStudentReport(type, studentId, studentName);

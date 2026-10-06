@@ -197,9 +197,6 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                 className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-105"
               >
                 <span>⭐ My GD Journey &amp; Growth Profile</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-extrabold border border-emerald-400/30">
-                  78/100
-                </span>
               </button>
             </div>
           )}

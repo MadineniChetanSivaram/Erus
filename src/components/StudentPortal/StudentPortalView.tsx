@@ -44,7 +44,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
         map.set(topicName, {
           topic: topicName,
           description: slot.description || 'Autonomous AI evaluation of technical argumentation, structured thinking, and empathy.',
-          allottedFaculty: slot.allottedFaculty || 'Dr. Sunita Rao (Department)',
+          allottedFaculty: slot.assignedFacultyName || slot.allottedFaculty || 'Assigned Faculty',
           slots: [],
         });
       }

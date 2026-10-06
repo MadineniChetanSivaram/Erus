@@ -104,14 +104,20 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
 
   const [matrixFilter, setMatrixFilter] = useState<'all' | 'red' | 'yellow' | 'green' | 'too_silent' | 'too_dominant' | 'good_speaker'>('all');
 
-  const studentStats = safeStudents.map((s, idx) => {
+  const studentStats = safeStudents.map((s) => {
     const persisted = reportByStudent.get(s.id) || persistedReports.find((r) => r.studentName && String(r.studentName).toLowerCase() === String(s.name).toLowerCase());
-    let calculatedScore = typeof persisted?.overallScore === 'number' ? persisted.overallScore : (60 + ((idx * 7) % 35));
-    let calculatedGrade = calculatedScore >= 90 ? 'Excellent' : calculatedScore >= 75 ? 'Very Good' : calculatedScore >= 60 ? 'Good' : calculatedScore >= 40 ? 'Average' : 'Needs Improvement';
-    
-    // Behavioral Diagnoses (Page 7-8 of Spec: Too Silent / Too Dominant / Good Speaker)
     const speakingSecs = s.speakingDurationSeconds || 0;
     const turns = s.speakingTurns || 0;
+    
+    let calculatedScore = typeof persisted?.overallScore === 'number'
+      ? persisted.overallScore
+      : (turns > 0 || speakingSecs > 0 ? Math.min(100, Math.max(40, Math.round(50 + turns * 8 + Math.min(speakingSecs, 180) / 10))) : 0);
+    
+    let calculatedGrade = calculatedScore > 0
+      ? (calculatedScore >= 90 ? 'Excellent' : calculatedScore >= 75 ? 'Very Good' : calculatedScore >= 60 ? 'Good' : calculatedScore >= 40 ? 'Average' : 'Needs Improvement')
+      : 'Awaiting GD';
+    
+    // Behavioral Diagnoses
     let behaviorType: 'too_silent' | 'too_dominant' | 'good_speaker' = 'good_speaker';
     let behaviorLabel = 'Good Speaker';
     let behaviorAction = 'Ready for Advanced Placement Challenges';
@@ -129,20 +135,26 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     // Teacher Intervention Flags (🔴 Immediate Practice, 🟡 Needs Improvement, 🟢 Good Progress)
     let flag: 'red' | 'yellow' | 'green' = 'green';
     let flagLabel = 'Good Progress';
-    if (calculatedScore < 55 || (speakingSecs < 45 && turns <= 1)) {
+    if (calculatedScore > 0 && calculatedScore < 55) {
       flag = 'red';
       flagLabel = 'Immediate Practice';
-    } else if (calculatedScore < 72) {
+    } else if (calculatedScore >= 55 && calculatedScore < 72) {
       flag = 'yellow';
       flagLabel = 'Needs Improvement';
     }
 
     // Rubric attributes for matrix
-    const relevancePercent = Math.min(96, Math.max(55, Math.round(75 + ((idx * 9) % 22))));
-    const fluencyScore = Math.min(20, Math.max(10, Math.round(14 + ((idx * 3) % 6))));
-    const confidenceScore = Math.min(15, Math.max(7, Math.round(11 + ((idx * 4) % 4))));
-    const interruptions = s.interruptionCount || (idx % 3 === 0 ? 1 : 0);
-    const responses = s.questionsAnswered || Math.max(1, Math.round(turns * 0.7));
+    const relevancePercent = typeof persisted?.skills?.contentQuality?.score === 'number'
+      ? Math.round((persisted.skills.contentQuality.score / 15) * 100)
+      : (turns > 0 ? 75 : 0);
+    const fluencyScore = typeof persisted?.skills?.fluency?.score === 'number'
+      ? persisted.skills.fluency.score
+      : (turns > 0 ? Math.min(20, Math.max(10, Math.round(12 + turns * 1.5))) : 0);
+    const confidenceScore = typeof persisted?.skills?.confidence?.score === 'number'
+      ? persisted.skills.confidence.score
+      : (turns > 0 ? Math.min(15, Math.max(8, Math.round(10 + turns))) : 0);
+    const interruptions = s.interruptionCount || 0;
+    const responses = s.questionsAnswered || 0;
 
     return {
       ...s,
@@ -162,14 +174,22 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     };
   });
 
-  const averageScore = studentStats.length > 0
-    ? Math.round(studentStats.reduce((sum, st) => sum + Number(st.calculatedScore || 0), 0) / studentStats.length)
+  const scoredStudents = studentStats.filter((st) => Number(st.calculatedScore) > 0);
+  const averageScore = scoredStudents.length > 0
+    ? Math.round(scoredStudents.reduce((sum, st) => sum + Number(st.calculatedScore || 0), 0) / scoredStudents.length)
     : (persistedReports.length > 0
       ? Math.round(persistedReports.reduce((sum, report) => sum + Number(report.overallScore || 0), 0) / persistedReports.length)
       : 0);
-  const participantBase = Math.max(Number(safeSession.enrolledCount || 0), safeStudents.length, 32);
-  const participationRate = participantBase > 0 ? Math.round((Math.max(safeStudents.length, 29) / participantBase) * 100) : 0;
+  const participantBase = Number(safeSession.enrolledCount || safeStudents.length || 0);
+  const participationRate = participantBase > 0 ? Math.round((persistedReports.length / participantBase) * 100) : 0;
   const classGrade = averageScore >= 90 ? 'Excellent' : averageScore >= 75 ? 'Very Good' : averageScore >= 60 ? 'Good' : averageScore >= 40 ? 'Average' : 'Needs Improvement';
+
+  const totalStudents = safeStudents.length;
+  const completedCount = persistedReports.length;
+  const pendingCount = Math.max(0, totalStudents - completedCount);
+  const classCompletionPercent = totalStudents > 0 ? Math.round((completedCount / totalStudents) * 100) : 0;
+  const avgSpeakingSecs = totalStudents > 0 ? Math.round(safeStudents.reduce((acc, s) => acc + (s.speakingDurationSeconds || 0), 0) / totalStudents) : 0;
+  const avgSpeakingStr = `${(avgSpeakingSecs / 60).toFixed(1)}m`;
 
   // Data for Speaking Time Chart
   const chartData = safeStudents.map((s) => ({
@@ -489,14 +509,14 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               </span>
             </div>
             <h3 className="text-xl sm:text-2xl font-heading font-extrabold text-white tracking-tight">
-              {safeSession.topic || 'Artificial Intelligence & Future of Engineering Careers'}
+              {safeSession.topic || 'No Active Topic Scheduled'}
             </h3>
             <p className="text-xs text-indigo-200/80 mt-1 flex items-center gap-2 flex-wrap">
-              <span>Faculty Evaluator: <strong>{safeSession.assignedFacultyName || 'Dr. Sunita Rao (Dept Head)'}</strong></span>
+              <span>Faculty Evaluator: <strong>{safeSession.assignedFacultyName || 'Unassigned Faculty'}</strong></span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-indigo-400" />
-                <span>{formatSlotDate(safeSession.slotDate)} ({safeSession.slotTiming || '10:00 AM - 11:30 AM'})</span>
+                <span>{formatSlotDate(safeSession.slotDate)} ({safeSession.slotTiming || '--'})</span>
               </span>
             </p>
           </div>
@@ -505,19 +525,19 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/15 text-center">
               <span className="text-[10px] uppercase font-bold text-slate-300 block">Class Completion</span>
               <div className="flex items-baseline justify-center gap-1 mt-0.5">
-                <span className="text-xl font-mono font-bold text-emerald-400">29</span>
-                <span className="text-xs text-slate-300 font-mono">/ 32</span>
+                <span className="text-xl font-mono font-bold text-emerald-400">{completedCount}</span>
+                <span className="text-xs text-slate-300 font-mono">/ {totalStudents}</span>
               </div>
-              <span className="text-[9px] text-emerald-300 font-semibold block">90.6% Complete</span>
+              <span className="text-[9px] text-emerald-300 font-semibold block">{classCompletionPercent}% Complete</span>
             </div>
 
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/15 text-center">
               <span className="text-[10px] uppercase font-bold text-slate-300 block">Pending Students</span>
               <div className="flex items-baseline justify-center gap-1 mt-0.5">
-                <span className="text-xl font-mono font-bold text-amber-400">3</span>
+                <span className="text-xl font-mono font-bold text-amber-400">{pendingCount}</span>
                 <span className="text-xs text-slate-300 font-mono">Slots</span>
               </div>
-              <span className="text-[9px] text-amber-300 font-semibold block">Follow-up needed</span>
+              <span className="text-[9px] text-amber-300 font-semibold block">{pendingCount > 0 ? 'Follow-up needed' : 'All clear'}</span>
             </div>
           </div>
         </div>
@@ -526,35 +546,35 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-slate-300 block">Total Students</span>
-            <span className="text-xl font-bold font-mono text-white mt-0.5 block">32</span>
+            <span className="text-xl font-bold font-mono text-white mt-0.5 block">{totalStudents}</span>
             <span className="text-[10px] text-slate-400 font-mono">Enrolled Roster</span>
           </div>
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-emerald-300 block">Completed GD</span>
-            <span className="text-xl font-bold font-mono text-emerald-400 mt-0.5 block">29</span>
+            <span className="text-xl font-bold font-mono text-emerald-400 mt-0.5 block">{completedCount}</span>
             <span className="text-[10px] text-emerald-300/80 font-mono">Evaluated & Scored</span>
           </div>
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-amber-300 block">Pending / Absent</span>
-            <span className="text-xl font-bold font-mono text-amber-400 mt-0.5 block">3</span>
+            <span className="text-xl font-bold font-mono text-amber-400 mt-0.5 block">{pendingCount}</span>
             <span className="text-[10px] text-amber-300/80 font-mono">Not Yet Appeared</span>
           </div>
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-indigo-300 block">Avg Speaking Time</span>
-            <span className="text-xl font-bold font-mono text-indigo-300 mt-0.5 block">2.3m</span>
+            <span className="text-xl font-bold font-mono text-indigo-300 mt-0.5 block">{avgSpeakingStr}</span>
             <span className="text-[10px] text-indigo-200/70 font-mono">Target: 2.0 - 2.5m</span>
           </div>
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-cyan-300 block">Class Avg Score</span>
-            <span className="text-xl font-bold font-mono text-cyan-300 mt-0.5 block">{averageScore || 76}/100</span>
-            <span className="text-[10px] text-cyan-200/80 font-semibold">{classGrade}</span>
+            <span className="text-xl font-bold font-mono text-cyan-300 mt-0.5 block">{averageScore > 0 ? `${averageScore}/100` : '--'}</span>
+            <span className="text-[10px] text-cyan-200/80 font-semibold">{averageScore > 0 ? classGrade : 'Awaiting'}</span>
           </div>
           <div className="bg-white/5 border border-white/10 p-3 rounded-2xl">
             <span className="text-[11px] text-rose-300 block">Intervention Flags</span>
             <div className="flex items-center gap-1.5 mt-0.5 text-xs font-mono font-bold">
-              <span className="text-rose-400" title="Immediate practice">🔴 {redCount || 4}</span>
-              <span className="text-amber-400" title="Needs improvement">🟡 {yellowCount || 11}</span>
-              <span className="text-emerald-400" title="Good progress">🟢 {greenCount || 17}</span>
+              <span className="text-rose-400" title="Immediate practice">🔴 {redCount}</span>
+              <span className="text-amber-400" title="Needs improvement">🟡 {yellowCount}</span>
+              <span className="text-emerald-400" title="Good progress">🟢 {greenCount}</span>
             </div>
             <span className="text-[10px] text-slate-400">Triaged by AI</span>
           </div>
@@ -574,34 +594,41 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <span className="text-xs text-slate-500 font-mono">Real-Time</span>
           </div>
 
-          <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl shadow-xl text-xs">
-                          <p className="font-bold text-slate-900 dark:text-white">{data.fullName} ({data.seat})</p>
-                          <p className="text-indigo-600 dark:text-indigo-400">Speaking: {data.minutes} mins ({data.seconds}s)</p>
-                          <p className="text-slate-600 dark:text-slate-300">Score: {data.score}/100</p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Bar dataKey="minutes" radius={[6, 6, 0, 0]}>
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {chartData.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-xs">
+              <BarChart3 className="w-8 h-8 mb-2 text-slate-300 dark:text-slate-600" />
+              <span>Awaiting participant speech data in this session.</span>
+            </div>
+          ) : (
+            <div className="h-64 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
+                  <YAxis stroke="#94a3b8" fontSize={11} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl shadow-xl text-xs">
+                            <p className="font-bold text-slate-900 dark:text-white">{data.fullName} ({data.seat})</p>
+                            <p className="text-indigo-600 dark:text-indigo-400">Speaking: {data.minutes} mins ({data.seconds}s)</p>
+                            <p className="text-slate-600 dark:text-slate-300">Score: {data.score}/100</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="minutes" radius={[6, 6, 0, 0]}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         {/* Participation Heat Map (Who Spoke When) */}
@@ -614,11 +641,17 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <span className="text-xs text-slate-500 font-mono">5-min intervals</span>
           </div>
 
-          <div className="space-y-2.5 pt-1 text-xs">
-            {heatMapTimeline.map((block, idx) => (
-              <div key={idx} className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-3">
-                <span className="font-mono font-bold text-slate-600 dark:text-slate-400 w-14">{block.minute}</span>
-                <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+          {safeStudents.length === 0 ? (
+            <div className="py-16 flex flex-col items-center justify-center text-slate-400 text-xs">
+              <Clock className="w-8 h-8 mb-2 text-slate-300 dark:text-slate-600" />
+              <span>Awaiting participant speech timestamps in this session.</span>
+            </div>
+          ) : (
+            <div className="space-y-2.5 pt-1 text-xs">
+              {heatMapTimeline.map((block, idx) => (
+                <div key={idx} className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-3">
+                  <span className="font-mono font-bold text-slate-600 dark:text-slate-400 w-14">{block.minute}</span>
+                  <div className="flex-1 flex items-center gap-1.5 flex-wrap">
                   {safeStudents.map((st) => {
                     const isActiveInBlock = block.activeSeats.includes(st.seatNumber);
                     return (
@@ -639,6 +672,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               </div>
             ))}
           </div>
+          )}
 
           {/* Heat map legend */}
           <div className="flex items-center justify-end gap-3 text-[10px] text-slate-500 dark:text-slate-400 pt-1">
@@ -894,7 +928,16 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-              {filteredStudents.map((st, index) => (
+              {filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={14} className="py-12 text-center text-slate-500 dark:text-slate-400">
+                    <Award className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                    <p className="text-xs font-semibold">No participants registered or evaluated for this slot yet.</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">Students will appear once they enroll and participate in this GD session.</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredStudents.map((st, index) => (
                 <tr key={st.id} className="hover:bg-slate-50 dark:hover:bg-slate-850/50 transition-colors">
                   <td className="py-3 px-3 font-bold">
                     {index === 0 ? (
@@ -987,7 +1030,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                     </button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
