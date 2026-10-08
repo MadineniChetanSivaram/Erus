@@ -5853,15 +5853,11 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         // Someone is speaking -> floor is active
         room.silenceTimerSeconds = 0;
         
-        // Track current speaker's continuous speaking time
+        // Track current speaker's continuous speaking time (no mid-speech interruptions)
         if (room.currentSpeakerSocketId) {
           const spkPeer = room.peers.get(room.currentSpeakerSocketId);
           if (spkPeer) {
             spkPeer.speakingDurationSeconds += 1;
-            // Check for dominance if speaking > 75 seconds
-            if (spkPeer.speakingDurationSeconds > 0 && spkPeer.speakingDurationSeconds % 75 === 0) {
-              triggerDominanceNudge(room, spkPeer);
-            }
           }
         }
       }
@@ -6043,6 +6039,9 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     room.speechYieldTimer = undefined;
   }
   if (room.status !== 'active') return;
+  if (room.currentSpeakerId || room.currentSpeakerSocketId) return;
+  const isAnyPeerSpeaking = Array.from(room.peers.values()).some((p) => p.isSpeaking);
+  if (isAnyPeerSpeaking) return;
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   const allParticipants: any[] = realStudents;
@@ -6105,7 +6104,13 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
 
   room.turnTimer = setTimeout(async () => {
     room.turnTimer = undefined;
-    if (room.currentSpeakerId) return;
+    if (
+      room.currentSpeakerId ||
+      room.currentSpeakerSocketId ||
+      Array.from(room.peers.values()).some((p) => p.isSpeaking)
+    ) {
+      return;
+    }
 
     room.waitingForParticipantId = targetReal.userId;
     const firstName = targetReal.name.split(' ')[0];
@@ -6188,6 +6193,15 @@ CRITICAL RULES:
       }
     }
 
+    // Human-First Guard: Abort if any participant started speaking while preparing response
+    if (
+      room.currentSpeakerId ||
+      room.currentSpeakerSocketId ||
+      Array.from(room.peers.values()).some((p) => p.isSpeaking)
+    ) {
+      return;
+    }
+
     const transcript: BackendTranscript = {
       id: 't-facilitator-' + Date.now(),
       sessionId: room.slotId,
@@ -6218,6 +6232,13 @@ CRITICAL RULES:
 }
 
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
+  if (
+    room.currentSpeakerId ||
+    room.currentSpeakerSocketId ||
+    Array.from(room.peers.values()).some((p) => p.isSpeaking)
+  ) {
+    return;
+  }
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
   if (realStudents.length === 0) return;
 
@@ -6282,6 +6303,15 @@ Do not mention AI.`,
     }
   }
 
+  // Strict Human Priority: Abort if anyone began speaking while generating deadlock question
+  if (
+    room.currentSpeakerId ||
+    room.currentSpeakerSocketId ||
+    Array.from(room.peers.values()).some((p) => p.isSpeaking)
+  ) {
+    return;
+  }
+
   const interventionTranscript: BackendTranscript = {
     id: `t-facilitator-deadlock-${Date.now()}`,
     sessionId: room.slotId,
@@ -6305,41 +6335,6 @@ Do not mention AI.`,
     targetUserId: quietPeer?.userId,
     targetSeatNumber: quietPeer?.seatNumber,
     transcript: interventionTranscript,
-  });
-}
-function triggerDominanceNudge(room: LiveGDRoomState, dominantPeer: LiveRoomPeer) {
-  const quietStudents = Array.from(room.peers.values()).filter(
-    p => p.role === 'student' && p.userId !== dominantPeer.userId && p.speakingTurns <= 1
-  );
-
-  if (quietStudents.length === 0) return;
-
-  const quietStudent = quietStudents[0];
-  const firstName = dominantPeer.name.split(' ')[0];
-  const quietName = quietStudent.name.split(' ')[0];
-  const nudgeText = `Thank you, ${firstName}. Let us hear from ${quietName} now.`;
-
-  const nudgeTranscript: BackendTranscript = {
-    id: `t-nudge-${Date.now()}`,
-    sessionId: room.slotId,
-    speakerId: 'facilitator',
-    speakerName: 'AI Facilitator',
-    seatNumber: null,
-    isFacilitator: true,
-    timestamp: '05:00',
-    timestampSeconds: Date.now(),
-    text: nudgeText,
-    type: 'intervention',
-    sentiment: 'neutral',
-  };
-
-  room.transcripts.push(nudgeTranscript);
-
-  io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
-    text: nudgeText,
-    action: 'dominance_nudge',
-    transcript: nudgeTranscript,
-    targetUserId: quietStudent.userId,
   });
 }
 

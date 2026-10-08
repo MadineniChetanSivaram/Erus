@@ -332,6 +332,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         return [...prev, intervention.transcript];
       });
 
+      // Strict Human-First Guard: AI facilitator must NEVER speak or interrupt when a participant is speaking
+      const isLocalUserSpeaking = isListeningMicRef.current || rtcIsSpeakingLive || (rtcLocalVolume > 6 || userMediaAudioLevel > 6);
+      const isRemotePeerSpeaking = session.currentSpeakerId !== null || rtcPeers.some((p) => p.isSpeaking && p.role === 'student');
+
+      if (isLocalUserSpeaking || isRemotePeerSpeaking) {
+        console.log('[Facilitator] Participant is actively speaking on floor. Suppressing AI voice synthesis completely.');
+        return;
+      }
+
       setSession((prev) => ({
         ...prev,
         silenceTimerSeconds: 0,
@@ -804,6 +813,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     };
   }, []);
 
+  // Participant Speech Priority Watchdog:
+  // AI Facilitator must NEVER speak or continue speaking when ANY human participant speaks!
+  useEffect(() => {
+    const isUserSpeaking = isListeningMic || rtcIsSpeakingLive || (rtcLocalVolume > 6 || userMediaAudioLevel > 6);
+    const isPeerSpeaking = rtcPeers.some((p) => p.isSpeaking && p.role === 'student');
+
+    if (isUserSpeaking || isPeerSpeaking) {
+      if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking) {
+        roomVoice.stop();
+        aiVoicePausedMicRef.current = false;
+        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+      }
+    }
+  }, [isListeningMic, rtcIsSpeakingLive, rtcLocalVolume, userMediaAudioLevel, rtcPeers, session.isFacilitatorSpeaking]);
+
   // Auto scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -840,7 +864,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognition.lang = 'en-IN'; // Indian English support
 
         recognition.onresult = (event: any) => {
-          if (aiVoicePausedMicRef.current) return;
+          // Instant participant priority: if AI Facilitator was speaking, immediately silence it!
+          if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking) {
+            roomVoice.stop();
+            aiVoicePausedMicRef.current = false;
+            setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+          } else if (aiVoicePausedMicRef.current) {
+            return;
+          }
 
           let interimTranscript = '';
           let finalTranscript = '';
@@ -968,6 +999,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }));
       }
     } else {
+      if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking) {
+        roomVoice.stop();
+        setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+      }
       liveTranscriptRef.current = '';
       setLiveSpeechTranscript('');
       aiVoicePausedMicRef.current = false;
@@ -1006,6 +1041,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     phase?: GDFacilitatorPhase,
     onSpeechEnd?: () => void
   ) => {
+    // Participant priority: never speak over a speaking participant
+    const isParticipantSpeaking = !!(
+      isListeningMicRef.current ||
+      rtcIsSpeakingLive ||
+      (rtcLocalVolume > 6 || userMediaAudioLevel > 6) ||
+      session.currentSpeakerId ||
+      rtcPeers.some((p) => p.isSpeaking && p.role === 'student')
+    );
+    if (isParticipantSpeaking) {
+      console.log('[Facilitator] Participant is speaking, cannot vocalize AI speech.');
+      setIsAiProcessing(false);
+      return;
+    }
+
     setIsAiProcessing(true);
     setSession((prev) => ({
       ...prev,

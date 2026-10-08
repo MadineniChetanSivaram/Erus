@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { AuthUser } from '../types/auth';
 import { GDTranscript } from '../types/gd';
+import { roomVoice } from '../utils/speechSynthesis';
 
 export interface LivePeer {
   socketId: string;
@@ -442,6 +443,10 @@ export function useWebRTCRoom({
           setIsSpeakingLive(speakingNow);
 
           if (speakingNow) {
+            // Immediate barge-in: If AI Facilitator is speaking when participant speaks, cut off AI immediately!
+            if (roomVoice.isSpeaking()) {
+              roomVoice.stop();
+            }
             if (speakingStateTimeoutRef.current) {
               clearTimeout(speakingStateTimeoutRef.current);
               speakingStateTimeoutRef.current = null;
@@ -689,6 +694,9 @@ export function useWebRTCRoom({
     // A peer updated speaking/mic/camera state
     socket.on('peer-speaking-updated', ({ socketId: peerSockId, isSpeaking, micActive, cameraActive, volumeLevel: peerVol }) => {
       if (!active) return;
+      if (isSpeaking && roomVoice.isSpeaking()) {
+        roomVoice.stop();
+      }
       setPeers((prev) =>
         prev.map((p) =>
           p.socketId === peerSockId
@@ -744,6 +752,9 @@ export function useWebRTCRoom({
     socket.on('floor-state', ({ speakerId }) => {
       if (!active) return;
       floorSpeakerIdRef.current = speakerId || null;
+      if (speakerId && roomVoice.isSpeaking()) {
+        roomVoice.stop();
+      }
       if (!speakerId) {
         setError(null);
       }

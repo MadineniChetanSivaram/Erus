@@ -456,6 +456,11 @@ class RoomVoiceEngine {
     }
   }
 
+  public isSpeaking(): boolean {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return false;
+    return window.speechSynthesis.speaking || this.currentUtterance !== null;
+  }
+
   public stop() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -465,6 +470,7 @@ class RoomVoiceEngine {
         clearInterval(this.watchdogInterval);
         this.watchdogInterval = null;
       }
+      window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
     }
   }
 }
