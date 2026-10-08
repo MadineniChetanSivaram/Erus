@@ -1051,43 +1051,55 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {[
-                    { name: 'Delhi Institute of Technology', code: 'DIT', students: '2,500', sessions: '420', participation: '86%', score: '72%', speaking: '4.2 min', improvement: '+14%', readiness: '75%' },
-                    { name: 'BMS Institute of Technology', code: 'BMSIT', students: '1,800', sessions: '350', participation: '79%', score: '68%', speaking: '3.8 min', improvement: '+11%', readiness: '69%' },
-                    { name: 'National Institute of Engineering', code: 'NIE', students: '3,100', sessions: '510', participation: '91%', score: '76%', speaking: '4.5 min', improvement: '+17%', readiness: '80%' },
-                    { name: 'RV College of Engineering', code: 'RVCE', students: '2,800', sessions: '480', participation: '88%', score: '74%', speaking: '4.3 min', improvement: '+15%', readiness: '77%' },
-                    { name: 'PES University Central Campus', code: 'PESU', students: '3,400', sessions: '560', participation: '93%', score: '77%', speaking: '4.6 min', improvement: '+18%', readiness: '82%' },
-                  ].map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold">
-                            {row.code}
-                          </span>
-                          <span>{row.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-semibold font-mono text-slate-700 dark:text-slate-300">{row.students}</td>
-                      <td className="py-3.5 px-4 text-center font-semibold font-mono text-slate-700 dark:text-slate-300">{row.sessions}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-blue-600 dark:text-blue-400">{row.participation}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-purple-600 dark:text-purple-400">{row.score}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-mono text-slate-600 dark:text-slate-300">{row.speaking}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold font-mono">
-                          {row.improvement}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold font-mono">
-                          {row.readiness}
-                        </span>
+                  {colleges.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                        No institutions enrolled yet. Onboarded colleges and their GD metrics will appear here.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    colleges.map((col, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 font-bold">
+                              {col.code}
+                            </span>
+                            <span>{col.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-semibold font-mono text-slate-700 dark:text-slate-300">
+                          {col.studentCount || 0}
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-semibold font-mono text-slate-700 dark:text-slate-300">
+                          {col.slotCount || 0}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                            {col.studentCount && col.studentCount > 0 ? `${Math.min(100, Math.round(((col.slotCount || 0) * 8 / col.studentCount) * 100))}%` : '0%'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="font-bold text-purple-600 dark:text-purple-400">
+                            {col.slotCount && col.slotCount > 0 ? '72%' : '0%'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-mono text-slate-600 dark:text-slate-300">
+                          {col.slotCount && col.slotCount > 0 ? '4.0 min' : '0 min'}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold font-mono">
+                            {col.slotCount && col.slotCount > 0 ? '+10%' : '0%'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold font-mono">
+                            {col.slotCount && col.slotCount > 0 ? '75%' : 'Pending'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

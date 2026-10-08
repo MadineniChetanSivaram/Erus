@@ -41,7 +41,7 @@ export function createBaselinePreviousReport(currentReport: StudentAssessmentRep
     ...currentReport,
     id: `rep-prev-${currentReport.studentId || 'stu'}-001`,
     sessionId: 'session-prev-100',
-    topic: 'Remote Work vs In-Office: Corporate Innovation & Productivity',
+    topic: currentReport.topic || 'Group Discussion Session',
     durationMinutes: 20,
     generatedAt: prevDateString,
     speakingTimeFormatted: '2 min 45 sec',

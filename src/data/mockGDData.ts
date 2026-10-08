@@ -268,33 +268,4 @@ export const SAMPLE_REPORT_RAHUL: StudentAssessmentReport = {
   generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
 };
 
-export const TOPIC_PRESETS = [
-  {
-    topic: 'Should Artificial Intelligence replace teachers?',
-    category: 'Education & AI',
-    difficulty: 'Intermediate',
-    description: 'Debating AI personalized learning vs human mentorship, empathy, and ethical holistic education.',
-    starterPrompt: 'How can AI revolutionize tutoring while preserving the foundational emotional bond between teachers and students?',
-  },
-  {
-    topic: 'Electric Vehicles vs Hydrogen Fuel Cells: The Future of Mobility',
-    category: 'Sustainability & Tech',
-    difficulty: 'Advanced',
-    description: 'Analyzing battery infrastructure, environmental life-cycle emissions, and commercial feasibility.',
-    starterPrompt: 'Which powertrain holds the greatest promise for heavy-duty freight and urban mass transit?',
-  },
-  {
-    topic: 'Remote Work vs In-Office: Impact on Corporate Innovation',
-    category: 'Workplace & Society',
-    difficulty: 'Beginner',
-    description: 'Examining asynchronous productivity, serendipitous hallway innovation, and work-life harmony.',
-    starterPrompt: 'Do hybrid policies strike the optimal balance or create fragmented organizational culture?',
-  },
-  {
-    topic: 'Are Social Media Algorithms eroding Civil Discourse & Critical Thinking?',
-    category: 'Media & Psychology',
-    difficulty: 'Intermediate',
-    description: 'Investigating echo chambers, polarization, attention spans, and regulatory frameworks.',
-    starterPrompt: 'What ethical boundaries should platform architects adhere to when optimizing recommendation algorithms?',
-  },
-];
+export const TOPIC_PRESETS: { topic: string; category: string; difficulty: string; description: string; starterPrompt: string; }[] = [];

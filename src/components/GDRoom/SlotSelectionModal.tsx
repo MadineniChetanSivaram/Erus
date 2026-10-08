@@ -361,13 +361,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                   {activeFaculty?.name} does not have any active slots scheduled under this topic right now. Select another faculty mentor above to view open discussion sessions.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleSelectFaculty('FAC-CSE-102')}
-                className="px-4 py-2 rounded-xl bg-amber-500 text-white text-xs font-semibold shadow-xs hover:bg-amber-600 transition-colors cursor-pointer"
-              >
-                Switch to Dr. Sunita Rao (Computer Science)
-              </button>
+              
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -458,7 +452,7 @@ export const SlotSelectionModal: React.FC<SlotSelectionModalProps> = ({
                       <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 rounded-lg border border-amber-200/70 dark:border-amber-800/50 mb-2.5">
                         <GraduationCap className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                         <span className="truncate">
-                          Faculty In-Charge: <strong>{slot.assignedFacultyName || activeFaculty?.name || 'Dr. Sunita Rao'}</strong> {slot.assignedFacultyDept ? `(${slot.assignedFacultyDept})` : ''}
+                          Faculty In-Charge: <strong>{slot.assignedFacultyName || activeFaculty?.name || 'Faculty Mentor'}</strong> {slot.assignedFacultyDept ? `(${slot.assignedFacultyDept})` : ''}
                         </span>
                       </div>
 

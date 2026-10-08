@@ -592,7 +592,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               >
                 {(session?.students || []).map((st) => (
                   <option key={st.id} value={st.id}>
-                    Seat {st.seatNumber}: {st.name} {st.isUser ? '(Demo Student)' : ''}
+                    Seat {st.seatNumber}: {st.name} 
                   </option>
                 ))}
               </select>

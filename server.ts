@@ -299,9 +299,28 @@ function loadPersistentState() {
           persistentState.slots = {};
           for (const [k, v] of Object.entries(data.slots)) {
             if (!dummyCollegeCodes.includes(k) && Array.isArray(v)) {
-              persistentState.slots[k] = (v as any[]).filter(
-                (slot: any) => !['slot-dit-001', 'session-101', 'slot-teachers-1'].includes(slot?.id)
+              const registeredStudentIds = new Set(
+                (persistentState.students[k] || []).map((s: any) => String(s.id || '').toLowerCase())
               );
+              const registeredStudentEmails = new Set(
+                (persistentState.students[k] || []).map((s: any) => String(s.email || '').toLowerCase())
+              );
+              persistentState.slots[k] = (v as any[])
+                .filter((slot: any) => !['slot-dit-001', 'session-101', 'slot-teachers-1'].includes(slot?.id))
+                .map((slot: any) => {
+                  const cleanedStudents = (slot.students || []).filter((st: any) => {
+                    if (!st) return false;
+                    if (st.isUser) return true;
+                    const stId = String(st.id || '').toLowerCase();
+                    const stEmail = String(st.email || '').toLowerCase();
+                    return registeredStudentIds.has(stId) || registeredStudentEmails.has(stEmail);
+                  });
+                  return {
+                    ...slot,
+                    students: cleanedStudents,
+                    enrolledCount: cleanedStudents.length,
+                  };
+                });
             }
           }
         }
@@ -902,18 +921,17 @@ function generateRandomSlotsForCollege(code: string, studentLimit?: number): Bac
     const slotId = `slot-${normCode.toLowerCase()}-${sIdx + 1}-${Date.now()}`;
     const timing = timings[sIdx % timings.length];
 
-    // Pick 15 students
+    // Enroll only real registered students into slot up to 15 seats
     for (let seat = 1; seat <= 15; seat++) {
-      let st: any = null;
       if (studentPoolIndex < registered.length) {
         const regSt = registered[studentPoolIndex++];
-        st = {
+        const st = {
           id: regSt.id || `stu-${normCode.toLowerCase()}-${studentPoolIndex}`,
           name: regSt.name,
           email: regSt.email,
           studentId: regSt.studentId || `STU-${normCode}-${String(100 + studentPoolIndex)}`,
           course: regSt.course || 'B.Tech CSE',
-          batch: regSt.batch || '2022-2026',
+          batch: regSt.batch || '2024-2028',
           seatNumber: seat,
           college: col?.name || normCode,
           collegeCode: normCode,
@@ -931,39 +949,8 @@ function generateRandomSlotsForCollege(code: string, studentLimit?: number): Bac
           sentiment: 'neutral',
           isEmptySeat: false,
         };
-      } else {
-        const name = poolOfNames[(studentPoolIndex + seat) % poolOfNames.length];
-        const branch = branches[(seat + sIdx) % branches.length];
-        const stuNum = 100 + ((sIdx * 15) + seat);
-        const stuEmail = `${name.toLowerCase().replace(/\s+/g, '.')}.${stuNum}@${normCode.toLowerCase()}.edu.in`;
-        studentPoolIndex++;
-
-        st = {
-          id: `stu-${normCode.toLowerCase()}-${sIdx + 1}-${seat}`,
-          name,
-          email: stuEmail,
-          studentId: `STU-${normCode}-${stuNum}`,
-          course: branch,
-          batch: '2022-2026',
-          seatNumber: seat,
-          college: col?.name || normCode,
-          collegeCode: normCode,
-          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
-          isUser: false,
-          micActive: false,
-          isSpeaking: false,
-          hasRaisedHand: false,
-          cameraActive: false,
-          speakingDurationSeconds: 0,
-          speakingTurns: 0,
-          interruptionCount: 0,
-          questionsAnswered: 0,
-          questionsInitiated: 0,
-          sentiment: 'neutral',
-          isEmptySeat: false,
-        };
+        slotStudents.push(st);
       }
-      slotStudents.push(st);
     }
 
     const slotItem: BackendCollegeSlotItem = {
@@ -5810,12 +5797,7 @@ function getSlotCapacity(slotId: string) {
   return Math.max(1, Number((currentLiveSession as any)?.maxCapacity || 6));
 }
 
-const AI_PARTICIPANT_NAMES = [
-  'Aarav Mehta','Ananya Rao','Rohan Sharma','Ishita Nair','Vikram Patel','Kavya Reddy',
-  'Arjun Iyer','Meera Kapoor','Aditya Menon','Sneha Joshi','Kabir Shah','Diya Nair',
-  'Nikhil Reddy','Riya Malhotra','Vivek Rao','Pooja Menon','Karan Joshi','Anika Sharma',
-  'Manav Patel','Sanya Kapoor'
-];
+const AI_PARTICIPANT_NAMES: string[] = [];
 const AI_GD_SIMULATION_MODE = false;
 const AI_GD_SIMULATION_PARTICIPANTS = 6; // Fallback only; simulation normally follows slot capacity.
 

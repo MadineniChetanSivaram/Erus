@@ -188,7 +188,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       timestampSeconds: elapsedSeconds,
       note: noteContent.trim(),
       tag: noteTag,
-      facultyName: currentUser?.name || 'Dr. Sunita Rao (Faculty Evaluator)',
+      facultyName: currentUser?.name || session.assignedFacultyName || 'Faculty Evaluator',
       createdAt: Date.now(),
     };
 
@@ -1161,7 +1161,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     // If Faculty is observing and intervenes or broadcasts guidance
     if (isFaculty) {
-      const facultyName = currentUser?.name || 'Dr. Sunita Rao';
+      const facultyName = currentUser?.name || session.assignedFacultyName || 'Faculty Observer';
       const facultyEntry: TranscriptEntry = {
         id: `t-faculty-${Date.now()}`,
         sessionId: session.id,
@@ -1603,7 +1603,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               {/* Allotted Faculty Evaluator */}
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 shadow-2xs">
                 <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>Faculty: <strong>{session?.assignedFacultyName || 'Dr. Sunita Rao'}</strong></span>
+                <span>Faculty: <strong>{session?.assignedFacultyName || 'Assigned Faculty Evaluator'}</strong></span>
               </span>
 
               {/* Live Video Recording Status Indicator (Recorded strictly from Faculty portal) */}
