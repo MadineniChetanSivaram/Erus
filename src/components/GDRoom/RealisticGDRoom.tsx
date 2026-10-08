@@ -1705,9 +1705,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                    rtcSilenceTimer >= 15
+                    rtcSilenceTimer >= 12
                       ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 animate-bounce'
-                      : rtcSilenceTimer >= 10
+                      : rtcSilenceTimer >= 8
                       ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400'
                       : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400'
                   }`}>
@@ -1715,19 +1715,19 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white">20s Silence Deadlock Watchdog</span>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">15s Silence Deadlock Watchdog</span>
                       <span className={`font-mono text-xs font-bold px-1.5 py-0.2 rounded ${
-                        rtcSilenceTimer >= 15
+                        rtcSilenceTimer >= 12
                           ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse'
                           : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                       }`}>
-                        {rtcSilenceTimer > 0 ? `${rtcSilenceTimer}s / 20s` : '0s / 20s (Floor Active)'}
+                        {rtcSilenceTimer > 0 ? `${rtcSilenceTimer}s / 15s` : '0s / 15s (Floor Active)'}
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {rtcSilenceTimer >= 15
-                        ? '⚠️ Floor silent! AI Facilitator will interrupt in ' + (20 - rtcSilenceTimer) + 's to ask a probing question.'
-                        : 'AI Facilitator autonomously interrupts if no participant speaks for 20 seconds.'}
+                      {rtcSilenceTimer >= 12
+                        ? '⚠️ Floor silent! AI Facilitator will prompt in ' + Math.max(0, 15 - rtcSilenceTimer) + 's to ask a probing question.'
+                        : 'AI Facilitator autonomously prompts if no participant speaks for 15 seconds.'}
                     </p>
                   </div>
                 </div>
@@ -1736,17 +1736,17 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                     <div 
                       className={`h-full transition-all duration-1000 ${
-                        rtcSilenceTimer >= 15 
+                        rtcSilenceTimer >= 12 
                           ? 'bg-rose-500 animate-pulse' 
-                          : rtcSilenceTimer >= 10 
+                          : rtcSilenceTimer >= 8 
                           ? 'bg-amber-500' 
                           : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${Math.min(100, (rtcSilenceTimer / 20) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (rtcSilenceTimer / 15) * 100)}%` }}
                     />
                   </div>
                   <span className="text-[11px] font-mono text-slate-500 font-semibold w-8 text-right">
-                    {20 - rtcSilenceTimer}s
+                    {Math.max(0, 15 - rtcSilenceTimer)}s
                   </span>
                 </div>
               </div>
@@ -3059,7 +3059,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1 text-slate-700 dark:text-slate-300">
                   <div className="flex justify-between">
                     <span>Deadlock Threshold:</span>
-                    <span className="font-mono text-amber-600 dark:text-amber-400">20 Seconds Silence</span>
+                    <span className="font-mono text-amber-600 dark:text-amber-400">15 Seconds Silence</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Dominance Threshold:</span>

@@ -5833,12 +5833,12 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         // Broadcast current silence countdown tick to all peers
         io.to(`room-${slotId}`).emit('silence-timer-tick', {
           silenceTimerSeconds: room.silenceTimerSeconds,
-          maxSilence: 20,
+          maxSilence: 15,
         });
 
         // Silence watchdog: trigger AI moderator intervention if no one speaks for 15s
         const now = Date.now();
-        const deadlockCooldownMs = 25000;
+        const deadlockCooldownMs = 15000;
         if (
           room.silenceTimerSeconds >= 15 &&
           !room.waitingForParticipantId &&
