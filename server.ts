@@ -867,6 +867,11 @@ async function deleteSlotFromMongoDB(slotId: string) {
   } catch (e: any) {}
 }
 
+export function cleanSlotName(name: string | undefined): string {
+  if (!name) return '';
+  return name.replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
+}
+
 function generateRandomSlotsForCollege(code: string, studentLimit?: number): BackendCollegeSlotItem[] {
   const normCode = normalizeCollegeCode(code);
   const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === normCode);
@@ -955,7 +960,7 @@ function generateRandomSlotsForCollege(code: string, studentLimit?: number): Bac
 
     const slotItem: BackendCollegeSlotItem = {
       id: slotId,
-      slotName: `Slot ${sIdx + 1} (${timing})`,
+      slotName: `Slot ${sIdx + 1}`,
       topic: '',
       description: `Cohort of 15 students. Waiting for College Admin to allot Topic & Faculty In-Charge.`,
       slotTiming: timing,
@@ -2474,8 +2479,10 @@ app.get('/api/college/slots', async (req, res) => {
 
     const baseSlot: BackendCollegeSlotItem = {
       ...slot,
+      slotName: cleanSlotName(slot.slotName) || slot.slotName,
+      topic: slot.topic && slot.topic !== slot.slotName && !/^slot\s+\d+/i.test(slot.topic) ? slot.topic : (slot.topic || ''),
       assignedFacultyId: faculty?.facultyId || slot.assignedFacultyId || '',
-      assignedFacultyName: faculty?.name || slot.assignedFacultyName || '',
+      assignedFacultyName: faculty?.name || slot.assignedFacultyName || 'Unassigned',
       assignedFacultyEmail: faculty?.email || slot.assignedFacultyEmail || '',
       assignedFacultyDept: faculty?.department || slot.assignedFacultyDept || '',
     };
@@ -2706,9 +2713,10 @@ app.put(['/api/college/slots/:id/allot', '/api/college/slots/:id'], async (req, 
   }
 
   if (topic !== undefined) targetSlot.topic = String(topic).trim();
-  if (slotName !== undefined) targetSlot.slotName = String(slotName).trim();
+  if (slotName !== undefined) targetSlot.slotName = cleanSlotName(String(slotName).trim());
   else if (topic && targetSlot.slotName) {
-    const match = targetSlot.slotName.match(/^(Slot\s+\d+)/i);
+    const cleanCurrent = cleanSlotName(targetSlot.slotName);
+    const match = cleanCurrent.match(/^(Slot\s+\d+)/i);
     if (match) {
       targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
     } else {
@@ -2790,9 +2798,10 @@ app.post('/api/college/slots/:id/allot', async (req, res) => {
   }
 
   if (topic !== undefined) targetSlot.topic = String(topic).trim();
-  if (slotName !== undefined) targetSlot.slotName = String(slotName).trim();
+  if (slotName !== undefined) targetSlot.slotName = cleanSlotName(String(slotName).trim());
   else if (topic && targetSlot.slotName) {
-    const match = targetSlot.slotName.match(/^(Slot\s+\d+)/i);
+    const cleanCurrent = cleanSlotName(targetSlot.slotName);
+    const match = cleanCurrent.match(/^(Slot\s+\d+)/i);
     if (match) {
       targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
     } else {

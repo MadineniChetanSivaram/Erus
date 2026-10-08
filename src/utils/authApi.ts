@@ -772,7 +772,7 @@ export async function allotSlotTopicAndFaculty(
           ...s,
           ...data,
           topic: data.topic,
-          slotName: data.slotName || (s.slotName?.includes('Slot') ? `${s.slotName.split(':')[0]}: ${data.topic}` : data.topic),
+          slotName: (data.slotName || s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim() || data.topic,
           assignedFacultyId: data.assignedFacultyId,
           assignedFacultyName: data.assignedFacultyName,
           assignedFacultyEmail: data.assignedFacultyEmail || s.assignedFacultyEmail,

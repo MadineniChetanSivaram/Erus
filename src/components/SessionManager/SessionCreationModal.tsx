@@ -108,7 +108,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
   const [slots, setSlots] = useState<SlotScheduleItem[]>([
     {
       id: 'slot-cfg-1',
-      slotName: 'Slot 1 - Morning Batch',
+      slotName: 'Slot 1',
       startTime: '09:30 AM',
       endTime: '10:00 AM',
       slotDate: new Date().toISOString().split('T')[0],
@@ -116,7 +116,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
     },
     {
       id: 'slot-cfg-2',
-      slotName: 'Slot 2 - Afternoon Batch',
+      slotName: 'Slot 2',
       startTime: '02:30 PM',
       endTime: '03:00 PM',
       slotDate: new Date().toISOString().split('T')[0],
@@ -130,7 +130,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
     const nextIdx = slots.length + 1;
     const newSlot: SlotScheduleItem = {
       id: `slot-cfg-${Date.now()}-${nextIdx}`,
-      slotName: preset ? `Slot ${nextIdx} - ${preset.label} Batch` : `Slot ${nextIdx} - Batch ${String.fromCharCode(64 + nextIdx)}`,
+      slotName: `Slot ${nextIdx}`,
       startTime: preset ? preset.start : '04:30 PM',
       endTime: preset ? preset.end : '05:00 PM',
       slotDate: new Date().toISOString().split('T')[0],
@@ -189,7 +189,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         const podGammaIds = seatedStudents.slice(podSize * 2).map((s) => s.id);
 
         const slotTimingStr = `${slot.startTime || '09:30 AM'} - ${slot.endTime || '10:00 AM'}`;
-        const slotNameStr = (slot.slotName || '').trim() || `Slot ${index + 1}`;
+        const slotNameStr = (slot.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim() || `Slot ${index + 1}`;
 
         return {
           id: `slot-${baseTimestamp.toString().slice(-4)}-${index + 1}`,

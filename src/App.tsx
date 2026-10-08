@@ -220,13 +220,19 @@ function GDAppContent() {
           if (currentUser.role === 'faculty') {
             filteredRaw = filteredRaw.filter((s: any) => isFacultyAssignedToSlot(s, currentUser));
           }
-          const mappedSlots: GDSession[] = filteredRaw.map((s: any): GDSession => ({
-            ...INITIAL_SESSION,
-            id: s.id,
-            topic: s.topic || s.slotName || 'Group Discussion',
-            description: s.description || '',
-            slotName: s.slotName || s.topic || 'Slot',
-            slotTiming: s.slotTiming || '',
+          const mappedSlots: GDSession[] = filteredRaw.map((s: any, sIdx: number): GDSession => {
+            const rawName = String(s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
+            const cleanName = rawName || `Slot ${sIdx + 1}`;
+            const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
+            const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
+
+            return {
+              ...INITIAL_SESSION,
+              id: s.id,
+              topic: cleanTopic,
+              description: s.description || '',
+              slotName: cleanName,
+              slotTiming: s.slotTiming || '',
             slotDate: s.slotDate || s.scheduledTime || (s.createdAt ? s.createdAt.split('T')[0] : 'Today'),
             durationMinutes: s.durationMinutes || 15,
             difficulty: s.difficulty || 'Intermediate',
@@ -247,7 +253,8 @@ function GDAppContent() {
             assignedFacultyDept: s.assignedFacultyDept || '',
             facultyLiveNotes: s.facultyLiveNotes || [],
             createdAt: s.createdAt || new Date().toISOString(),
-          }));
+          };
+        });
           setAvailableSlots(mappedSlots);
           setSession((prev) => {
             if (!prev) return mappedSlots[0] || INITIAL_SESSION;
@@ -337,13 +344,19 @@ function GDAppContent() {
           activeBackendSlots = activeBackendSlots.filter((s: any) => isFacultyAssignedToSlot(s, user));
         }
         // Map backend slot objects to GDSession format expected by the frontend
-        const mappedSlots: GDSession[] = activeBackendSlots.map((s: any): GDSession => ({
-          ...INITIAL_SESSION,
-          id: s.id,
-          topic: s.topic || s.slotName || 'Group Discussion',
-          description: s.description || '',
-          slotName: s.slotName || s.topic || 'Slot',
-          slotTiming: s.slotTiming || '',
+        const mappedSlots: GDSession[] = activeBackendSlots.map((s: any, sIdx: number): GDSession => {
+          const rawName = String(s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
+          const cleanName = rawName || `Slot ${sIdx + 1}`;
+          const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
+          const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
+
+          return {
+            ...INITIAL_SESSION,
+            id: s.id,
+            topic: cleanTopic,
+            description: s.description || '',
+            slotName: cleanName,
+            slotTiming: s.slotTiming || '',
           slotDate: s.slotDate || s.scheduledTime || (s.createdAt ? s.createdAt.split('T')[0] : 'Today'),
           durationMinutes: s.durationMinutes || 15,
           difficulty: s.difficulty || 'Intermediate',
@@ -365,7 +378,8 @@ function GDAppContent() {
           assignedFacultyDept: s.assignedFacultyDept || '',
           facultyLiveNotes: s.facultyLiveNotes || [],
           createdAt: s.createdAt || new Date().toISOString(),
-        }));
+        };
+      });
         // The backend response is authoritative, including an empty array.
         // This prevents stale local/demo topics from hiding the real college roster.
         setAvailableSlots(mappedSlots);

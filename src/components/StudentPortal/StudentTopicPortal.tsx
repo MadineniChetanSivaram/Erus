@@ -469,7 +469,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
             {/* Slots Grid */}
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 px-1">
-                <span>Available Slots with Allotted Faculty ({activeTopicObj.slots.length}):</span>
+                <span>Available Discussion Slots ({activeTopicObj.slots.length}):</span>
                 <span className="text-[11px] font-mono text-slate-500 font-normal">Standard 15-Seat Batches</span>
               </div>
 
@@ -548,17 +548,17 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-1">
                               <span className="text-[10px] uppercase font-bold text-amber-800 dark:text-amber-400 tracking-wider">
-                                Allotted Faculty Evaluator
+                                {slot.assignedFacultyName && slot.assignedFacultyName !== 'Unassigned' ? 'Allotted Faculty Evaluator' : 'Faculty In-Charge'}
                               </span>
                               <span className="text-[10px] font-mono text-amber-700/80 dark:text-amber-300/80">
                                 {slot.assignedFacultyId || 'FAC'}
                               </span>
                             </div>
                             <div className="text-xs font-bold text-slate-900 dark:text-amber-100 truncate mt-0.5">
-                              {slot.assignedFacultyName || 'Assigned Faculty'}
+                              {slot.assignedFacultyName && slot.assignedFacultyName !== 'Unassigned' ? slot.assignedFacultyName : 'Pending Allotment'}
                             </div>
                             <div className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                              {slot.assignedFacultyDept || 'Faculty Department'}
+                              {slot.assignedFacultyDept || (slot.assignedFacultyName === 'Unassigned' ? 'Waiting for College Admin allotment' : 'Faculty Department')}
                             </div>
                           </div>
                         </div>
