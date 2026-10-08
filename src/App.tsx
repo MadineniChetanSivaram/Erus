@@ -26,8 +26,7 @@ import {
 import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { getNextUniqueFacilitatorPrompt, sessionQuestionTracker } from './utils/facilitatorQuestionEngine';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, sendUserHeartbeat } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, fetchStudentAssignedSlots, isStudentAssignedToSlot, hasStudentParticipatedInSlot, sendUserHeartbeat } from './utils/authApi';
 import { getSocket } from './utils/socket';
 import { 
   getStudentBookedSlotsByTopic,
@@ -212,6 +211,8 @@ function GDAppContent() {
       try {
         const rawSlots = currentUser.role === 'faculty'
           ? await fetchFacultyAssignedSlots((currentUser as any).facultyId || currentUser.id, collegeCode)
+          : currentUser.role === 'student'
+          ? await fetchStudentAssignedSlots(currentUser.id || (currentUser as any).studentId, collegeCode, currentUser.email)
           : await fetchCollegeSlots(collegeCode);
 
         if (Array.isArray(rawSlots)) {
@@ -323,6 +324,8 @@ function GDAppContent() {
     const collegeCode = rawUpper === 'BMSIT2002' || rawUpper === 'BMSI' || rawUpper === 'BMS' || rawUpper.includes('BMS') ? 'BMSIT' : rawUpper;
     const slotSource = user.role === 'faculty'
       ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
+      : user.role === 'student'
+      ? fetchStudentAssignedSlots(user.id || (user as any).studentId, collegeCode, user.email)
       : fetchCollegeSlots(collegeCode);
     slotSource.then((backendSlots) => {
       if (backendSlots) {
@@ -1271,7 +1274,11 @@ function GDAppContent() {
       <main className="flex-1 pb-10 px-2 sm:px-4 max-w-7xl mx-auto w-full">
         {currentTab === 'topics' && (
           <StudentTopicPortal
-            availableSlots={availableSlots}
+            availableSlots={
+              currentUser?.role === 'student'
+                ? availableSlots.filter((s) => isStudentAssignedToSlot(s, currentUser))
+                : availableSlots
+            }
             bookedSlotId={studentBookedSlotId}
             bookedSlotsByTopic={studentBookedSlotsByTopic}
             currentUser={currentUser}
@@ -1350,7 +1357,11 @@ function GDAppContent() {
             }}
             currentUser={currentUser}
             targetStudentId={viewingStudentId}
-            availableSlots={availableSlots}
+            availableSlots={
+              currentUser?.role === 'student'
+                ? availableSlots.filter((s) => hasStudentParticipatedInSlot(s, currentUser))
+                : availableSlots
+            }
             onSelectSlot={handleSelectSlot}
             bookedSlotId={studentBookedSlotId}
           />

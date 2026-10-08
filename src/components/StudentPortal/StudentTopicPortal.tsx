@@ -26,6 +26,7 @@ import {
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { checkCanReviveSlot, formatSlotDate } from '../../utils/studentBooking';
+import { isStudentAssignedToSlot } from '../../utils/authApi';
 
 interface StudentTopicPortalProps {
   availableSlots: GDSession[];
@@ -52,25 +53,31 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [reviveModalSlot, setReviveModalSlot] = useState<GDSession | null>(null);
 
+  // Institutional Policy: Students can strictly see only slots they are assigned/allotted to
+  const assignedSlots = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'student') return availableSlots || [];
+    return (availableSlots || []).filter((s) => isStudentAssignedToSlot(s, currentUser));
+  }, [availableSlots, currentUser]);
+
   // Normalize map of { [topic]: slotId } for the student
   const bookedSlotsMap = useMemo(() => {
     if (bookedSlotsByTopic && Object.keys(bookedSlotsByTopic).length > 0) {
       return bookedSlotsByTopic;
     }
     if (bookedSlotId) {
-      const s = availableSlots.find((slot) => slot.id === bookedSlotId);
+      const s = assignedSlots.find((slot) => slot.id === bookedSlotId);
       const t = s?.topic || 'General Topic';
       return { [t]: bookedSlotId };
     }
     return {};
-  }, [bookedSlotsByTopic, bookedSlotId, availableSlots]);
+  }, [bookedSlotsByTopic, bookedSlotId, assignedSlots]);
 
   // Find all slots booked by this student across topics
   const allBookedSlots = useMemo(() => {
     const bookedIds = new Set(Object.values(bookedSlotsMap));
     if (bookedIds.size === 0) return [];
-    return availableSlots.filter((s) => bookedIds.has(s.id));
-  }, [availableSlots, bookedSlotsMap]);
+    return assignedSlots.filter((s) => bookedIds.has(s.id));
+  }, [assignedSlots, bookedSlotsMap]);
 
   // Backward-compatible single booked slot reference
   const bookedSlot = allBookedSlots[0] || null;
@@ -90,7 +97,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
       bookedSlotIdForTopic?: string;
     }>();
 
-    (availableSlots || []).forEach((slot) => {
+    (assignedSlots || []).forEach((slot) => {
       const topicTitle = slot.topic || 'General Topic';
       const existing = topicMap.get(topicTitle);
       const maxCap = slot.maxCapacity || 15;
@@ -338,9 +345,9 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
             {filteredTopics.length === 0 && (
               <div className="col-span-full p-8 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl">
                 <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Discussion Topics Scheduled Yet</h4>
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Discussion Slots Assigned Yet</h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                  Your campus faculty and administrators have not scheduled discussion slots yet. Once scheduled, topics and time slots will appear here for booking.
+                  You have not been allotted to any Group Discussion slots yet. Once your College Admin or Faculty In-Charge assigns you to an upcoming session, your slot schedule and discussion topic will appear here.
                 </p>
               </div>
             )}

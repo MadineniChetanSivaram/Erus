@@ -413,6 +413,148 @@ export async function addCollegeFaculty(payload: any) {
   return { success: true, faculty: facObj };
 }
 
+export function isStudentAssignedToSlot(slot: any, user: any): boolean {
+  if (!user) return false;
+  if (user.role !== 'student') return true;
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uStudentId = String((user as any).studentId || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+  const uRoll = String((user as any).rollNumber || '').trim().toLowerCase();
+
+  // 1. Check if student is in slot.students list
+  if (Array.isArray(slot.students)) {
+    const isEnrolled = slot.students.some((s: any) => {
+      if (!s) return false;
+      const sId = String(s.id || '').trim().toLowerCase();
+      const sStudentId = String(s.studentId || '').trim().toLowerCase();
+      const sEmail = String(s.email || '').trim().toLowerCase();
+      const sName = String(s.name || '').trim().toLowerCase();
+      const sRoll = String(s.rollNumber || '').trim().toLowerCase();
+
+      return (
+        (uId && (sId === uId || sStudentId === uId)) ||
+        (uStudentId && (sStudentId === uStudentId || sId === uStudentId)) ||
+        (uEmail && sEmail === uEmail) ||
+        (uRoll && sRoll === uRoll) ||
+        (uName && sName === uName)
+      );
+    });
+    if (isEnrolled) return true;
+  }
+
+  // 2. Check if student has booked this slot
+  if (slot.id) {
+    if (user.bookedSlotId === slot.id) return true;
+    if ((user as any).bookedSlotsByTopic) {
+      if (Object.values((user as any).bookedSlotsByTopic).includes(slot.id)) return true;
+    }
+    try {
+      const studentKey = user.id || user.email || 'student';
+      const localBooked = localStorage.getItem(`erus_student_booked_slot_${studentKey}`);
+      if (localBooked === slot.id) return true;
+    } catch {}
+  }
+
+  // 3. Check assignedStudentIds array if present
+  if (Array.isArray((slot as any).assignedStudentIds)) {
+    const hasAssignedId = (slot as any).assignedStudentIds.some((id: string) => {
+      const cleanId = String(id).trim().toLowerCase();
+      return cleanId === uId || (uStudentId && cleanId === uStudentId);
+    });
+    if (hasAssignedId) return true;
+  }
+
+  return false;
+}
+
+export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory?: any[]): boolean {
+  if (!user) return false;
+  if (user.role !== 'student') return true;
+  if (!slot) return false;
+
+  // Must be completed session
+  if (slot.status !== 'completed') return false;
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uStudentId = String((user as any).studentId || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+  const uRoll = String((user as any).rollNumber || '').trim().toLowerCase();
+
+  // Check if student has a recorded evaluation report for this slot
+  if (Array.isArray(reportHistory) && reportHistory.some((r) => r.sessionId === slot.id || r.id === slot.id)) {
+    return true;
+  }
+
+  // Check if student was present in slot.students
+  if (Array.isArray(slot.students)) {
+    const stMatch = slot.students.find((s: any) => {
+      if (!s) return false;
+      if (s.isUser) return true;
+      const sId = String(s.id || '').trim().toLowerCase();
+      const sStudentId = String(s.studentId || '').trim().toLowerCase();
+      const sEmail = String(s.email || '').trim().toLowerCase();
+      const sName = String(s.name || '').trim().toLowerCase();
+      const sRoll = String(s.rollNumber || '').trim().toLowerCase();
+      return (
+        (uId && (sId === uId || sStudentId === uId)) ||
+        (uStudentId && (sStudentId === uStudentId || sId === uStudentId)) ||
+        (uEmail && sEmail === uEmail) ||
+        (uRoll && sRoll === uRoll) ||
+        (uName && sName === uName)
+      );
+    });
+    if (stMatch) return true;
+  }
+
+  // Check assignedStudentIds array if present
+  if (Array.isArray((slot as any).assignedStudentIds)) {
+    const hasAssignedId = (slot as any).assignedStudentIds.some((id: string) => {
+      const cleanId = String(id).trim().toLowerCase();
+      return cleanId === uId || (uStudentId && cleanId === uStudentId);
+    });
+    if (hasAssignedId) return true;
+  }
+
+  // Check if student had booked this slot and completed
+  if (slot.id) {
+    if (user.bookedSlotId === slot.id) return true;
+    if ((user as any).bookedSlotsByTopic && Object.values((user as any).bookedSlotsByTopic).includes(slot.id)) return true;
+    try {
+      const studentKey = user.id || user.email || 'student';
+      const localBooked = localStorage.getItem(`erus_student_booked_slot_${studentKey}`);
+      if (localBooked === slot.id) return true;
+    } catch {}
+  }
+
+  return false;
+}
+
+export async function fetchStudentAssignedSlots(
+  studentId: string,
+  collegeCode: string = 'DIT',
+  studentEmail?: string
+): Promise<any[]> {
+  const raw = collegeCode.toUpperCase();
+  const code = raw === 'BMSIT2002' || raw === 'BMSI' || raw === 'BMS' || raw.includes('BMS') ? 'BMSIT' : raw;
+  try {
+    const url = `/api/college/slots?collegeCode=${encodeURIComponent(code)}&studentId=${encodeURIComponent(studentId)}&email=${encodeURIComponent(studentEmail || '')}&role=student`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.slots)) {
+        return data.slots;
+      }
+    }
+  } catch (e) {
+    console.warn('Error fetching student assigned slots:', e);
+  }
+  const allSlots = await fetchCollegeSlots(code);
+  return allSlots.filter((s) => isStudentAssignedToSlot(s, { id: studentId, email: studentEmail, role: 'student' }));
+}
+
 export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<any[]> {
   const raw = collegeCode.toUpperCase();
   const code = raw === 'BMSIT2002' || raw === 'BMSI' || raw === 'BMS' || raw.includes('BMS') ? 'BMSIT' : raw;

@@ -42,7 +42,8 @@ import { AuthUser } from '../../types/auth';
 import { SAMPLE_REPORT_RAHUL, generateStudentReport } from '../../data/mockGDData';
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
-import { addReportToStudentHistory } from '../../utils/studentReportHistory';
+import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
+import { hasStudentParticipatedInSlot } from '../../utils/authApi';
 import confetti from 'canvas-confetti';
 
 export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): StudentAssessmentReport {
@@ -134,16 +135,73 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   const [activeReportTab, setActiveReportTab] = useState<'single' | 'comparison' | 'journey'>('single');
 
-  // Find the active student for this user
-  const userStudent = (session?.students && session.students.length > 0)
-    ? (session.students.find((s) => s.isUser || (currentUser && (s.id === currentUser.id || s.name === currentUser.name))) || session.students[0])
-    : {
+  // Check if currentUser is a recognized participant in this session
+  const studentParticipant = useMemo(() => {
+    if (!session?.students || session.students.length === 0) return null;
+    return session.students.find((s) => {
+      if (!s) return false;
+      if (s.isUser) return true;
+      if (!currentUser) return false;
+      const uId = String(currentUser.id || '').trim().toLowerCase();
+      const uStudentId = String((currentUser as any).studentId || '').trim().toLowerCase();
+      const uEmail = String(currentUser.email || '').trim().toLowerCase();
+      const uName = String(currentUser.name || '').trim().toLowerCase();
+      const uRoll = String((currentUser as any).rollNumber || '').trim().toLowerCase();
+
+      const sId = String(s.id || '').trim().toLowerCase();
+      const sStudentId = String(s.studentId || '').trim().toLowerCase();
+      const sEmail = String(s.email || '').trim().toLowerCase();
+      const sName = String(s.name || '').trim().toLowerCase();
+      const sRoll = String(s.rollNumber || '').trim().toLowerCase();
+
+      return (
+        (uId && (sId === uId || sStudentId === uId)) ||
+        (uStudentId && (sStudentId === uStudentId || sId === uStudentId)) ||
+        (uEmail && sEmail === uEmail) ||
+        (uRoll && sRoll === uRoll) ||
+        (uName && sName === uName)
+      );
+    }) || null;
+  }, [session?.students, currentUser]);
+
+  const studentIdentifier = currentUser?.studentId || currentUser?.id || currentUser?.name || 'student';
+  const studentHistory = useMemo(() => {
+    return isStudent ? getStudentReportHistory(studentIdentifier) : [];
+  }, [isStudent, studentIdentifier]);
+
+  // Check if student actually participated in the current session
+  const hasParticipatedInCurrentSession = useMemo(() => {
+    if (!isStudent) return true;
+    if (!session) return false;
+    return hasStudentParticipatedInSlot(session, currentUser, studentHistory) || Boolean(studentParticipant && session.status === 'completed');
+  }, [isStudent, session, currentUser, studentHistory, studentParticipant]);
+
+  // Filter available slots so that students ONLY see slots they actually participated in
+  const studentParticipatedSlots = useMemo(() => {
+    if (!availableSlots) return [];
+    if (!isStudent) return availableSlots;
+    return availableSlots.filter((sl) => hasStudentParticipatedInSlot(sl, currentUser, studentHistory));
+  }, [availableSlots, isStudent, currentUser, studentHistory]);
+
+  // Auto-switch to first participated slot if student landed on an unparticipated slot
+  useEffect(() => {
+    if (isStudent && !hasParticipatedInCurrentSession && studentParticipatedSlots.length > 0 && onSelectSlot) {
+      const firstParticipated = studentParticipatedSlots[0];
+      if (firstParticipated && firstParticipated.id !== session?.id) {
+        onSelectSlot(firstParticipated.id);
+      }
+    }
+  }, [isStudent, hasParticipatedInCurrentSession, studentParticipatedSlots, onSelectSlot, session?.id]);
+
+  // Find the active student for this user - NEVER fall back to session.students[0] for students!
+  const userStudent = isStudent
+    ? (studentParticipant || {
         id: currentUser?.id || 'slot-stu-1',
         name: currentUser?.name || 'Student Candidate',
-        seatNumber: 1,
+        seatNumber: (currentUser as any)?.seatNumber || 1,
         college: currentUser?.college || 'College of Engineering',
         course: (currentUser as any)?.course || 'B.Tech CSE',
-        batch: (currentUser as any)?.batch || '2022-2026',
+        batch: (currentUser as any)?.batch || '2024-2028',
         avatar: '',
         isUser: true,
         micActive: false,
@@ -156,7 +214,29 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         questionsAnswered: 0,
         questionsInitiated: 0,
         sentiment: 'neutral' as const,
-      };
+      })
+    : ((session?.students && session.students.length > 0)
+        ? (session.students.find((s) => s.isUser || (currentUser && (s.id === currentUser.id || s.name === currentUser.name))) || session.students[0])
+        : {
+            id: currentUser?.id || 'slot-stu-1',
+            name: currentUser?.name || 'Student Candidate',
+            seatNumber: 1,
+            college: currentUser?.college || 'College of Engineering',
+            course: (currentUser as any)?.course || 'B.Tech CSE',
+            batch: (currentUser as any)?.batch || '2022-2026',
+            avatar: '',
+            isUser: true,
+            micActive: false,
+            isSpeaking: false,
+            hasRaisedHand: false,
+            cameraActive: false,
+            speakingDurationSeconds: 0,
+            speakingTurns: 0,
+            interruptionCount: 0,
+            questionsAnswered: 0,
+            questionsInitiated: 0,
+            sentiment: 'neutral' as const,
+          });
 
   const effectiveInitialStudentId = isStudent
     ? userStudent.id
@@ -243,10 +323,10 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   // Persist current report to student's historical comparison archive
   useEffect(() => {
-    if (currentReport) {
+    if (currentReport && (!isStudent || hasParticipatedInCurrentSession)) {
       addReportToStudentHistory(currentReport);
     }
-  }, [currentReport]);
+  }, [currentReport, isStudent, hasParticipatedInCurrentSession]);
 
   // Faculty live observation notes for this candidate (Enhancement 4)
   const candidateLiveNotes = useMemo(() => {
@@ -406,6 +486,62 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   const currentWpmStatus = currentReport.wpmStatus || (currentWpm === 0 ? 'No Speech' : currentWpm >= 120 && currentWpm <= 150 ? 'Optimal' : currentWpm < 120 ? 'Too Slow' : 'Too Fast');
   const fillerCount = currentReport.fillerWordsCount ?? 0;
 
+  if (isStudent && !hasParticipatedInCurrentSession) {
+    return (
+      <div className="max-w-3xl mx-auto p-4 sm:p-8 my-8">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-10 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center mx-auto text-amber-600 dark:text-amber-400">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              No Participated Discussion Reports Available
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl mx-auto">
+              Under institutional policy, students can only view assessment reports for Group Discussion slots in which they were assigned, actively participated, and evaluated. You did not participate in this session ({session?.slotName || session?.id || 'Selected Slot'}).
+            </p>
+          </div>
+
+          {studentParticipatedSlots.length > 0 ? (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                Your Completed Discussion Sessions
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {studentParticipatedSlots.map((sl) => (
+                  <button
+                    key={sl.id}
+                    onClick={() => onSelectSlot && onSelectSlot(sl.id)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>View Report: {sl.slotName || sl.id}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto text-left space-y-1.5">
+              <p className="font-semibold text-slate-700 dark:text-slate-300">How to access your reports:</p>
+              <p>1. Check your assigned slot in the discussion schedule.</p>
+              <p>2. Join and complete the live discussion session.</p>
+              <p>3. Once evaluated, your individual metrics, speech telemetry, and faculty feedback will be available here.</p>
+            </div>
+          )}
+
+          <div className="flex justify-center gap-3 pt-2">
+            <button
+              onClick={onBackToRoom}
+              className="px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+            >
+              Back to Assigned Slots &amp; Room
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (activeReportTab === 'comparison') {
     return (
       <GDComparisonReport
@@ -533,7 +669,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       </div>
 
       {/* Student Completed Sessions Slot Bar */}
-      {availableSlots && availableSlots.length > 0 && onSelectSlot && (
+      {studentParticipatedSlots && studentParticipatedSlots.length > 0 && onSelectSlot && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs flex items-center justify-between gap-3 flex-wrap no-print">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -545,49 +681,34 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">View Other Slot Reports:</span>
-            {(availableSlots || []).map((sl) => {
-              const isSelected = sl.id === session.id;
-              const isCompleted = sl.status === 'completed';
-              const studentKey = currentUser?.id || currentUser?.email || 'student';
-              const effectiveBooked = bookedSlotId || (isStudent ? (localStorage.getItem(`erus_student_booked_slot_${studentKey}`) || null) : null);
-              const isLockedForStudent = isStudent && Boolean(effectiveBooked) && sl.id !== effectiveBooked;
-              const bookedSlotObj = isLockedForStudent ? availableSlots.find((s) => s.id === effectiveBooked) : null;
+          {studentParticipatedSlots.length > 1 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                {isStudent ? 'Your Other Participated Sessions:' : 'View Other Slot Reports:'}
+              </span>
+              {studentParticipatedSlots.map((sl) => {
+                const isSelected = sl.id === session.id;
+                const isCompleted = sl.status === 'completed';
 
-              if (isLockedForStudent) {
                 return (
                   <button
                     key={sl.id}
-                    type="button"
-                    disabled
-                    title={`Slot Locked: You have booked ${bookedSlotObj?.slotName || 'another slot'}. Under institutional policy, students can only access their assigned discussion session.`}
-                    className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed flex items-center gap-1"
+                    onClick={() => onSelectSlot(sl.id)}
+                    className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'bg-purple-600 text-white shadow-xs font-bold'
+                        : isCompleted
+                        ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
                   >
-                    <Lock className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-                    <span className="line-through decoration-slate-400/50">{sl.slotName || sl.id}</span>
+                    <span>{sl.slotName || sl.id}</span>
+                    {isCompleted && <span className="text-[10px] text-purple-500 font-bold">✓</span>}
                   </button>
                 );
-              }
-
-              return (
-                <button
-                  key={sl.id}
-                  onClick={() => onSelectSlot(sl.id)}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? 'bg-purple-600 text-white shadow-xs font-bold'
-                      : isCompleted
-                      ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/50'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <span>{sl.slotName || sl.id}</span>
-                  {isCompleted && <span className="text-[10px] text-purple-500 font-bold">✓</span>}
-                </button>
-              );
-            })}
-          </div>
+              })}
+            </div>
+          )}
         </div>
       )}
 

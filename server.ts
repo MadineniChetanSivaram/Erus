@@ -2499,6 +2499,41 @@ app.get('/api/college/slots', async (req, res) => {
   persistentState.slots[code] = slots;
   savePersistentState();
 
+  // Institutional Restriction: Students can strictly see only slots they are assigned/allotted to
+  const studentId = String(req.query.studentId || '').trim();
+  const userRole = String(req.query.role || '').trim();
+  const studentEmail = String(req.query.email || '').trim().toLowerCase();
+
+  if (studentId || userRole === 'student') {
+    const targetStudentId = studentId.toLowerCase();
+    const targetEmail = studentEmail.toLowerCase();
+    const studentSlots = slots.filter((slot) => {
+      // 1. Check slot.students list
+      if (Array.isArray(slot.students)) {
+        if (slot.students.some((s: any) => {
+          if (!s) return false;
+          const sId = String(s.id || '').toLowerCase();
+          const sStuId = String(s.studentId || '').toLowerCase();
+          const sEmail = String(s.email || '').toLowerCase();
+          return (
+            (targetStudentId && (sId === targetStudentId || sStuId === targetStudentId)) ||
+            (targetEmail && sEmail === targetEmail)
+          );
+        })) {
+          return true;
+        }
+      }
+      // 2. Check persistent student bookings
+      if (studentId && persistentState.studentBookings[studentId] === slot.id) return true;
+      // 3. Check topic bookings
+      if (studentId && persistentState.studentTopicBookings[studentId]) {
+        if (Object.values(persistentState.studentTopicBookings[studentId]).includes(slot.id)) return true;
+      }
+      return false;
+    });
+    return res.json({ success: true, slots: studentSlots });
+  }
+
   res.json({ success: true, slots });
 });
 
