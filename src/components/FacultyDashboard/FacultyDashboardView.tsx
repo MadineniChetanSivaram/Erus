@@ -31,6 +31,7 @@ import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { INITIAL_SESSION } from '../../data/mockGDData';
 import { formatSlotDate } from '../../utils/studentBooking';
 import { downloadFacultyReport } from '../../utils/managementReports';
+import { isFacultyAssignedToSlot } from '../../utils/authApi';
 import { 
   BarChart, 
   Bar, 
@@ -51,6 +52,7 @@ interface FacultyDashboardViewProps {
   availableSlots?: GDSession[];
   onSelectSlot?: (slotId: string) => void;
   facultyId?: string;
+  currentUser?: any;
 }
 
 export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
@@ -63,6 +65,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   availableSlots,
   onSelectSlot,
   facultyId,
+  currentUser,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [persistedReports, setPersistedReports] = useState<any[]>([]);
@@ -78,7 +81,14 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   const safeStudents = Array.isArray(safeSession?.students) ? safeSession.students : [];
   const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
   const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
-  const safeAvailableSlots = Array.isArray(availableSlots) ? availableSlots : [];
+  const safeAvailableSlots = useMemo(() => {
+    const base = Array.isArray(availableSlots) ? availableSlots : [];
+    if (currentUser?.role === 'faculty' || facultyId) {
+      const facUser = currentUser || { id: facultyId, facultyId, role: 'faculty' };
+      return base.filter((sl) => isFacultyAssignedToSlot(sl, facUser));
+    }
+    return base;
+  }, [availableSlots, currentUser, facultyId]);
 
   useEffect(() => {
     if (!facultyId || !safeSession?.id) return;
@@ -344,6 +354,21 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Empty State when no slots are assigned to this faculty */}
+      {safeAvailableSlots.length === 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-2xl text-center shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mx-auto mb-3 text-indigo-600 dark:text-indigo-400">
+            <Layers className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">
+            No Discussion Slots Assigned Yet
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            You have not been allotted as Evaluator to any discussion slots yet. Once your College Administrator assigns you to an upcoming session, your assigned slots and discussion topics will appear here.
+          </p>
+        </div>
+      )}
 
       {/* Faculty topic / slot navigator: show each assigned topic first,
           then the slots belonging to that topic underneath it. */}

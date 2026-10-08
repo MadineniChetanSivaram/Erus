@@ -413,6 +413,48 @@ export async function addCollegeFaculty(payload: any) {
   return { success: true, faculty: facObj };
 }
 
+export function isFacultyAssignedToSlot(slot: any, user: any): boolean {
+  if (!user) return false;
+  if (user.role !== 'faculty') return true;
+  if (!slot) return false;
+
+  const uId = String(user.id || '').trim().toLowerCase();
+  const uFacultyId = String((user as any).facultyId || '').trim().toLowerCase();
+  const uEmail = String(user.email || '').trim().toLowerCase();
+  const uName = String(user.name || '').trim().toLowerCase();
+
+  const slotFacultyId = String(slot.assignedFacultyId || slot.facultyId || '').trim().toLowerCase();
+  const slotFacultyEmail = String(slot.assignedFacultyEmail || slot.facultyEmail || '').trim().toLowerCase();
+  const slotFacultyName = String(slot.assignedFacultyName || slot.facultyName || slot.faculty || '').trim().toLowerCase();
+  const allottedFaculty = String(slot.allottedFaculty || '').trim().toLowerCase();
+
+  // 1. Direct identifier match
+  if (slotFacultyId) {
+    if (uId && slotFacultyId === uId) return true;
+    if (uFacultyId && slotFacultyId === uFacultyId) return true;
+  }
+
+  // 2. Email match
+  if (slotFacultyEmail && uEmail && slotFacultyEmail === uEmail) {
+    return true;
+  }
+
+  // 3. Name match
+  if (slotFacultyName && uName && (slotFacultyName === uName || slotFacultyName.includes(uName) || uName.includes(slotFacultyName))) {
+    return true;
+  }
+
+  // 4. Legacy / combined allottedFaculty string match
+  if (allottedFaculty) {
+    if (uFacultyId && allottedFaculty.includes(uFacultyId)) return true;
+    if (uId && allottedFaculty.includes(uId)) return true;
+    if (uEmail && allottedFaculty.includes(uEmail)) return true;
+    if (uName && (allottedFaculty.includes(uName) || uName.includes(allottedFaculty))) return true;
+  }
+
+  return false;
+}
+
 export function isStudentAssignedToSlot(slot: any, user: any): boolean {
   if (!user) return false;
   if (user.role !== 'student') return true;
@@ -1042,15 +1084,30 @@ export async function sendUserHeartbeat(user: any): Promise<void> {
 }
 
 
-export async function fetchFacultyAssignedSlots(facultyId: string, collegeCode: string = 'DIT'): Promise<any[]> {
-  const code = collegeCode.toUpperCase();
+export async function fetchFacultyAssignedSlots(
+  facultyId: string,
+  collegeCode: string = 'DIT',
+  facultyEmail?: string,
+  facultyName?: string
+): Promise<any[]> {
+  const raw = collegeCode.toUpperCase();
+  const code = raw === 'BMSIT2002' || raw === 'BMSI' || raw === 'BMS' || raw.includes('BMS') ? 'BMSIT' : raw;
   try {
-    const res = await fetch(
-      `/api/faculty/sessions?facultyId=${encodeURIComponent(facultyId)}&collegeCode=${encodeURIComponent(code)}`
-    );
+    const params = new URLSearchParams({
+      facultyId,
+      collegeCode: code,
+    });
+    if (facultyEmail) params.set('facultyEmail', facultyEmail);
+    if (facultyName) params.set('facultyName', facultyName);
+
+    const res = await fetch(`/api/faculty/sessions?${params.toString()}`);
     if (res.ok) {
       const data = await res.json();
-      if (data.success && Array.isArray(data.sessions)) return data.sessions;
+      if (data.success && Array.isArray(data.sessions)) {
+        return data.sessions.filter((s: any) =>
+          isFacultyAssignedToSlot(s, { id: facultyId, facultyId, email: facultyEmail, name: facultyName, role: 'faculty' })
+        );
+      }
     }
   } catch (e) {
     console.warn('Error fetching faculty sessions:', e);

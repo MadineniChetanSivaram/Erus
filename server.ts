@@ -2490,6 +2490,7 @@ app.get('/api/college/slots', async (req, res) => {
   const studentId = String(req.query.studentId || '').trim();
   const userRole = String(req.query.role || '').trim();
   const studentEmail = String(req.query.email || '').trim().toLowerCase();
+  const facultyId = String(req.query.facultyId || '').trim();
 
   if (studentId || userRole === 'student') {
     const targetStudentId = studentId.toLowerCase();
@@ -2519,6 +2520,26 @@ app.get('/api/college/slots', async (req, res) => {
       return false;
     });
     return res.json({ success: true, slots: studentSlots });
+  }
+
+  // Institutional Restriction: Faculty can strictly see only slots assigned to them
+  if (facultyId || userRole === 'faculty') {
+    const targetFacultyId = (facultyId || String(req.query.id || '')).trim().toLowerCase();
+    const targetEmail = String(req.query.email || req.query.facultyEmail || '').trim().toLowerCase();
+    const targetName = String(req.query.name || req.query.facultyName || '').trim().toLowerCase();
+
+    const facultySlots = slots.filter((slot) => {
+      const slotFacId = String(slot.assignedFacultyId || '').trim().toLowerCase();
+      const slotFacEmail = String(slot.assignedFacultyEmail || '').trim().toLowerCase();
+      const slotFacName = String(slot.assignedFacultyName || '').trim().toLowerCase();
+      const allottedFac = String((slot as any).allottedFaculty || '').trim().toLowerCase();
+
+      if (targetFacultyId && (slotFacId === targetFacultyId || (allottedFac && allottedFac.includes(targetFacultyId)))) return true;
+      if (targetEmail && (slotFacEmail === targetEmail || (allottedFac && allottedFac.includes(targetEmail)))) return true;
+      if (targetName && (slotFacName === targetName || (allottedFac && allottedFac.includes(targetName)))) return true;
+      return false;
+    });
+    return res.json({ success: true, slots: facultySlots });
   }
 
   res.json({ success: true, slots });
@@ -3238,18 +3259,47 @@ app.get('/api/faculty/sessions', async (req, res) => {
     }
   }
 
+  const facultyEmailQuery = String(req.query.facultyEmail || '').trim().toLowerCase();
+  const facultyNameQuery = String(req.query.facultyName || '').trim().toLowerCase();
+
   const facultyAssignmentIds = new Set(
-    faculty
-      ? [faculty.facultyId, faculty.id, faculty.email, faculty.name].filter(Boolean).map(String)
-      : [facultyId]
+    [
+      facultyId,
+      faculty?.facultyId,
+      faculty?.id,
+      faculty?.email,
+      faculty?.name,
+      facultyEmailQuery,
+      facultyNameQuery,
+    ]
+      .filter(Boolean)
+      .map((x) => String(x).toLowerCase())
   );
 
-  let slots = (persistentState.slots[code] || []).filter(
-    (slot) =>
-      !slot.assignedFacultyId ||
-      facultyAssignmentIds.has(String(slot.assignedFacultyId)) ||
-      (faculty && (slot.assignedFacultyName === faculty.name || (slot as any).allottedFaculty?.includes(faculty.name)))
-  );
+  let slots = (persistentState.slots[code] || []).filter((slot) => {
+    const slotFacultyId = String(slot.assignedFacultyId || '').trim().toLowerCase();
+    const slotFacultyEmail = String(slot.assignedFacultyEmail || '').trim().toLowerCase();
+    const slotFacultyName = String(slot.assignedFacultyName || '').trim().toLowerCase();
+    const allottedFaculty = String((slot as any).allottedFaculty || '').trim().toLowerCase();
+
+    // Must be assigned to this specific faculty
+    if (slotFacultyId && facultyAssignmentIds.has(slotFacultyId)) return true;
+    if (slotFacultyEmail && (
+      (faculty?.email && slotFacultyEmail === faculty.email.toLowerCase()) ||
+      (facultyEmailQuery && slotFacultyEmail === facultyEmailQuery)
+    )) return true;
+    if (slotFacultyName && (
+      (faculty?.name && slotFacultyName === faculty.name.toLowerCase()) ||
+      (facultyNameQuery && slotFacultyName === facultyNameQuery)
+    )) return true;
+    if (allottedFaculty) {
+      if (faculty?.name && allottedFaculty.includes(faculty.name.toLowerCase())) return true;
+      if (faculty?.facultyId && allottedFaculty.includes(faculty.facultyId.toLowerCase())) return true;
+      if (facultyNameQuery && allottedFaculty.includes(facultyNameQuery)) return true;
+      if (facultyEmailQuery && allottedFaculty.includes(facultyEmailQuery)) return true;
+    }
+    return false;
+  });
 
   if (isDbConnected && prisma) {
     try {

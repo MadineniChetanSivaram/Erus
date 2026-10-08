@@ -26,7 +26,7 @@ import {
 import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, fetchStudentAssignedSlots, isStudentAssignedToSlot, hasStudentParticipatedInSlot, sendUserHeartbeat } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, fetchStudentAssignedSlots, isFacultyAssignedToSlot, isStudentAssignedToSlot, hasStudentParticipatedInSlot, sendUserHeartbeat } from './utils/authApi';
 import { getSocket } from './utils/socket';
 import { 
   getStudentBookedSlotsByTopic,
@@ -210,13 +210,16 @@ function GDAppContent() {
     const syncSlots = async () => {
       try {
         const rawSlots = currentUser.role === 'faculty'
-          ? await fetchFacultyAssignedSlots((currentUser as any).facultyId || currentUser.id, collegeCode)
+          ? await fetchFacultyAssignedSlots((currentUser as any).facultyId || currentUser.id, collegeCode, currentUser.email, currentUser.name)
           : currentUser.role === 'student'
           ? await fetchStudentAssignedSlots(currentUser.id || (currentUser as any).studentId, collegeCode, currentUser.email)
           : await fetchCollegeSlots(collegeCode);
 
         if (Array.isArray(rawSlots)) {
-          const filteredRaw = rawSlots.filter((s: any) => s && s.id);
+          let filteredRaw = rawSlots.filter((s: any) => s && s.id);
+          if (currentUser.role === 'faculty') {
+            filteredRaw = filteredRaw.filter((s: any) => isFacultyAssignedToSlot(s, currentUser));
+          }
           const mappedSlots: GDSession[] = filteredRaw.map((s: any): GDSession => ({
             ...INITIAL_SESSION,
             id: s.id,
@@ -323,14 +326,18 @@ function GDAppContent() {
     const rawUpper = String(rawCode).trim().toUpperCase();
     const collegeCode = rawUpper === 'BMSIT2002' || rawUpper === 'BMSI' || rawUpper === 'BMS' || rawUpper.includes('BMS') ? 'BMSIT' : rawUpper;
     const slotSource = user.role === 'faculty'
-      ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode)
+      ? fetchFacultyAssignedSlots((user as any).facultyId || user.id, collegeCode, user.email, user.name)
       : user.role === 'student'
       ? fetchStudentAssignedSlots(user.id || (user as any).studentId, collegeCode, user.email)
       : fetchCollegeSlots(collegeCode);
     slotSource.then((backendSlots) => {
       if (backendSlots) {
+        let activeBackendSlots = backendSlots;
+        if (user.role === 'faculty') {
+          activeBackendSlots = activeBackendSlots.filter((s: any) => isFacultyAssignedToSlot(s, user));
+        }
         // Map backend slot objects to GDSession format expected by the frontend
-        const mappedSlots: GDSession[] = backendSlots.map((s: any): GDSession => ({
+        const mappedSlots: GDSession[] = activeBackendSlots.map((s: any): GDSession => ({
           ...INITIAL_SESSION,
           id: s.id,
           topic: s.topic || s.slotName || 'Group Discussion',
@@ -779,6 +786,14 @@ function GDAppContent() {
   const handleSelectSlot = (slotId: string) => {
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
+
+    // Faculty slot access restriction: faculty can only select slots allotted to them
+    if (currentUser && currentUser.role === 'faculty') {
+      if (!isFacultyAssignedToSlot(targetSlot, currentUser)) {
+        alert('Access Restricted: You are not assigned as the evaluator for this discussion slot.');
+        return;
+      }
+    }
 
     // One Slot Per Topic Policy: Enforce that students cannot select a different slot on a topic they already booked
     if (currentUser && currentUser.role === 'student') {
@@ -1305,7 +1320,11 @@ function GDAppContent() {
             onStartSession={handleStartSession}
             voiceMuted={voiceMuted}
             elapsedSeconds={elapsedSeconds}
-            availableSlots={availableSlots}
+            availableSlots={
+              currentUser?.role === 'faculty'
+                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
+                : availableSlots
+            }
             onSelectSlot={handleSelectSlot}
             onResetSlots={handleResetSlots}
             currentUser={currentUser}
@@ -1360,6 +1379,8 @@ function GDAppContent() {
             availableSlots={
               currentUser?.role === 'student'
                 ? availableSlots.filter((s) => hasStudentParticipatedInSlot(s, currentUser))
+                : currentUser?.role === 'faculty'
+                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
                 : availableSlots
             }
             onSelectSlot={handleSelectSlot}
@@ -1387,9 +1408,14 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onStartSession={handleStartSession}
-            availableSlots={availableSlots}
+            availableSlots={
+              currentUser?.role === 'faculty'
+                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
+                : availableSlots
+            }
             onSelectSlot={handleSelectSlot}
             facultyId={currentUser?.role === 'faculty' ? ((currentUser as any).facultyId || currentUser.id) : undefined}
+            currentUser={currentUser}
           />
         )}
 

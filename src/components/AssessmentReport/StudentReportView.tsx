@@ -43,7 +43,7 @@ import { SAMPLE_REPORT_RAHUL, generateStudentReport } from '../../data/mockGDDat
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
-import { hasStudentParticipatedInSlot } from '../../utils/authApi';
+import { hasStudentParticipatedInSlot, isFacultyAssignedToSlot } from '../../utils/authApi';
 import confetti from 'canvas-confetti';
 
 export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): StudentAssessmentReport {
@@ -176,22 +176,46 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     return hasStudentParticipatedInSlot(session, currentUser, studentHistory) || Boolean(studentParticipant && session.status === 'completed');
   }, [isStudent, session, currentUser, studentHistory, studentParticipant]);
 
-  // Filter available slots so that students ONLY see slots they actually participated in
-  const studentParticipatedSlots = useMemo(() => {
+  // Check if faculty is assigned to the current session
+  const isFacultyAssignedToCurrentSession = useMemo(() => {
+    if (!isFaculty) return true;
+    if (!session) return false;
+    return isFacultyAssignedToSlot(session, currentUser);
+  }, [isFaculty, session, currentUser]);
+
+  // Filter available slots: students see participated slots; faculty see strictly assigned slots
+  const visibleSlotsForUser = useMemo(() => {
     if (!availableSlots) return [];
-    if (!isStudent) return availableSlots;
-    return availableSlots.filter((sl) => hasStudentParticipatedInSlot(sl, currentUser, studentHistory));
-  }, [availableSlots, isStudent, currentUser, studentHistory]);
+    if (isStudent) {
+      return availableSlots.filter((sl) => hasStudentParticipatedInSlot(sl, currentUser, studentHistory));
+    }
+    if (isFaculty) {
+      return availableSlots.filter((sl) => isFacultyAssignedToSlot(sl, currentUser));
+    }
+    return availableSlots;
+  }, [availableSlots, isStudent, isFaculty, currentUser, studentHistory]);
+
+  const studentParticipatedSlots = visibleSlotsForUser;
 
   // Auto-switch to first participated slot if student landed on an unparticipated slot
   useEffect(() => {
-    if (isStudent && !hasParticipatedInCurrentSession && studentParticipatedSlots.length > 0 && onSelectSlot) {
-      const firstParticipated = studentParticipatedSlots[0];
+    if (isStudent && !hasParticipatedInCurrentSession && visibleSlotsForUser.length > 0 && onSelectSlot) {
+      const firstParticipated = visibleSlotsForUser[0];
       if (firstParticipated && firstParticipated.id !== session?.id) {
         onSelectSlot(firstParticipated.id);
       }
     }
-  }, [isStudent, hasParticipatedInCurrentSession, studentParticipatedSlots, onSelectSlot, session?.id]);
+  }, [isStudent, hasParticipatedInCurrentSession, visibleSlotsForUser, onSelectSlot, session?.id]);
+
+  // Auto-switch to first assigned slot if faculty landed on an unassigned slot
+  useEffect(() => {
+    if (isFaculty && !isFacultyAssignedToCurrentSession && visibleSlotsForUser.length > 0 && onSelectSlot) {
+      const firstAssigned = visibleSlotsForUser[0];
+      if (firstAssigned && firstAssigned.id !== session?.id) {
+        onSelectSlot(firstAssigned.id);
+      }
+    }
+  }, [isFaculty, isFacultyAssignedToCurrentSession, visibleSlotsForUser, onSelectSlot, session?.id]);
 
   // Find the active student for this user - NEVER fall back to session.students[0] for students!
   const userStudent = isStudent
@@ -535,6 +559,59 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               className="px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
             >
               Back to Assigned Slots &amp; Room
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isFaculty && !isFacultyAssignedToCurrentSession) {
+    return (
+      <div className="max-w-3xl mx-auto p-4 sm:p-8 my-8">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-10 shadow-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-center mx-auto text-amber-600 dark:text-amber-400">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              Slot Assigned to Another Faculty Member
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl mx-auto">
+              Under institutional policy, faculty evaluators can only view and evaluate sessions allotted to them. You are not the assigned evaluator for this session ({session?.slotName || session?.id || 'Selected Slot'}).
+            </p>
+          </div>
+
+          {visibleSlotsForUser.length > 0 ? (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                Your Assigned Discussion Slots
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {visibleSlotsForUser.map((sl) => (
+                  <button
+                    key={sl.id}
+                    onClick={() => onSelectSlot && onSelectSlot(sl.id)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>View Slot: {sl.slotName || sl.id}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              You currently have no discussion slots assigned to your account.
+            </p>
+          )}
+
+          <div className="flex justify-center gap-3 pt-2">
+            <button
+              onClick={onViewFacultyDashboard}
+              className="px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+            >
+              Go to Faculty Dashboard
             </button>
           </div>
         </div>
