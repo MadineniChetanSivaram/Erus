@@ -241,9 +241,10 @@ export async function fetchCollegeStats(collegeCode: string = 'DIT') {
   };
 }
 
-export async function fetchCollegeStudents(collegeCode: string = 'DIT'): Promise<any[]> {
-  const code = collegeCode.toUpperCase();
-  let backendStudents: any[] = [];
+export async function fetchCollegeStudents(collegeCode: string = ''): Promise<any[]> {
+  const code = (collegeCode || '').trim().toUpperCase();
+  if (!code) return [];
+  let backendStudents: any[] | null = null;
   try {
     const res = await fetch(`/api/college/students?collegeCode=${encodeURIComponent(code)}`);
     if (res.ok) {
@@ -256,18 +257,13 @@ export async function fetchCollegeStudents(collegeCode: string = 'DIT'): Promise
     console.warn('Error fetching college students:', e);
   }
 
-  const defaultStudents: any[] = [];
+  // Backend is authoritative whenever it responds
+  if (backendStudents !== null) {
+    saveLocalStudents(code, backendStudents);
+    return backendStudents;
+  }
 
-  const localStudents = getLocalStudents(code);
-  const map = new Map<string, any>();
-
-  defaultStudents.forEach((s) => map.set(s.studentId || s.email, s));
-  localStudents.forEach((s) => map.set(s.studentId || s.email, { ...map.get(s.studentId || s.email), ...s }));
-  backendStudents.forEach((s) => map.set(s.studentId || s.email, { ...map.get(s.studentId || s.email), ...s }));
-
-  const merged = Array.from(map.values());
-  saveLocalStudents(code, merged);
-  return merged;
+  return getLocalStudents(code);
 }
 
 export async function addCollegeStudents(payload: { students?: any[]; student?: any; collegeCode?: string }) {
@@ -338,9 +334,10 @@ export async function addCollegeStudents(payload: { students?: any[]; student?: 
   return { success: true, addedCount: incoming.length, students: updated };
 }
 
-export async function fetchCollegeFaculty(collegeCode: string = 'DIT'): Promise<any[]> {
-  const code = collegeCode.toUpperCase();
-  let backendFaculty: any[] = [];
+export async function fetchCollegeFaculty(collegeCode: string = ''): Promise<any[]> {
+  const code = (collegeCode || '').trim().toUpperCase();
+  if (!code) return [];
+  let backendFaculty: any[] | null = null;
   try {
     const res = await fetch(`/api/college/faculty?collegeCode=${encodeURIComponent(code)}`);
     if (res.ok) {
@@ -353,18 +350,13 @@ export async function fetchCollegeFaculty(collegeCode: string = 'DIT'): Promise<
     console.warn('Error fetching college faculty:', e);
   }
 
-  const defaultFaculty: any[] = [];
+  // Backend is authoritative whenever it responds
+  if (backendFaculty !== null) {
+    saveLocalFaculty(code, backendFaculty);
+    return backendFaculty;
+  }
 
-  const localFaculty = getLocalFaculty(code);
-  const map = new Map<string, any>();
-
-  defaultFaculty.forEach((f) => map.set(f.facultyId || f.email, f));
-  localFaculty.forEach((f) => map.set(f.facultyId || f.email, { ...map.get(f.facultyId || f.email), ...f }));
-  backendFaculty.forEach((f) => map.set(f.facultyId || f.email, { ...map.get(f.facultyId || f.email), ...f }));
-
-  const merged = Array.from(map.values());
-  saveLocalFaculty(code, merged);
-  return merged;
+  return getLocalFaculty(code);
 }
 
 export async function addCollegeFaculty(payload: any) {
@@ -835,16 +827,56 @@ export async function fetchAdminColleges(): Promise<any[]> {
 
 export async function registerNewCollege(payload: any) {
   const cleanCode = (payload.code || '').trim().toUpperCase();
+  const collegeName = (payload.name || '').trim();
   const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
+
+  // 1. Thoroughly purge all cached student, faculty, and slot data for this college code
+  try {
+    const keysToRemove: string[] = [];
+    const targetCodeUpper = cleanCode.toUpperCase();
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const kUpper = k.toUpperCase();
+      if (
+        kUpper.includes(`ERUS_COLLEGE_STUDENTS_${targetCodeUpper}`) ||
+        kUpper.includes(`ERUS_COLLEGE_FACULTY_${targetCodeUpper}`) ||
+        kUpper.includes(`ERUS_COLLEGE_SLOTS_${targetCodeUpper}`) ||
+        kUpper.endsWith(`_${targetCodeUpper}`)
+      ) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+
+  // 2. Remove any previous users belonging to this college from `erus_registered_users_db`
+  try {
+    const usersRaw = localStorage.getItem('erus_registered_users_db');
+    if (usersRaw) {
+      const users = JSON.parse(usersRaw);
+      if (Array.isArray(users)) {
+        const filteredUsers = users.filter((u: any) => {
+          const uCode = (u.collegeCode || '').trim().toUpperCase();
+          const uCollege = (u.college || '').trim().toLowerCase();
+          return !(uCode === cleanCode || uCollege === collegeName.toLowerCase());
+        });
+        localStorage.setItem('erus_registered_users_db', JSON.stringify(filteredUsers));
+      }
+    }
+  } catch {}
+
   const newCollegeObj = {
     id: `col-${Date.now()}`,
     ...payload,
+    name: collegeName,
     code: cleanCode,
     adminPassword: adminPass,
     status: 'active',
     studentCount: 0,
     facultyCount: 0,
     slotCount: 0,
+    studentLimit: Number(payload.studentLimit) || 60,
     adminEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     adminName: payload.adminName || `${cleanCode} Administrator`,
     createdAt: new Date().toISOString(),
@@ -856,18 +888,18 @@ export async function registerNewCollege(payload: any) {
     email: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     password: adminPass,
     role: 'college_admin' as const,
-    collegeName: payload.name,
+    collegeName: collegeName,
     collegeCode: cleanCode,
     adminId: `CADM-${cleanCode}-001`,
   };
 
-  // Auto-register new college admin user so they can log in immediately
+  // Auto-register fresh college admin user so they can log in immediately
   registerNewUser({
     id: `ca-${Date.now()}`,
     name: payload.adminName || `${cleanCode} College Administrator`,
     email: creds.email,
     role: 'college_admin',
-    college: payload.name,
+    college: collegeName,
     collegeCode: cleanCode,
     adminId: creds.adminId,
   } as any, creds.password);
@@ -876,7 +908,7 @@ export async function registerNewCollege(payload: any) {
     const res = await fetch('/api/admin/colleges', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, code: cleanCode, adminPassword: adminPass }),
+      body: JSON.stringify({ ...payload, name: collegeName, code: cleanCode, adminPassword: adminPass }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -940,11 +972,25 @@ export async function deleteCollege(
 
     // Clear all student, faculty, and slot keys associated with this college
     const codesToClear = Array.from(new Set([resolvedCode, code, target.toUpperCase()].filter(Boolean)));
-    for (const c of codesToClear) {
-      localStorage.removeItem(`erus_college_students_${c}`);
-      localStorage.removeItem(`erus_college_slots_${c}`);
-      localStorage.removeItem(`erus_college_faculty_${c}`);
-    }
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        const kUpper = k.toUpperCase();
+        for (const c of codesToClear) {
+          if (
+            kUpper.includes(`ERUS_COLLEGE_STUDENTS_${c}`) ||
+            kUpper.includes(`ERUS_COLLEGE_FACULTY_${c}`) ||
+            kUpper.includes(`ERUS_COLLEGE_SLOTS_${c}`) ||
+            kUpper.endsWith(`_${c}`)
+          ) {
+            keysToRemove.push(k);
+          }
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {}
 
     if (updated.length === 0) {
       try {

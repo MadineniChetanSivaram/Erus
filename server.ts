@@ -126,9 +126,9 @@ interface BackendCollegeSlotItem {
 }
 
 function normalizeCollegeCode(rawCode?: string): string {
-  if (!rawCode) return 'DIT';
+  if (!rawCode) return '';
   const c = String(rawCode).trim().toUpperCase();
-  if (c === 'BMSIT2002' || c === 'BMSI' || c === 'BMS' || c.includes('BMSIT') || c.includes('BMS')) {
+  if (c === 'BMSIT2002') {
     return 'BMSIT';
   }
   return c;
@@ -275,11 +275,16 @@ function loadPersistentState() {
             (c: any) => !dummyCollegeCodes.includes(c?.code) && !['col-1', 'col-2'].includes(c?.id)
           );
         }
+        const validCollegeCodes = new Set(
+          persistentState.colleges.map((c: any) => (c?.code || '').trim().toUpperCase()).filter(Boolean)
+        );
+
         if (data.students && typeof data.students === 'object') {
           persistentState.students = {};
           for (const [k, v] of Object.entries(data.students)) {
-            if (!dummyCollegeCodes.includes(k) && Array.isArray(v)) {
-              persistentState.students[k] = (v as any[]).filter(
+            const kCode = k.trim().toUpperCase();
+            if (validCollegeCodes.has(kCode) && Array.isArray(v)) {
+              persistentState.students[kCode] = (v as any[]).filter(
                 (s: any) => !dummyUserIds.includes(s?.id)
               );
             }
@@ -288,8 +293,9 @@ function loadPersistentState() {
         if (data.faculty && typeof data.faculty === 'object') {
           persistentState.faculty = {};
           for (const [k, v] of Object.entries(data.faculty)) {
-            if (!dummyCollegeCodes.includes(k) && Array.isArray(v)) {
-              persistentState.faculty[k] = (v as any[]).filter(
+            const kCode = k.trim().toUpperCase();
+            if (validCollegeCodes.has(kCode) && Array.isArray(v)) {
+              persistentState.faculty[kCode] = (v as any[]).filter(
                 (f: any) => !dummyUserIds.includes(f?.id)
               );
             }
@@ -298,14 +304,15 @@ function loadPersistentState() {
         if (data.slots && typeof data.slots === 'object') {
           persistentState.slots = {};
           for (const [k, v] of Object.entries(data.slots)) {
-            if (!dummyCollegeCodes.includes(k) && Array.isArray(v)) {
+            const kCode = k.trim().toUpperCase();
+            if (validCollegeCodes.has(kCode) && Array.isArray(v)) {
               const registeredStudentIds = new Set(
-                (persistentState.students[k] || []).map((s: any) => String(s.id || '').toLowerCase())
+                (persistentState.students[kCode] || []).map((s: any) => String(s.id || '').toLowerCase())
               );
               const registeredStudentEmails = new Set(
-                (persistentState.students[k] || []).map((s: any) => String(s.email || '').toLowerCase())
+                (persistentState.students[kCode] || []).map((s: any) => String(s.email || '').toLowerCase())
               );
-              persistentState.slots[k] = (v as any[])
+              persistentState.slots[kCode] = (v as any[])
                 .filter((slot: any) => !['slot-dit-001', 'session-101', 'slot-teachers-1'].includes(slot?.id))
                 .map((slot: any) => {
                   const cleanedStudents = (slot.students || []).filter((st: any) => {
@@ -317,6 +324,7 @@ function loadPersistentState() {
                   });
                   return {
                     ...slot,
+                    collegeCode: kCode,
                     students: cleanedStudents,
                     enrolledCount: cleanedStudents.length,
                   };
@@ -326,14 +334,20 @@ function loadPersistentState() {
         }
         if (Array.isArray(data.users)) {
           const filteredUsers = data.users.filter(
-            (u: any) =>
-              !dummyUserIds.includes(u?.id) &&
-              u?.email !== 'admin@dit.edu.in' &&
-              u?.email !== 'sunita.rao@dit.edu.in' &&
-              u?.email !== 'rajesh.verma@dit.edu.in' &&
-              u?.email !== 'rahul.kumar@dit.edu.in' &&
-              u?.email !== 'neha.gupta@dit.edu.in' &&
-              u?.email !== 'aditya.singh@dit.edu.in'
+            (u: any) => {
+              if (dummyUserIds.includes(u?.id)) return false;
+              if (
+                u?.email === 'admin@dit.edu.in' ||
+                u?.email === 'sunita.rao@dit.edu.in' ||
+                u?.email === 'rajesh.verma@dit.edu.in' ||
+                u?.email === 'rahul.kumar@dit.edu.in' ||
+                u?.email === 'neha.gupta@dit.edu.in' ||
+                u?.email === 'aditya.singh@dit.edu.in'
+              ) return false;
+              if (u?.role === 'super_admin' || u?.email === 'superadmin@erus.ai') return true;
+              const uCode = (u?.collegeCode || '').trim().toUpperCase();
+              return validCollegeCodes.has(uCode);
+            }
           );
           if (!filteredUsers.some((u: any) => u.role === 'super_admin' || u.email === 'superadmin@erus.ai')) {
             filteredUsers.push(...DEFAULT_USERS);
@@ -589,45 +603,12 @@ async function syncMongoDBWithPersistentState() {
       }
     }
 
-    // Merge BMSIT2002 students/faculty into BMSIT
-    if (persistentState.students['BMSIT2002']) {
-      if (!persistentState.students['BMSIT']) persistentState.students['BMSIT'] = [];
-      for (const s of persistentState.students['BMSIT2002']) {
-        s.collegeCode = 'BMSIT';
-        if (!persistentState.students['BMSIT'].some(e => e.email.toLowerCase() === s.email.toLowerCase())) {
-          persistentState.students['BMSIT'].push(s);
-        }
-      }
-      delete persistentState.students['BMSIT2002'];
-    }
-    if (persistentState.faculty['BMSIT2002']) {
-      if (!persistentState.faculty['BMSIT']) persistentState.faculty['BMSIT'] = [];
-      for (const f of persistentState.faculty['BMSIT2002']) {
-        f.collegeCode = 'BMSIT';
-        if (!persistentState.faculty['BMSIT'].some(e => e.email.toLowerCase() === f.email.toLowerCase())) {
-          persistentState.faculty['BMSIT'].push(f);
-        }
-      }
-      delete persistentState.faculty['BMSIT2002'];
-    }
-
-    // Merge BMSIT2002 slots into BMSIT
-    if (persistentState.slots['BMSIT2002']) {
-      if (!persistentState.slots['BMSIT']) persistentState.slots['BMSIT'] = [];
-      for (const s of persistentState.slots['BMSIT2002']) {
-        s.collegeCode = 'BMSIT';
-        if (!persistentState.slots['BMSIT'].some(e => e.id === s.id)) {
-          persistentState.slots['BMSIT'].push(s);
-        }
-      }
-      delete persistentState.slots['BMSIT2002'];
-    }
-
     // Hydrate Slots (Parent Table: gd_sessions) from MongoDB
     const dbSessions = await GDSessionModel.find();
     if (dbSessions.length > 0) {
       for (const s of dbSessions) {
-        const colCode = normalizeCollegeCode(s.collegeCode || 'DIT');
+        const colCode = normalizeCollegeCode(s.collegeCode);
+        if (!colCode || !persistentState.colleges.some((c) => c.code.toUpperCase() === colCode)) continue;
         if (!persistentState.slots[colCode]) persistentState.slots[colCode] = [];
         const existingSlot = persistentState.slots[colCode]?.find((slot) => slot.id === s.id);
         const rawStudents = (s as any).students && (s as any).students.length > 0
@@ -1331,9 +1312,9 @@ app.get('/api/admin/colleges', (req, res) => {
     return {
       ...c,
       adminPassword: resolvedAdminPassword,
-      studentCount: sCount || c.studentCount || 0,
-      facultyCount: fCount || c.facultyCount || 0,
-      slotCount: slCount || c.slotCount || 0,
+      studentCount: sCount,
+      facultyCount: fCount,
+      slotCount: slCount,
       studentLimit: c.studentLimit || 60,
     };
   });
@@ -1346,11 +1327,35 @@ app.post('/api/admin/colleges', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Name and code are required' });
   }
   const cleanCode = payload.code.trim().toUpperCase();
+  const collegeName = payload.name.trim();
   const adminPass = payload.adminPassword || `Erus@${cleanCode}2026`;
+  const quotaLimit = Number(payload.studentLimit) || 60;
+
+  // 1. Purge any stale in-memory data for this college code across students, faculty, slots, and users
+  const isCodeMatch = (k: string) => {
+    const uK = (k || '').trim().toUpperCase();
+    return uK === cleanCode || normalizeCollegeCode(uK) === cleanCode;
+  };
+
+  for (const k of Object.keys(persistentState.students)) {
+    if (isCodeMatch(k)) delete persistentState.students[k];
+  }
+  for (const k of Object.keys(persistentState.faculty)) {
+    if (isCodeMatch(k)) delete persistentState.faculty[k];
+  }
+  for (const k of Object.keys(persistentState.slots)) {
+    if (isCodeMatch(k)) delete persistentState.slots[k];
+  }
+
+  // Generate pristine slots for the assigned quota
+  const freshSlots = generateRandomSlotsForCollege(cleanCode, quotaLimit);
+  persistentState.students[cleanCode] = [];
+  persistentState.faculty[cleanCode] = [];
+  persistentState.slots[cleanCode] = freshSlots;
 
   const newCol: BackendCollege = {
     id: `col-${Date.now()}`,
-    name: payload.name.trim(),
+    name: collegeName,
     code: cleanCode,
     contactEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     phone: payload.phone || '',
@@ -1358,8 +1363,8 @@ app.post('/api/admin/colleges', async (req, res) => {
     status: 'active',
     studentCount: 0,
     facultyCount: 0,
-    slotCount: 0,
-    studentLimit: Number(payload.studentLimit) || 60,
+    slotCount: freshSlots.length,
+    studentLimit: quotaLimit,
     adminEmail: payload.contactEmail || `admin@${cleanCode.toLowerCase()}.edu.in`,
     adminName: payload.adminName || `${cleanCode} Administrator`,
     adminPassword: adminPass,
@@ -1376,14 +1381,96 @@ app.post('/api/admin/colleges', async (req, res) => {
     adminId: `CADM-${cleanCode}-001`,
   };
 
-  persistentState.colleges = [newCol, ...persistentState.colleges.filter((c) => c.code !== cleanCode)];
-  persistentState.users = [adminUser, ...persistentState.users.filter((u) => u.email.toLowerCase() !== adminUser.email.toLowerCase())];
+  // Remove any previous non-super-admin users and bookings matching this college
+  const purgedUserIds = new Set<string>();
+  persistentState.users = persistentState.users.filter((u) => {
+    if (u.role === 'super_admin' || u.email === 'superadmin@erus.ai') return true;
+    const uCode = (u.collegeCode || '').trim().toUpperCase();
+    const uCollege = (u.college || '').trim().toLowerCase();
+    if (isCodeMatch(uCode) || uCollege === collegeName.toLowerCase() || u.email.toLowerCase() === adminUser.email.toLowerCase()) {
+      purgedUserIds.add(u.id);
+      if ((u as any).studentId) purgedUserIds.add((u as any).studentId);
+      return false;
+    }
+    return true;
+  });
+
+  for (const uid of purgedUserIds) {
+    delete persistentState.studentBookings[uid];
+    delete persistentState.studentTopicBookings[uid];
+  }
+
+  persistentState.colleges = [newCol, ...persistentState.colleges.filter((c) => c.code.toUpperCase() !== cleanCode && c.id !== newCol.id)];
+  persistentState.users = [adminUser, ...persistentState.users];
   savePersistentState();
+
+  // 2. Clean and persist in MongoDB (if connected)
+  if (isMongoConnected()) {
+    try {
+      const oldSessions = await GDSessionModel.find({ collegeCode: cleanCode }, 'id');
+      const oldSessionIds = oldSessions.map((s) => s.id);
+      if (oldSessionIds.length > 0) {
+        await TranscriptEntryModel.deleteMany({ sessionId: { $in: oldSessionIds } });
+        await AssessmentReportModel.deleteMany({ sessionId: { $in: oldSessionIds } });
+        await GDBookingModel.deleteMany({ sessionId: { $in: oldSessionIds } });
+        await GDSessionModel.deleteMany({ id: { $in: oldSessionIds } });
+      }
+      await UserModel.deleteMany({
+        $or: [
+          { collegeCode: cleanCode },
+          { college: new RegExp(`^${collegeName}$`, 'i') },
+        ],
+      });
+      await CollegeModel.deleteMany({
+        $or: [{ code: cleanCode }, { name: new RegExp(`^${collegeName}$`, 'i') }],
+      });
+    } catch (mErr: any) {
+      console.warn('[MongoDB] Error purging old college data during create:', mErr.message);
+    }
+  }
+
   persistCollegeToMongoDB(newCol);
   persistUserToMongoDB(adminUser);
 
+  // 3. Clean and persist in PostgreSQL via Prisma (if connected)
   if (isDbConnected && prisma) {
     try {
+      const existingDbColleges = await prisma.college.findMany({
+        where: { OR: [{ code: cleanCode }, { name: collegeName }] },
+        select: { id: true },
+      });
+      const dbColIds = existingDbColleges.map((c) => c.id);
+
+      const oldDbSessions = await prisma.gDSession.findMany({
+        where: { OR: [{ collegeId: { in: dbColIds } }, { college: { code: cleanCode } }] },
+        select: { id: true },
+      });
+      const oldDbSessionIds = oldDbSessions.map((s) => s.id);
+      if (oldDbSessionIds.length > 0) {
+        await prisma.assessmentReport.deleteMany({ where: { sessionId: { in: oldDbSessionIds } } });
+        await prisma.transcriptEntry.deleteMany({ where: { sessionId: { in: oldDbSessionIds } } });
+        await prisma.gDBooking.deleteMany({ where: { sessionId: { in: oldDbSessionIds } } });
+        await prisma.gDSession.deleteMany({ where: { id: { in: oldDbSessionIds } } });
+      }
+
+      const oldDbUsers = await prisma.user.findMany({
+        where: { OR: [{ collegeId: { in: dbColIds } }, { college: cleanCode }, { college: collegeName }] },
+        select: { id: true },
+      });
+      const oldDbUserIds = oldDbUsers.map((u) => u.id);
+      if (oldDbUserIds.length > 0) {
+        await prisma.assessmentReport.deleteMany({ where: { studentId: { in: oldDbUserIds } } });
+        await prisma.studentProfile.deleteMany({ where: { userId: { in: oldDbUserIds } } });
+        await prisma.facultyProfile.deleteMany({ where: { userId: { in: oldDbUserIds } } });
+        await prisma.collegeAdminProfile.deleteMany({ where: { userId: { in: oldDbUserIds } } });
+        await prisma.gDBooking.deleteMany({ where: { studentId: { in: oldDbUserIds } } });
+        await prisma.user.deleteMany({ where: { id: { in: oldDbUserIds } } });
+      }
+
+      if (dbColIds.length > 0) {
+        await prisma.college.deleteMany({ where: { id: { in: dbColIds } } });
+      }
+
       const dbCol = await prisma.college.upsert({
         where: { code: cleanCode },
         update: {
@@ -1427,7 +1514,7 @@ app.post('/api/admin/colleges', async (req, res) => {
           },
         },
       });
-      console.log(`[Database] College ${cleanCode} and admin persisted to PostgreSQL.`);
+      console.log(`[Database] College ${cleanCode} and admin persisted cleanly to PostgreSQL.`);
     } catch (dbErr: any) {
       console.warn('[Database] Failed to persist college to PostgreSQL:', dbErr.message);
     }
@@ -1628,28 +1715,43 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
     ...allNames.map((n) => n.toLowerCase()),
   ]);
 
+  // Remove all matching college records from persistentState.colleges
+  persistentState.colleges = persistentState.colleges.filter(
+    (c) =>
+      c.id !== targetId &&
+      c.id !== collegeId &&
+      c.code.toUpperCase() !== targetId.toUpperCase() &&
+      (!cleanCode || c.code.toUpperCase() !== cleanCode) &&
+      (!queryCode || c.code.toUpperCase() !== queryCode) &&
+      (!collegeName || c.name.toLowerCase() !== collegeName.toLowerCase()) &&
+      (!queryName || c.name.toLowerCase() !== queryName.toLowerCase())
+  );
+
+  const isKeyMatch = (key: string) => {
+    const kUpper = key.trim().toUpperCase();
+    const kNorm = normalizeCollegeCode(key);
+    return (
+      allCodes.some((c) => c.toUpperCase() === kUpper || c.toUpperCase() === kNorm || kUpper.includes(c.toUpperCase())) ||
+      matchKeysLower.has(key.toLowerCase())
+    );
+  };
+
   for (const key of Object.keys(persistentState.students)) {
-    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
-      delete persistentState.students[key];
-    }
+    if (isKeyMatch(key)) delete persistentState.students[key];
   }
 
   for (const key of Object.keys(persistentState.faculty)) {
-    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
-      delete persistentState.faculty[key];
-    }
+    if (isKeyMatch(key)) delete persistentState.faculty[key];
   }
 
   for (const key of Object.keys(persistentState.slots)) {
-    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
-      delete persistentState.slots[key];
-    }
+    if (isKeyMatch(key)) delete persistentState.slots[key];
   }
 
   // Clean any slots in other keys that reference this college
   for (const [k, slotList] of Object.entries(persistentState.slots)) {
     persistentState.slots[k] = slotList.filter(
-      (s) => !allCodes.includes(s.collegeCode?.toUpperCase())
+      (s) => !allCodes.some((c) => c.toUpperCase() === (s.collegeCode || '').trim().toUpperCase() || (s.collegeCode || '').toUpperCase().includes(c.toUpperCase()))
     );
   }
 
@@ -1663,14 +1765,15 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
   // Collect IDs of deleted users for booking state cleanup
   const deletedUserIds = new Set<string>();
   persistentState.users = persistentState.users.filter((u) => {
-    if (persistentState.colleges.length === 0 && u.role !== 'super_admin') {
+    if (u.role === 'super_admin' || u.email === 'superadmin@erus.ai') return true;
+    if (persistentState.colleges.length === 0) {
       deletedUserIds.add(u.id);
       if ((u as any).studentId) deletedUserIds.add((u as any).studentId);
       return false;
     }
     const uCode = (u.collegeCode || '').trim().toUpperCase();
     const uCollege = (u.college || '').trim().toLowerCase();
-    const isCodeMatch = allCodes.includes(uCode);
+    const isCodeMatch = allCodes.some((c) => c.toUpperCase() === uCode || uCode.includes(c.toUpperCase()) || normalizeCollegeCode(uCode) === c.toUpperCase());
     const isNameMatch = allNames.some((n) => n.toLowerCase() === uCollege);
     const isIdMatch = allIds.includes((u as any).collegeId) || allIds.includes(u.id);
 
@@ -1824,13 +1927,13 @@ app.get('/api/admin/stats', (req, res) => {
     for (const col of persistentState.colleges) {
       const code = (col.code || '').trim().toUpperCase();
       const stuList = persistentState.students[code] || persistentState.students[col.code] || [];
-      totalStu += stuList.length || col.studentCount || 0;
+      totalStu += stuList.length;
 
       const facList = persistentState.faculty[code] || persistentState.faculty[col.code] || [];
-      totalFac += facList.length || col.facultyCount || 0;
+      totalFac += facList.length;
 
       const slList = persistentState.slots[code] || persistentState.slots[col.code] || [];
-      totalSl += slList.length || col.slotCount || 0;
+      totalSl += slList.length;
     }
   }
 
@@ -2413,22 +2516,15 @@ app.get('/api/college/slots', async (req, res) => {
   const facultyList = persistentState.faculty[code] || [];
   const slotMap = new Map<string, any>();
 
-  // Start with in-memory slots for this code (and aliases)
+  // Start with in-memory slots for this code
   for (const slot of (persistentState.slots[code] || [])) {
     slotMap.set(slot.id, slot);
-  }
-  if (code === 'BMSIT' && persistentState.slots['BMSIT2002']) {
-    for (const slot of persistentState.slots['BMSIT2002']) {
-      slotMap.set(slot.id, { ...slot, collegeCode: 'BMSIT' });
-    }
   }
 
   // Authoritative MongoDB lookup
   if (isMongoConnected()) {
     try {
-      const dbSlots = await GDSessionModel.find({
-        $or: [{ collegeCode: code }, ...(code === 'BMSIT' ? [{ collegeCode: 'BMSIT2002' }] : [])],
-      });
+      const dbSlots = await GDSessionModel.find({ collegeCode: code });
       for (const s of dbSlots) {
         const existing = slotMap.get(s.id) || {};
         slotMap.set(s.id, {
