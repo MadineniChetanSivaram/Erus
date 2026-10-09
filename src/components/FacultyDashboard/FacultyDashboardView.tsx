@@ -471,8 +471,9 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                             <button
                               onClick={() => {
                                 if (onSelectSlot) onSelectSlot(sl.id);
+                                const firstStudentId = sl.students?.[0]?.id;
                                 if (onViewStudentReport) {
-                                  onViewStudentReport();
+                                  onViewStudentReport(firstStudentId);
                                 } else if (onEnterGDRoom) {
                                   onEnterGDRoom(sl.id);
                                 }

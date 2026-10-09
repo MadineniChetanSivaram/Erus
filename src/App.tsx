@@ -36,6 +36,7 @@ import {
   isSlotSelectableForTopic,
   checkCanReviveSlot 
 } from './utils/studentBooking';
+import { sessionQuestionTracker, getNextUniqueFacilitatorPrompt } from './utils/facilitatorQuestionEngine';
 import { StudentTopicPortal } from './components/StudentPortal/StudentTopicPortal';
 
 function GDAppContent() {
@@ -562,7 +563,7 @@ function GDAppContent() {
 
     const baseStudents = (targetSlot.students && targetSlot.students.length > 0)
       ? targetSlot.students
-      : (session.students && session.students.length > 0)
+      : (targetSlot.id === session.id && session.students && session.students.length > 0)
       ? session.students
       : generateSlotParticipants(8);
 
@@ -957,7 +958,15 @@ function GDAppContent() {
           students: facultyStudents,
         };
         setSession(slotForState);
-        setCurrentTab('faculty');
+        if (facultyStudents.length > 0) {
+          const firstStudent = facultyStudents[0];
+          setViewingStudentId(firstStudent.id);
+          const studentReport = generateStudentReport(firstStudent, targetSlot.topic, targetSlot.durationMinutes);
+          setActiveReport(studentReport);
+        }
+        if (currentTab !== 'report') {
+          setCurrentTab('faculty');
+        }
       }
       return;
     }
@@ -1172,8 +1181,14 @@ function GDAppContent() {
   };
 
   const handleViewStudentReport = (studentId?: string) => {
-    if (studentId) {
-      setViewingStudentId(studentId);
+    const targetStudentId = studentId || viewingStudentId || session.students?.[0]?.id;
+    if (targetStudentId) {
+      setViewingStudentId(targetStudentId);
+      const studentObj = session.students?.find((s) => s.id === targetStudentId);
+      if (studentObj && (!activeReport || activeReport.studentId !== targetStudentId)) {
+        const rep = generateStudentReport(studentObj, session.topic, session.durationMinutes);
+        setActiveReport(rep);
+      }
     }
     setCurrentTab('report');
   };

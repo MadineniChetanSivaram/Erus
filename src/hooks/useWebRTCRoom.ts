@@ -781,6 +781,7 @@ export function useWebRTCRoom({
     // Faculty Commences Session Broadcast
     socket.on('session-started', (data) => {
       if (!active) return;
+      if (data?.slotId && data.slotId !== slotId) return;
       if (data?.simulationMode) {
         setSimulationMode(true);
         setAiParticipants(Array.isArray(data.aiParticipants) ? data.aiParticipants : []);
@@ -800,6 +801,7 @@ export function useWebRTCRoom({
     // Faculty Concludes / Finishes GD Broadcast
     socket.on('session-ended', (data) => {
       if (!active) return;
+      if (data?.slotId && data.slotId !== slotId) return;
       if (onSessionEndedRef.current) {
         onSessionEndedRef.current(data);
       }
