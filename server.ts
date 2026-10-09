@@ -1548,20 +1548,14 @@ app.put(['/api/admin/colleges/:id/limit', '/api/admin/colleges/:id/quota'], asyn
   savePersistentState();
   persistCollegeToMongoDB(col);
 
-  // Clear existing slots for this college from MongoDB and PostgreSQL so old slots do not accumulate
-  if (isMongoConnected()) {
-    try {
-      await GDSessionModel.deleteMany({ collegeCode: col.code });
-    } catch {}
-  }
-  if (isDbConnected && prisma) {
-    try {
-      await prisma.gDSession.deleteMany({ where: { college: { code: col.code } } });
-    } catch {}
-  }
-
-  // Auto-generate fresh 15-student slots for this college matching new limit
-  const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
+  // Preserve all existing active, completed, or user-allotted slots
+  const existingCollegeSlots = persistentState.slots[col.code] || [];
+  const preservedSlots = existingCollegeSlots.filter(
+    (s) => s.status === 'completed' || s.status === 'active' || (s.topic && !s.topic.toLowerCase().includes('pending'))
+  );
+  const neededCount = Math.max(0, Math.ceil(limitNum / 15) - preservedSlots.length);
+  const additionalSlots = neededCount > 0 ? generateRandomSlotsForCollege(col.code, neededCount * 15) : [];
+  const newSlots = [...preservedSlots, ...additionalSlots];
   persistentState.slots[col.code] = newSlots;
   for (const sl of newSlots) {
     persistSlotToMongoDB(sl);
@@ -1589,20 +1583,16 @@ app.post('/api/admin/colleges/:id/limit', async (req, res) => {
   savePersistentState();
   persistCollegeToMongoDB(col);
 
-  if (isMongoConnected()) {
-    try {
-      await GDSessionModel.deleteMany({ collegeCode: col.code });
-    } catch {}
-  }
-  if (isDbConnected && prisma) {
-    try {
-      await prisma.gDSession.deleteMany({ where: { college: { code: col.code } } });
-    } catch {}
-  }
-
-  const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
-  persistentState.slots[col.code] = newSlots;
-  for (const sl of newSlots) {
+  // Preserve all existing active, completed, or user-allotted slots
+  const existingAdminSlots = persistentState.slots[col.code] || [];
+  const preservedAdminSlots = existingAdminSlots.filter(
+    (s) => s.status === 'completed' || s.status === 'active' || (s.topic && !s.topic.toLowerCase().includes('pending'))
+  );
+  const adminNeededCount = Math.max(0, Math.ceil(limitNum / 15) - preservedAdminSlots.length);
+  const additionalAdminSlots = adminNeededCount > 0 ? generateRandomSlotsForCollege(col.code, adminNeededCount * 15) : [];
+  const newAdminSlots = [...preservedAdminSlots, ...additionalAdminSlots];
+  persistentState.slots[col.code] = newAdminSlots;
+  for (const sl of newAdminSlots) {
     persistSlotToMongoDB(sl);
   }
   savePersistentState();
@@ -2880,43 +2870,19 @@ app.get('/api/college/slots', async (req, res) => {
     return ensureSlotParticipants(baseSlot, code);
   });
 
-  const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === code);
-  const quotaLimit = col?.studentLimit || 60;
-  const maxAllowedSlots = Math.max(1, Math.ceil(quotaLimit / 15));
-
+  // Preserve ALL slots: never truncate, drop, or delete created slots!
   let finalSlots = slots;
-  if (finalSlots.length > maxAllowedSlots) {
-    // Keep allotted/active slots first
-    finalSlots.sort((a, b) => {
-      const aAllotted = a.topic && !a.topic.toLowerCase().includes('pending') ? 1 : 0;
-      const bAllotted = b.topic && !b.topic.toLowerCase().includes('pending') ? 1 : 0;
-      if (bAllotted !== aAllotted) return bAllotted - aAllotted;
-      return 0;
-    });
 
-    const excessSlots = finalSlots.slice(maxAllowedSlots);
-    finalSlots = finalSlots.slice(0, maxAllowedSlots);
-
-    // Re-index slots cleanly so numbering is sequential (Slot 1..Slot N)
-    finalSlots = finalSlots.map((s, idx) => {
-      const isAllotted = s.topic && !s.topic.toLowerCase().includes('pending');
-      const prefix = `Slot ${idx + 1}`;
-      return {
-        ...s,
-        slotName: isAllotted ? `${prefix}: ${s.topic}` : prefix,
-      };
-    });
-
-    const excessIds = excessSlots.map((s) => s.id);
-    if (excessIds.length > 0) {
-      if (isMongoConnected()) {
-        GDSessionModel.deleteMany({ id: { $in: excessIds } }).catch(() => {});
-      }
-      if (isDbConnected && prisma) {
-        prisma.gDSession.deleteMany({ where: { id: { $in: excessIds } } }).catch(() => {});
-      }
-    }
-  }
+  // Sort slots: active first, then scheduled (newest first), then completed
+  finalSlots.sort((a, b) => {
+    const statusOrder: Record<string, number> = { active: 0, scheduled: 1, waiting: 2, completed: 3 };
+    const orderA = statusOrder[a.status] ?? 2;
+    const orderB = statusOrder[b.status] ?? 2;
+    if (orderA !== orderB) return orderA - orderB;
+    const timeA = new Date(a.createdAt || 0).getTime();
+    const timeB = new Date(b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
 
   // Keep in-memory cache synchronized
   persistentState.slots[code] = finalSlots;
@@ -3030,7 +2996,7 @@ app.post('/api/college/slots', async (req, res) => {
     : (Number(payload.enrolledCount) || 0);
 
   const newSlot: BackendCollegeSlotItem = {
-    id: payload.id || `slot-${code.toLowerCase()}-${Date.now().toString().slice(-4)}`,
+    id: payload.id || `slot-${code.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     slotName: payload.slotName || payload.topic,
     topic: payload.topic,
     description: payload.description || `Autonomous AI evaluation of ${payload.topic}`,

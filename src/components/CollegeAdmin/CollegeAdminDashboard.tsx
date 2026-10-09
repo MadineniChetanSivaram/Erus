@@ -852,7 +852,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
     e.preventDefault();
     if (!newSlot.topic) return;
 
-    const newSessionId = `slot-${collegeCode.toLowerCase()}-${Date.now().toString().slice(-4)}`;
+    const newSessionId = `slot-${collegeCode.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     
     const requestedCount = Math.max(2, Math.min(15, newSlot.participantCount || 8));
     
@@ -930,7 +930,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       rawSession: sessionObj,
     };
 
-    setSlots((prev) => [slotPayload, ...prev]);
+    setSlots((prev) => [slotPayload, ...prev.filter((s) => s.id !== newSessionId)]);
     setStats((prev) => ({
       ...prev,
       totalSlots: (prev.totalSlots || 0) + 1,

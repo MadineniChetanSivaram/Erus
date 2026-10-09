@@ -1149,7 +1149,8 @@ function GDAppContent() {
     if (!newSessions || newSessions.length === 0) return;
 
     sessionQuestionTracker.clear();
-    setAvailableSlots((prev) => [...newSessions, ...prev]);
+    const newSessionIds = new Set(newSessions.map((s) => s.id));
+    setAvailableSlots((prev) => [...newSessions, ...prev.filter((s) => !newSessionIds.has(s.id))]);
 
     // Persist new slots to backend college API for college admins and faculty
     if (currentUser?.role === 'college_admin' || currentUser?.role === 'faculty') {

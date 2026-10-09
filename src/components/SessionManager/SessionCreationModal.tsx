@@ -192,7 +192,7 @@ export const SessionCreationModal: React.FC<SessionCreationModalProps> = ({
         const slotNameStr = (slot.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim() || `Slot ${index + 1}`;
 
         return {
-          id: `slot-${baseTimestamp.toString().slice(-4)}-${index + 1}`,
+          id: `slot-${collegeCode.toLowerCase()}-${baseTimestamp}-${index + 1}-${Math.random().toString(36).substring(2, 6)}`,
           slotName: slotNameStr,
           slotTiming: slotTimingStr,
           slotDate: slot.slotDate || new Date().toISOString().split('T')[0],

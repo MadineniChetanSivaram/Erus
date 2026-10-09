@@ -819,7 +819,7 @@ export async function createCollegeSlot(payload: any) {
   const code = (payload.collegeCode || 'DIT').toUpperCase();
   const existing = getLocalSlots(code);
   const newSlot = {
-    id: payload.id || `slot-${code.toLowerCase()}-${Date.now().toString().slice(-4)}`,
+    id: payload.id || `slot-${code.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     ...payload,
     collegeCode: code,
     status: payload.status || 'scheduled',
