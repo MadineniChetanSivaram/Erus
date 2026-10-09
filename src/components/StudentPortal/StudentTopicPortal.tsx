@@ -21,7 +21,8 @@ import {
   Scale,
   Radio,
   SlidersHorizontal,
-  HelpCircle
+  HelpCircle,
+  FileText
 } from 'lucide-react';
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
@@ -271,15 +272,27 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
                     {/* Action Buttons: Enter GD Room & Revive/Release Slot */}
                     <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => onEnterRoom(bSlot.id)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                      >
-                        <Radio className="w-4 h-4 animate-pulse" />
-                        <span>Enter Discussion Room</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
+                      {bSlot.status === 'completed' ? (
+                        <button
+                          type="button"
+                          onClick={() => onEnterRoom(bSlot.id)}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-purple-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>View Assessment Report</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onEnterRoom(bSlot.id)}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                        >
+                          <Radio className="w-4 h-4 animate-pulse" />
+                          <span>Enter Discussion Room</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      )}
 
                       {/* Revive Slot Button with 1-Hour Guard */}
                       {isLockedDueToTime ? (
@@ -518,7 +531,12 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                             </span>
                           </span>
 
-                          {isThisBooked ? (
+                          {slot.status === 'completed' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 font-bold text-[10px] border border-purple-200 dark:border-purple-800">
+                              <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                              <span>Completed</span>
+                            </span>
+                          ) : isThisBooked ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-xs">
                               <CheckCircle2 className="w-3 h-3" />
                               <span>Your Confirmed Slot</span>
@@ -606,7 +624,19 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
                       {/* Bottom Actions */}
                       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
-                        {isThisBooked ? (
+                        {slot.status === 'completed' ? (
+                          <div className="w-full flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => onEnterRoom(slot.id)}
+                              className="flex-1 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>View Assessment Report</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : isThisBooked ? (
                           <div className="w-full flex items-center gap-2 flex-wrap">
                             <button
                               type="button"

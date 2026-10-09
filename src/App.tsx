@@ -295,20 +295,39 @@ function GDAppContent() {
     return () => clearInterval(timer);
   }, [currentUser, currentTab]);
 
-  // Synchronized session conclusion across student client via WebSocket
+  // Synchronized session conclusion and slot updates across student client via WebSocket
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'student') return;
+    if (!currentUser) return;
     const socket = getSocket();
+    if (!socket) return;
     const handleRemoteSessionEnded = (data: any) => {
-      if (!data?.slotId || data.slotId === session?.id) {
-        if (currentTab === 'room') {
-          handleFinishSession();
+      if (data?.slotId) {
+        setAvailableSlots((prev) =>
+          prev.map((s) => (s.id === data.slotId ? { ...s, status: 'completed' } : s))
+        );
+        if (session?.id === data.slotId) {
+          setSession((prev) => ({ ...prev, status: 'completed' }));
+          if (currentUser.role === 'student' && currentTab === 'room') {
+            handleFinishSession();
+          }
+        }
+      }
+    };
+    const handleSlotUpdated = (data: any) => {
+      if (data?.slot?.id) {
+        setAvailableSlots((prev) =>
+          prev.map((s) => (s.id === data.slot.id ? { ...s, ...data.slot } : s))
+        );
+        if (session?.id === data.slot.id) {
+          setSession((prev) => ({ ...prev, ...data.slot }));
         }
       }
     };
     socket.on('session-ended', handleRemoteSessionEnded);
+    socket.on('slot-updated', handleSlotUpdated);
     return () => {
       socket.off('session-ended', handleRemoteSessionEnded);
+      socket.off('slot-updated', handleSlotUpdated);
     };
   }, [currentUser, session?.id, currentTab]);
 
@@ -564,6 +583,7 @@ function GDAppContent() {
 
     // Update active session status and reset speaking metrics for fresh live discussion
     setSession(activeSlot);
+    setCurrentTab('room');
 
     // Update availableSlots list
     setAvailableSlots((prevSlots) =>
@@ -701,10 +721,25 @@ function GDAppContent() {
         const endRes = await fetch('/api/college/slots/' + encodeURIComponent(finishedSlotId) + '/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
+          body: JSON.stringify({
+            facultyId: (currentUser as any).facultyId || currentUser.id,
+            id: currentUser.id,
+            email: currentUser.email,
+            name: currentUser.name,
+            role: currentUser.role,
+          }),
         });
         const endData = await endRes.json().catch(() => ({}));
         if (!endRes.ok) throw new Error(endData.error || 'Unable to finalize GD session');
+
+        try {
+          const socket = getSocket();
+          if (socket) {
+            socket.emit('finish-session', { slotId: finishedSlotId });
+          }
+        } catch (e) {
+          console.warn('Socket finish-session emit error:', e);
+        }
 
         const ownReport = Array.isArray(endData.reports)
           ? endData.reports.find((r: StudentAssessmentReport) => r.studentId === userStudent.id)
@@ -1342,11 +1377,13 @@ function GDAppContent() {
             onBookSlot={handleBookSlot}
             onReviveSlot={handleReviveSlot}
             onEnterRoom={(slotId) => {
+              const target = availableSlots.find((s) => s.id === slotId);
+              if (target?.status === 'completed') {
+                handleSelectSlot(slotId);
+                return;
+              }
               handleSelectSlot(slotId);
               setCurrentTab('room');
-              const target = availableSlots.find((s) => s.id === slotId);
-              // Students never start a GD. They only enter after the assigned
-              // faculty starts it; Socket.IO/polling will update the status.
             }}
             onViewJourneyProfile={() => setCurrentTab('report')}
           />
@@ -1436,13 +1473,6 @@ function GDAppContent() {
             transcripts={transcripts}
             onViewStudentReport={handleViewStudentReport}
             onBackToRoom={() => {
-              if (session.status === 'completed') {
-                const openSlot = availableSlots.find((s) => s.status !== 'completed');
-                if (openSlot) {
-                  handleSelectSlot(openSlot.id);
-                  return;
-                }
-              }
               setCurrentTab('room');
             }}
             onEnterGDRoom={(slotId) => {

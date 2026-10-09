@@ -471,7 +471,6 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                           {onStartSession && !isCompleted && sl.status !== 'active' && (
                             <button
                               onClick={() => {
-                                onSelectSlot(sl.id);
                                 onStartSession(sl.id);
                                 if (onBackToRoom) {
                                   onBackToRoom();

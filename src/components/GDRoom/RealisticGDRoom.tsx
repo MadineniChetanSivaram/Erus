@@ -1570,13 +1570,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     rtcSimulationMode,
   ]);
 
-  // Reset initiation flag only when leaving active session
+  // Reset initiation flag and trigger opening speaker when session becomes active
   useEffect(() => {
-    if (session.status !== 'active') {
+    if (session.status === 'active') {
+      const timer = setTimeout(() => {
+        if (!hasInitiatedOpeningRef.current && transcripts.filter((t) => t.isFacilitator).length === 0) {
+          handleInitiateOpeningSpeaker(true);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    } else {
       hasInitiatedOpeningRef.current = false;
       setInvitedStudentPrompt(null);
     }
-  }, [session.status]);
+  }, [session.status, session.id]);
 
   const handleRaiseHandToggle = () => {
     const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0];

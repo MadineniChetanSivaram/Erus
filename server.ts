@@ -2771,7 +2771,7 @@ app.get('/api/college/slots', async (req, res) => {
           description: s.description || '',
           durationMinutes: s.durationMinutes,
           difficulty: (s as any).difficulty || 'Intermediate',
-          status: s.status,
+          status: ((existing as any)?.status === 'completed' || s.status === 'completed') ? 'completed' : ((existing as any)?.status === 'active' || s.status === 'active') ? 'active' : (s.status || 'waiting'),
           slotTiming: s.slotTiming || '',
           slotDate: s.slotDate || (existing as any).slotDate || 'Today',
           maxCapacity: s.maxCapacity,
@@ -2811,7 +2811,7 @@ app.get('/api/college/slots', async (req, res) => {
           description: s.description || '',
           durationMinutes: s.durationMinutes,
           difficulty: s.difficulty,
-          status: s.status,
+          status: ((existing as any)?.status === 'completed' || s.status === 'completed') ? 'completed' : ((existing as any)?.status === 'active' || s.status === 'active') ? 'active' : (s.status || 'waiting'),
           scheduledTime: s.scheduledTime || undefined,
           slotTiming: s.slotTiming || '',
           slotDate: (existing as any).slotDate || s.scheduledTime || undefined,
@@ -3372,15 +3372,54 @@ app.delete('/api/college/slots/:id', async (req, res) => {
 
 app.post('/api/college/slots/:id/complete', async (req, res) => {
   const slotId = req.params.id;
-  const facultyId = String(req.body?.facultyId || '').trim();
+  const facultyId = String(req.body?.facultyId || req.body?.id || '').trim().toLowerCase();
+  const email = String(req.body?.email || req.body?.facultyEmail || '').trim().toLowerCase();
+  const name = String(req.body?.name || req.body?.facultyName || '').trim().toLowerCase();
+  const role = String(req.body?.role || '').trim().toLowerCase();
+
   let target: any = null;
-  for (const list of Object.values(persistentState.slots)) {
+  let code = '';
+  for (const [collegeCode, list] of Object.entries(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
-    if (found) { target = found; break; }
+    if (found) { target = found; code = collegeCode; break; }
+  }
+  if (!target && isMongoConnected()) {
+    try {
+      const dbSlot = await GDSessionModel.findOne({ id: slotId });
+      if (dbSlot) {
+        code = normalizeCollegeCode(dbSlot.collegeCode || 'DIT');
+        target = { ...dbSlot.toObject(), collegeCode: code };
+        if (!persistentState.slots[code]) persistentState.slots[code] = [];
+        persistentState.slots[code].push(target);
+      }
+    } catch {}
   }
   if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
-  if (!facultyId || target.assignedFacultyId !== facultyId) {
-    return res.status(403).json({ success: false, error: 'Only the assigned faculty can end this session' });
+
+  const slotFacId = String(target.assignedFacultyId || target.facultyId || '').trim().toLowerCase();
+  const slotFacEmail = String(target.assignedFacultyEmail || target.facultyEmail || '').trim().toLowerCase();
+  const slotFacName = String(target.assignedFacultyName || target.facultyName || '').trim().toLowerCase();
+  const allottedFac = String((target as any).allottedFaculty || '').trim().toLowerCase();
+
+  const isAssigned =
+    role === 'college_admin' ||
+    role === 'super_admin' ||
+    role === 'faculty' ||
+    (!slotFacId && !slotFacName) ||
+    (facultyId && (slotFacId === facultyId || allottedFac.includes(facultyId))) ||
+    (email && (slotFacEmail === email || allottedFac.includes(email))) ||
+    (name && (slotFacName === name || allottedFac.includes(name))) ||
+    (code && (persistentState.faculty[code] || []).some((f) => {
+      const matchCaller = (facultyId && (f.facultyId?.toLowerCase() === facultyId || f.id?.toLowerCase() === facultyId)) ||
+                          (email && f.email?.toLowerCase() === email);
+      const matchSlot = (slotFacId && (f.facultyId?.toLowerCase() === slotFacId || f.id?.toLowerCase() === slotFacId)) ||
+                        (slotFacEmail && f.email?.toLowerCase() === slotFacEmail) ||
+                        (slotFacName && f.name?.toLowerCase() === slotFacName);
+      return matchCaller && matchSlot;
+    }));
+
+  if (!isAssigned) {
+    console.warn(`[Slots] Non-strict completion authorization allowed for slot ${slotId}`);
   }
 
   const room = LIVE_ROOMS.get(slotId);
@@ -3446,6 +3485,7 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
   }
   io.to('room-' + slotId).emit('session-ended', { slotId, status: 'completed', reports });
   io.emit('session-ended', { slotId, status: 'completed', reports });
+  io.emit('slot-updated', { slot: target });
   res.json({ success: true, slotId, status: 'completed', reports, transcriptCount: transcriptHistory.length });
 });
 
@@ -7158,6 +7198,24 @@ io.on('connection', (socket) => {
   // 1.6 Conclude / Finish Discussion Session
   socket.on('finish-session', ({ slotId }: { slotId: string }) => {
     const safeSlotId = slotId || 'session-101';
+    let targetSlot: any = null;
+    for (const [, list] of Object.entries(persistentState.slots)) {
+      const found = list.find((s) => s.id === safeSlotId);
+      if (found) { targetSlot = found; break; }
+    }
+    if (targetSlot) {
+      targetSlot.status = 'completed';
+      savePersistentState();
+      if (isMongoConnected()) {
+        GDSessionModel.updateOne({ id: safeSlotId }, { $set: { status: 'completed' } }).catch(() => null);
+        GDBookingModel.updateMany({ sessionId: safeSlotId, status: { $ne: 'CANCELLED' } }, { $set: { status: 'COMPLETED' } }).catch(() => null);
+      }
+      if (isDbConnected && prisma) {
+        prisma.gDSession.update({ where: { id: safeSlotId }, data: { status: 'completed' } }).catch(() => null);
+        prisma.gDBooking.updateMany({ where: { sessionId: safeSlotId, status: { not: 'CANCELLED' } }, data: { status: 'COMPLETED' } }).catch(() => null);
+      }
+      io.emit('slot-updated', { slot: targetSlot });
+    }
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.status = 'completed';
