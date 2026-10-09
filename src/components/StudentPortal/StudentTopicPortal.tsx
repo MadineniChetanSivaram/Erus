@@ -37,6 +37,7 @@ interface StudentTopicPortalProps {
   onBookSlot: (slotId: string) => void;
   onReviveSlot: (slotId: string) => void;
   onEnterRoom: (slotId: string) => void;
+  onViewReport?: (slotId: string) => void;
   onViewJourneyProfile?: () => void;
 }
 
@@ -48,6 +49,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   onBookSlot,
   onReviveSlot,
   onEnterRoom,
+  onViewReport,
   onViewJourneyProfile,
 }) => {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
@@ -275,7 +277,13 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                       {bSlot.status === 'completed' ? (
                         <button
                           type="button"
-                          onClick={() => onEnterRoom(bSlot.id)}
+                          onClick={() => {
+                            if (onViewReport) {
+                              onViewReport(bSlot.id);
+                            } else {
+                              onEnterRoom(bSlot.id);
+                            }
+                          }}
                           className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs sm:text-sm shadow-md shadow-purple-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                         >
                           <FileText className="w-4 h-4" />
@@ -628,7 +636,13 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                           <div className="w-full flex items-center gap-2 flex-wrap">
                             <button
                               type="button"
-                              onClick={() => onEnterRoom(slot.id)}
+                              onClick={() => {
+                                if (onViewReport) {
+                                  onViewReport(slot.id);
+                                } else {
+                                  onEnterRoom(slot.id);
+                                }
+                              }}
                               className="flex-1 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                               <FileText className="w-3.5 h-3.5" />

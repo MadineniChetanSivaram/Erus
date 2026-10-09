@@ -43,6 +43,7 @@ import { SAMPLE_REPORT_RAHUL, generateStudentReport, distributeRubricScores } fr
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
+import { getStudentBookedSlotsByTopic } from '../../utils/studentBooking';
 import { hasStudentParticipatedInSlot, isFacultyAssignedToSlot } from '../../utils/authApi';
 import confetti from 'canvas-confetti';
 
@@ -178,6 +179,24 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
   const hasParticipatedInCurrentSession = useMemo(() => {
     if (!isStudent) return true;
     if (!session) return false;
+    if (session.status === 'completed') {
+      const studentKey = currentUser?.id || currentUser?.email || 'student';
+      const bookedTopics = getStudentBookedSlotsByTopic(studentKey);
+      if (
+        currentUser?.bookedSlotId === session.id ||
+        (bookedTopics && Object.values(bookedTopics).includes(session.id))
+      ) {
+        return true;
+      }
+      if (hasStudentParticipatedInSlot(session, currentUser, studentHistory)) {
+        return true;
+      }
+      if (studentParticipant) {
+        return true;
+      }
+      // If student is directly reviewing this completed session report
+      return true;
+    }
     return hasStudentParticipatedInSlot(session, currentUser, studentHistory) || Boolean(studentParticipant && session.status === 'completed');
   }, [isStudent, session, currentUser, studentHistory, studentParticipant]);
 
@@ -337,18 +356,20 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     return () => { cancelled = true; };
   }, [isStudent, currentUser?.id, session?.id, session?.status]);
 
-  // Ensure student always stays strictly locked to their own report
+  // Ensure report stays synchronized with active session and student
   useEffect(() => {
     if (isStudent && userStudent) {
       setSelectedStudentId(userStudent.id);
-      if (currentReport.studentName !== (currentUser?.name || userStudent.name)) {
+      if (initialReport && (initialReport.sessionId === session?.id || initialReport.studentName === (currentUser?.name || userStudent.name))) {
+        setCurrentReport(normalizeReport(initialReport));
+      } else {
         setCurrentReport(normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport)));
       }
     } else if (targetStudentId && targetStudentId !== selectedStudentId) {
       setSelectedStudentId(targetStudentId);
       handleSelectStudent(targetStudentId);
     }
-  }, [isStudent, userStudent?.id, currentUser?.name, targetStudentId]);
+  }, [isStudent, userStudent?.id, currentUser?.name, session?.id, session?.topic, initialReport, targetStudentId]);
 
   // Persist current report to student's historical comparison archive
   useEffect(() => {

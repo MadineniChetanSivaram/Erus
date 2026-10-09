@@ -1,5 +1,7 @@
 import { AuthUser, StudentUser, FacultyUser } from '../types/auth';
 import { authenticateUser, registerNewUser } from '../data/mockAuthData';
+import { getStudentBookedSlotsByTopic } from './studentBooking';
+import { getStudentReportHistory } from './studentReportHistory';
 
 const TOKEN_KEY = 'erus_jwt_token';
 const USER_KEY = 'erus_auth_user';
@@ -677,8 +679,11 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
   const uName = String(user.name || '').trim().toLowerCase();
   const uRoll = String((user as any).rollNumber || '').trim().toLowerCase();
 
+  const studentKey = user.id || (user as any).studentId || user.email || user.name || 'student';
+  const effectiveHistory = reportHistory || getStudentReportHistory(studentKey);
+
   // Check if student has a recorded evaluation report for this slot
-  if (Array.isArray(reportHistory) && reportHistory.some((r) => r.sessionId === slot.id || r.id === slot.id)) {
+  if (Array.isArray(effectiveHistory) && effectiveHistory.some((r) => r.sessionId === slot.id || r.id === slot.id)) {
     return true;
   }
 
@@ -717,9 +722,10 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
     if (user.bookedSlotId === slot.id) return true;
     if ((user as any).bookedSlotsByTopic && Object.values((user as any).bookedSlotsByTopic).includes(slot.id)) return true;
     try {
-      const studentKey = user.id || user.email || 'student';
       const localBooked = localStorage.getItem(`erus_student_booked_slot_${studentKey}`);
       if (localBooked === slot.id) return true;
+      const bookedTopics = getStudentBookedSlotsByTopic(studentKey);
+      if (bookedTopics && Object.values(bookedTopics).includes(slot.id)) return true;
     } catch {}
   }
 
