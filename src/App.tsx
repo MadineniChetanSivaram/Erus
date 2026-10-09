@@ -239,6 +239,7 @@ function GDAppContent() {
             durationMinutes: s.durationMinutes || 15,
             difficulty: s.difficulty || 'Intermediate',
             assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
+            status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
             students: Array.isArray(s.students) ? s.students : [],
             currentPhase: 'intro',
             facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
@@ -527,34 +528,42 @@ function GDAppContent() {
       return;
     }
     const targetSlotId = slotIdToStart || session.id;
-    if (session.assignedFacultyId && (currentUser as any).facultyId !== session.assignedFacultyId) {
-      alert('Only the faculty assigned to this GD slot can start the session.');
-      return;
+    const targetSlot = availableSlots.find((s) => s.id === targetSlotId) || session;
+
+    // Verify faculty assignment using flexible multi-identifier matching
+    if (targetSlot) {
+      const isAssigned = isFacultyAssignedToSlot(targetSlot, currentUser);
+      if (!isAssigned && targetSlot.assignedFacultyId) {
+        alert('Only the faculty assigned to this GD slot can start the session.');
+        return;
+      }
     }
 
     // Reset timer to 0 for a fresh live discussion
     setElapsedSeconds(0);
 
-    const welcomeIntroText = `Welcome participants to today's group discussion on "${session.topic}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
+    const welcomeIntroText = `Welcome participants to today's group discussion on "${targetSlot.topic || 'the assigned topic'}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
 
     sessionQuestionTracker.clear();
 
-    // Update active session status and reset speaking metrics for fresh live discussion
-    setSession((prev) => ({
-      ...prev,
+    const activeSlot: GDSession = {
+      ...(targetSlot.id === session.id ? session : targetSlot),
       status: 'active',
       silenceTimerSeconds: 0,
       currentPhase: 'intro',
-      facilitatorSpeech: '',
+      facilitatorSpeech: welcomeIntroText,
       isFacilitatorSpeaking: false,
       startedAt: Date.now(),
-      students: prev.students.map((s) => ({
+      students: (targetSlot.students && targetSlot.students.length > 0 ? targetSlot.students : session.students).map((s) => ({
         ...s,
         speakingTurns: 0,
         speakingDurationSeconds: 0,
         isSpeaking: false,
       })),
-    }));
+    };
+
+    // Update active session status and reset speaking metrics for fresh live discussion
+    setSession(activeSlot);
 
     // Update availableSlots list
     setAvailableSlots((prevSlots) =>
@@ -575,19 +584,32 @@ function GDAppContent() {
     // participants (students and faculty) via the server's facilitator-intervention broadcast.
     setTranscripts([]);
 
-    // Notify backend
-    if (currentUser?.role === 'faculty') {
-      fetch(`/api/college/slots/${encodeURIComponent(targetSlotId)}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facultyId: (currentUser as any).facultyId || currentUser.id }),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Unable to start GD session');
-        }
-      }).catch((err) => console.warn('Backend start session sync:', err));
+    // Emit live WebRTC socket event so all room participants transition immediately
+    try {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('start-session', { slotId: targetSlotId });
+      }
+    } catch (e) {
+      console.warn('Socket start-session emit error:', e);
     }
+
+    // Notify backend
+    fetch(`/api/college/slots/${encodeURIComponent(targetSlotId)}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        facultyId: (currentUser as any).facultyId || currentUser.id,
+        id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+      }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Unable to start GD session');
+      }
+    }).catch((err) => console.warn('Backend start session sync:', err));
   };
 
   // Deadlock intervention helper using unique non-repeating dynamic prompt generator

@@ -1510,7 +1510,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
   useEffect(() => {
     if (rtcSimulationMode) return;
-    if (isSocketConnected) return; // Central server controls silence watchdog and turn transitions
+    if (isSocketConnected && hasRealStudentPeers) return; // Central server controls silence watchdog only if real student peers are present
     if (!isSessionActive) return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1756,7 +1756,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           {/* Quick Facilitator Action Bar (Visible only to Faculty Evaluators & Admins) */}
           {canStartSession && (
             <div className="flex items-center gap-2 flex-wrap">
-              {session.status === 'waiting' && (
+              {!isSessionActive && session.status !== 'completed' && (
                 <button
                   id="start-gd-btn"
                   onClick={() => {
@@ -1764,6 +1764,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       onStartSession(session.id);
                     }
                     rtcStartSession();
+                    if (!hasRealStudentPeers) {
+                      setTimeout(() => {
+                        handleInitiateOpeningSpeaker();
+                      }, 600);
+                    }
                   }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
                 >
@@ -2602,6 +2607,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             onStartSession(session.id);
                           }
                           rtcStartSession();
+                          if (!hasRealStudentPeers) {
+                            setTimeout(() => {
+                              handleInitiateOpeningSpeaker();
+                            }, 600);
+                          }
                         }}
                         className="px-4 py-2.5 rounded-full font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 flex items-center gap-1.5 cursor-pointer transition-all animate-pulse"
                         title="Start Group Discussion round"

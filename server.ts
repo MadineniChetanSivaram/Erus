@@ -3451,16 +3451,54 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
 
 app.post('/api/college/slots/:id/start', async (req, res) => {
   const slotId = req.params.id;
-  const facultyId = String(req.body?.facultyId || '').trim();
+  const facultyId = String(req.body?.facultyId || req.body?.id || '').trim().toLowerCase();
+  const email = String(req.body?.email || req.body?.facultyEmail || '').trim().toLowerCase();
+  const name = String(req.body?.name || req.body?.facultyName || '').trim().toLowerCase();
+
   let target: any = null;
   let code = '';
   for (const [collegeCode, list] of Object.entries(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
     if (found) { target = found; code = collegeCode; break; }
   }
+
+  if (!target && isMongoConnected()) {
+    try {
+      const dbSlot = await GDSessionModel.findOne({ id: slotId });
+      if (dbSlot) {
+        code = normalizeCollegeCode(dbSlot.collegeCode || 'DIT');
+        target = { ...dbSlot.toObject(), collegeCode: code };
+        if (!persistentState.slots[code]) persistentState.slots[code] = [];
+        persistentState.slots[code].push(target);
+      }
+    } catch {}
+  }
+
   if (!target) return res.status(404).json({ success: false, error: 'GD slot not found' });
-  if (!facultyId) return res.status(403).json({ success: false, error: 'Only the assigned faculty can start this session' });
-  if (target.assignedFacultyId !== facultyId) return res.status(403).json({ success: false, error: 'You are not the faculty assigned to this GD slot' });
+
+  const slotFacId = String(target.assignedFacultyId || target.facultyId || '').trim().toLowerCase();
+  const slotFacEmail = String(target.assignedFacultyEmail || target.facultyEmail || '').trim().toLowerCase();
+  const slotFacName = String(target.assignedFacultyName || target.facultyName || '').trim().toLowerCase();
+  const allottedFac = String((target as any).allottedFaculty || '').trim().toLowerCase();
+
+  const isAssigned =
+    (!slotFacId && !slotFacName) ||
+    (facultyId && (slotFacId === facultyId || allottedFac.includes(facultyId))) ||
+    (email && (slotFacEmail === email || allottedFac.includes(email))) ||
+    (name && (slotFacName === name || allottedFac.includes(name))) ||
+    (code && (persistentState.faculty[code] || []).some((f) => {
+      const matchCaller = (facultyId && (f.facultyId?.toLowerCase() === facultyId || f.id?.toLowerCase() === facultyId)) ||
+                          (email && f.email?.toLowerCase() === email);
+      const matchSlot = (slotFacId && (f.facultyId?.toLowerCase() === slotFacId || f.id?.toLowerCase() === slotFacId)) ||
+                        (slotFacEmail && f.email?.toLowerCase() === slotFacEmail) ||
+                        (slotFacName && f.name?.toLowerCase() === slotFacName);
+      return matchCaller && matchSlot;
+    }));
+
+  if (!isAssigned) {
+    return res.status(403).json({ success: false, error: 'You are not the faculty assigned to this GD slot' });
+  }
+
   if (target.status === 'completed') return res.status(409).json({ success: false, error: 'Session is already completed' });
 
   target.status = 'active';
@@ -3473,16 +3511,31 @@ app.post('/api/college/slots/:id/start', async (req, res) => {
       await prisma.gDSession.update({ where: { id: slotId }, data: { status: 'active' } });
     } catch (e) { console.warn('[Database] Failed to mark slot active:', (e as any).message); }
   }
-  const room = LIVE_ROOMS.get(slotId);
-  if (room) {
-    const wasAlreadyActive = room.status === 'active';
-    room.status = 'active';
-    room.silenceTimerSeconds = 0;
-    io.to(`room-${slotId}`).emit('session-started', { slotId, status: 'active', topic: room.topic });
-    if (!wasAlreadyActive && !room.openingStarted) {
-      scheduleNextTurn(room);
-    }
+
+  const room = getOrCreateLiveRoom(slotId, target.topic);
+  const wasAlreadyActive = room.status === 'active';
+  room.status = 'active';
+  room.silenceTimerSeconds = 0;
+  syncAiParticipants(room);
+
+  io.to(`room-${slotId}`).emit('session-started', {
+    slotId,
+    status: 'active',
+    topic: room.topic || target.topic,
+    simulationMode: room.simulationMode,
+    aiParticipants: Array.from(room.aiParticipants.values()),
+  });
+  io.emit('session-started', {
+    slotId,
+    status: 'active',
+    topic: room.topic || target.topic,
+  });
+  io.emit('slot-updated', { slot: target });
+
+  if (!wasAlreadyActive && !room.openingStarted) {
+    scheduleNextTurn(room);
   }
+
   res.json({ success: true, slotId, status: 'active' });
 });
 
@@ -6970,25 +7023,46 @@ io.on('connection', (socket) => {
   // 1.5 Start Discussion Session
   socket.on('start-session', ({ slotId }: { slotId: string }) => {
     const safeSlotId = slotId || 'session-101';
-    const room = LIVE_ROOMS.get(safeSlotId);
-    if (room) {
-      const wasAlreadyActive = room.status === 'active';
-      room.status = 'active';
-      room.silenceTimerSeconds = 0;
-      syncAiParticipants(room);
-      io.to(`room-${safeSlotId}`).emit('session-started', {
-        slotId: safeSlotId,
-        status: 'active',
-        topic: room.topic,
-        simulationMode: room.simulationMode,
-        aiParticipants: Array.from(room.aiParticipants.values()),
-      });
-      if (!wasAlreadyActive && !room.openingStarted) {
-        room.openingStarted = false;
-        room.initialSpeakerSelected = false;
-        room.deadlockCount = 0;
-        scheduleNextTurn(room);
+
+    let targetSlot: any = null;
+    for (const [, list] of Object.entries(persistentState.slots)) {
+      const found = list.find((s) => s.id === safeSlotId);
+      if (found) { targetSlot = found; break; }
+    }
+    if (targetSlot) {
+      targetSlot.status = 'active';
+      savePersistentState();
+      if (isMongoConnected()) {
+        GDSessionModel.updateOne({ id: safeSlotId }, { $set: { status: 'active' } }).catch(() => null);
       }
+      if (isDbConnected && prisma) {
+        prisma.gDSession.update({ where: { id: safeSlotId }, data: { status: 'active' } }).catch(() => null);
+      }
+      io.emit('slot-updated', { slot: targetSlot });
+    }
+
+    const room = getOrCreateLiveRoom(safeSlotId, targetSlot?.topic);
+    const wasAlreadyActive = room.status === 'active';
+    room.status = 'active';
+    room.silenceTimerSeconds = 0;
+    syncAiParticipants(room);
+    io.to(`room-${safeSlotId}`).emit('session-started', {
+      slotId: safeSlotId,
+      status: 'active',
+      topic: room.topic || targetSlot?.topic,
+      simulationMode: room.simulationMode,
+      aiParticipants: Array.from(room.aiParticipants.values()),
+    });
+    io.emit('session-started', {
+      slotId: safeSlotId,
+      status: 'active',
+      topic: room.topic || targetSlot?.topic,
+    });
+    if (!wasAlreadyActive && !room.openingStarted) {
+      room.openingStarted = false;
+      room.initialSpeakerSelected = false;
+      room.deadlockCount = 0;
+      scheduleNextTurn(room);
     }
   });
 
