@@ -546,7 +546,8 @@ function GDAppContent() {
 
   // Faculty In-Charge / Host Commences the Discussion Session
   const handleStartSession = (slotIdToStart?: string) => {
-    if (currentUser?.role !== 'faculty' && currentUser?.role !== 'college_admin' && currentUser?.role !== 'super_admin') {
+    const userRole = String(currentUser?.role || '').toLowerCase();
+    if (userRole !== 'faculty' && userRole !== 'college_admin' && userRole !== 'super_admin') {
       return;
     }
     const targetSlotId = slotIdToStart || session.id;
@@ -1170,8 +1171,10 @@ function GDAppContent() {
     } catch {}
   };
 
-  const handleViewStudentReport = (studentId: string) => {
-    setViewingStudentId(studentId);
+  const handleViewStudentReport = (studentId?: string) => {
+    if (studentId) {
+      setViewingStudentId(studentId);
+    }
     setCurrentTab('report');
   };
 
@@ -1476,8 +1479,16 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onEnterGDRoom={(slotId) => {
-              if (slotId && slotId !== session.id) {
-                handleSelectSlot(slotId);
+              if (slotId) {
+                const target = availableSlots.find((s) => s.id === slotId);
+                if (target?.status === 'completed') {
+                  handleSelectSlot(slotId);
+                  setCurrentTab('report');
+                  return;
+                }
+                if (slotId !== session.id) {
+                  handleSelectSlot(slotId);
+                }
               }
               setCurrentTab('room');
             }}

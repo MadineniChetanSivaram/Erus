@@ -11,7 +11,8 @@ import {
   LogOut,
   Building2,
   Crown,
-  BookOpen
+  BookOpen,
+  Radio
 } from 'lucide-react';
 import { GDSession } from '../types/gd';
 import { AuthUser } from '../types/auth';
@@ -138,6 +139,22 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <BarChart3 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>Faculty Analytics</span>
+            </button>
+          )}
+
+          {/* Faculty Live GD Room Tab */}
+          {isFaculty && (
+            <button
+              id="tab-room-btn"
+              onClick={() => setCurrentTab('room')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                currentTab === 'room'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/80 dark:hover:bg-slate-800/50'
+              }`}
+            >
+              <Radio className={`w-3.5 h-3.5 shrink-0 ${currentTab === 'room' ? 'text-white animate-pulse' : 'text-emerald-500 dark:text-emerald-400'}`} />
+              <span>Live GD Room</span>
             </button>
           )}
 

@@ -25,7 +25,9 @@ import {
   CheckCircle,
   SlidersHorizontal,
   ArrowUpRight,
-  Volume2
+  Volume2,
+  Eye,
+  Radio
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
 import { INITIAL_SESSION } from '../../data/mockGDData';
@@ -237,14 +239,9 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     a.click();
   };
 
-  const handleOpenSlotRoom = (slotId: string) => {
+  const handleSelectSlotForDashboard = (slotId: string) => {
     if (onSelectSlot) {
       onSelectSlot(slotId);
-    }
-    if (onEnterGDRoom) {
-      onEnterGDRoom(slotId);
-    } else if (onBackToRoom) {
-      onBackToRoom();
     }
   };
 
@@ -408,7 +405,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                         }`}
                       >
                         <button
-                          onClick={() => handleOpenSlotRoom(sl.id)}
+                          onClick={() => handleSelectSlotForDashboard(sl.id)}
                           className="flex-1 text-left cursor-pointer"
                         >
                           <div className="flex items-center gap-2 flex-wrap">
@@ -458,28 +455,61 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                           )}
 
                           <button
-                            onClick={() => handleOpenSlotRoom(sl.id)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            onClick={() => handleSelectSlotForDashboard(sl.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
                               isSelected
-                                ? 'bg-indigo-600 text-white shadow-sm'
+                                ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-400/40'
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
+                            title="View this slot overview and participants on dashboard"
                           >
-                            View
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>{isSelected ? 'Viewing' : 'View'}</span>
                           </button>
 
-                          {onStartSession && !isCompleted && sl.status !== 'active' && (
+                          {isCompleted && (
                             <button
                               onClick={() => {
-                                onStartSession(sl.id);
+                                if (onSelectSlot) onSelectSlot(sl.id);
+                                if (onViewStudentReport) {
+                                  onViewStudentReport();
+                                } else if (onEnterGDRoom) {
+                                  onEnterGDRoom(sl.id);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                              title="View candidate assessment reports for this completed slot"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Reports</span>
+                            </button>
+                          )}
+
+                          {sl.status === 'active' && (
+                            <button
+                              onClick={() => {
+                                if (onSelectSlot) onSelectSlot(sl.id);
                                 if (onBackToRoom) {
                                   onBackToRoom();
                                 } else if (onEnterGDRoom) {
                                   onEnterGDRoom(sl.id);
                                 }
                               }}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                              title="Start this assigned GD slot"
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer animate-pulse"
+                              title="Enter the live discussion room"
+                            >
+                              <Radio className="w-3.5 h-3.5" />
+                              <span>Enter Room</span>
+                            </button>
+                          )}
+
+                          {onStartSession && !isCompleted && sl.status !== 'active' && (
+                            <button
+                              onClick={() => {
+                                onStartSession(sl.id);
+                              }}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                              title="Start this assigned GD slot and commence discussion"
                             >
                               <Play className="w-3 h-3 fill-current" />
                               <span>Start</span>
