@@ -905,3 +905,417 @@ export function generateStudentFollowUpStatement(
   ];
   return templates[Math.floor(Math.random() * templates.length)];
 }
+
+// ============================================================================
+// ERUS AI INSTRUCTOR – CLASSROOM PRESENTATION ACTIVITY SCRIPT ENGINE
+// Based on the Official 7-Page AI-Based Student Presentation Activity Script
+// ============================================================================
+
+export interface ClassroomAssignedTopic {
+  seatNumber: number;
+  subTopicTitle: string;
+  focusArea: string;
+  questionType: 'Conceptual' | 'Application-based' | 'Analytical' | 'Research-oriented' | 'Critical thinking' | 'Future-oriented';
+  suggestedQuestion: string;
+  keyTakeaway: string;
+}
+
+export const CLASSROOM_INSTRUCTOR_SCRIPTS = {
+  // Page 1: Opening Script (verbatim from official document)
+  OPENING: `Good morning, everyone! Welcome to the ERUS Student Presentation Activity. Today, six students will present their assigned topics related to research, technology, and industry applications. The objective of this activity is to develop your technical knowledge, communication skills, presentation skills, critical thinking, and confidence. Each student will get 6 to 8 minutes to present their topic. After every presentation, I will invite the remaining students to ask questions related to the topic. This will help you develop the ability to listen carefully, understand technical concepts, think critically, and communicate effectively. Please follow these instructions: 1. Present your topic clearly and confidently. 2. Explain the important concepts with suitable examples. 3. Connect your topic to real-world or industry applications wherever possible. 4. Listen carefully to other students' presentations. 5. Ask relevant and meaningful questions. 6. Answer questions politely and confidently. Remember, this is a learning activity. Do not hesitate to speak, ask questions, or express your ideas. I will now begin the presentations by calling the students in serial order, from Student Number 1 to Student Number 6. Let us begin with Student Number 1!`,
+
+  // Page 2: Calling Students in Serial Order (01 to 06 verbatim)
+  CALLING: [
+    `Student Number 1, please come forward and begin your presentation on your assigned topic. You have 6 to 8 minutes. All the best!`,
+    `Thank you, Student Number 1. Now, I invite Student Number 2 to present the assigned topic. Please begin.`,
+    `Thank you. Student Number 3, it is your turn. Please explain your topic clearly, highlighting the key concepts and practical applications.`,
+    `Well done. Now, I invite Student Number 4 to deliver the next presentation. You may begin.`,
+    `Thank you. Student Number 5, please present your topic and explain its importance in research or industry.`,
+    `Excellent. We have reached our final presentation. Student Number 6, please begin your presentation. All the best!`,
+  ],
+
+  // Page 3: Peer Questioning Script
+  PEER_QUESTION_INVITE: (peerNumber: number) =>
+    `Thank you for your presentation. Now, let us have a short question-and-answer session. The other students should ask questions related to the topic presented. Please think about the concepts you have heard and identify anything you would like to understand better. Would Student Number ${peerNumber} like to ask the first question?`,
+
+  PROMPT_ASK_QUESTION_CLEARLY: `Thank you. Please ask your question clearly.`,
+
+  PROMPT_PRESENTER_ANSWER: `Student who presented the topic, please answer the question.`,
+
+  AFTER_PEER_ANSWER: `Thank you to both students. That was a useful question and answer. Would any other student like to ask a question? If there are no more questions, I will ask one question to check your understanding of the topic.`,
+
+  // Page 3-4: When Students Are Silent
+  WHEN_SILENT: `Come on, everyone! This is an opportunity to learn from one another. You may ask about a concept you did not understand, a practical application, a technical challenge, or a real-world example. Let me give you a few seconds to think... Since no one has asked a question, I will ask one.`,
+
+  AI_QUESTION_PROMPT: (question: string) =>
+    `My question is: ${question} Student who presented the topic, please answer the question in your own words.`,
+
+  TAKEAWAY_FEEDBACK: (takeaway: string) =>
+    `Thank you for your response. The key point to remember is: ${takeaway} Let us now proceed to the next student.`,
+
+  // Page 4: Transition Between Students
+  TRANSITION: `Thank you for your presentation and for participating in the discussion. We have completed the presentation and question session for this student. Let us now move to the next presentation in our sequence. I request the next student to get ready and begin when called. Please remember that every presentation is an opportunity to improve your communication, technical understanding, and professional confidence.`,
+
+  // Page 5: Closing Remarks (verbatim from official document)
+  CLOSING: `Congratulations to all six students! We have now successfully completed today's ERUS Student Presentation Activity. Each of you has had an opportunity to present your ideas, explain technical concepts, listen to others, and participate in discussions. I would like you to remember five important lessons from today's activity. First — Technical Knowledge: Understand the topic beyond memorizing facts. Try to explain the concepts in your own words. Second — Communication Skills: Speak clearly, organize your ideas, and use simple, professional language. Third — Presentation Skills: Introduce your topic, explain the key points logically, provide examples, and conclude effectively. Fourth — Critical Thinking: Listen carefully, ask meaningful questions, and evaluate different ideas. Fifth — Confidence: Do not be afraid of making mistakes. Every presentation and every question will help you improve. In the professional world, success depends not only on what you know but also on how effectively you communicate your knowledge, solve problems, and work with others. The purpose of ERUS is to help you develop these skills and prepare yourselves for future academic, research, and employment opportunities. Before our session ends, I encourage every student to reflect on three questions: 1. What did I learn from today's presentations? 2. What is one skill I need to improve? 3. What will I do differently in my next presentation? Keep practising. Keep asking questions. Keep improving. Thank you for your active participation. This concludes today's ERUS Student Presentation Activity. Have a great day!`,
+};
+
+/**
+ * Returns 6 distinct assigned presentation sub-topics tailored to the topic domain
+ */
+export function getClassroomAssignedTopics(mainTopic: string = 'Artificial Intelligence & Engineering Systems'): ClassroomAssignedTopic[] {
+  const domain = detectTopicDomain(mainTopic);
+
+  const domainMaps: Record<TopicDomain, ClassroomAssignedTopic[]> = {
+    technology_ai: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Core Architecture & Fundamental Algorithmic Principles',
+        focusArea: 'Conceptual Foundations',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the main principle behind this technology, and how does its foundational architecture differ from classical heuristic algorithms?`,
+        keyTakeaway: `Robust algorithmic foundations and clear model interpretability are essential before deploying automated models into critical production environments.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'Industry Implementation & Enterprise Deployment Case Studies',
+        focusArea: 'Application & Engineering',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can this concept be used in a real industry setting, particularly when integrating with legacy enterprise infrastructure?`,
+        keyTakeaway: `Real-world industry adoption depends on backward compatibility, reliable API integration, and verifiable return on investment.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Performance Bottlenecks, Latency & Edge Scalability Limits',
+        focusArea: 'Analytical Performance',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the major limitations and performance bottlenecks of this approach under high-throughput concurrent workloads?`,
+        keyTakeaway: `System performance must be evaluated under worst-case peak loads and low-bandwidth edge constraints, not just idealized lab conditions.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'Emerging Research Methodologies & Benchmark Optimization',
+        focusArea: 'Research & Innovation',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What specific technical problem does this recent research attempt to solve that existing baseline methods failed to address?`,
+        keyTakeaway: `Scientific progress requires rigorous benchmark comparison against verified baselines rather than selective demonstration metrics.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Data Privacy, Security Safeguards & Algorithmic Governance',
+        focusArea: 'Critical Thinking & Governance',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen if the underlying training data assumptions or regulatory compliance frameworks changed drastically?`,
+        keyTakeaway: `Proactive data governance, privacy-by-design, and continuous auditing protect organizations from catastrophic compliance failures.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Future Horizons: Autonomous Systems & Next-Gen Innovations',
+        focusArea: 'Future Trends & Strategy',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How might this technology develop and reshape modern industrial workflows over the next five years?`,
+        keyTakeaway: `Long-term competitive advantage belongs to institutions that anticipate paradigm shifts and invest early in resilient foundational skillsets.`,
+      },
+    ],
+    clean_energy_ev: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Battery Chemistry Fundamentals & Electrochemical Principles',
+        focusArea: 'Electrochemical Foundations',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the primary electrochemical principle behind next-generation battery chemistries, and how does it prevent thermal runaway?`,
+        keyTakeaway: `Energy density must always be balanced against thermal stability and long-term cyclic cell degradation.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'High-Voltage Fast Charging Grid Integration & Fleet Adoption',
+        focusArea: 'Infrastructure Deployment',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can municipal utility grids accommodate high-voltage charging networks without causing localized brownouts?`,
+        keyTakeaway: `Smart charging scheduling and localized buffer battery storage are crucial to prevent peak-demand grid overloads.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Supply Chain Bottlenecks & Critical Mineral Dependency',
+        focusArea: 'Analytical Limitations',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the major supply chain and refining limitations for critical rare earth minerals in the clean energy transition?`,
+        keyTakeaway: `Diversifying mineral procurement and accelerating closed-loop recycling reduce strategic dependency risks.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'Solid-State Electrolyte Research & Lifecycle Breakthroughs',
+        focusArea: 'Research & Materials',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What technical obstacle in solid-state dendrite formation is current materials research trying to solve?`,
+        keyTakeaway: `Solid-state interfaces require nanometer-level precision before commercial gigafactory manufacturing is viable.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Lifecycle Carbon Accounting: Cradle-to-Grave Impact',
+        focusArea: 'Critical Lifecycle Evaluation',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen to the net carbon advantage if upstream battery manufacturing relies heavily on coal-fired electricity grids?`,
+        keyTakeaway: `True decarbonization requires greening the manufacturing supply chain alongside tailpipe emissions reduction.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Next-Gen Hydrogen Fuel Cells & Distributed Renewable Grids',
+        focusArea: 'Future Infrastructure',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How might distributed microgrids and green hydrogen reshape commercial heavy-duty transport over the next five years?`,
+        keyTakeaway: `Heavy freight and maritime transport will likely adopt hybrid hydrogen-electric systems while passenger vehicles rely on batteries.`,
+      },
+    ],
+    healthcare_medicine: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Pathophysiological Mechanisms & Molecular Diagnostics',
+        focusArea: 'Clinical Foundations',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the core biochemical mechanism behind early biomarker detection in personalized clinical diagnostics?`,
+        keyTakeaway: `High diagnostic sensitivity and specificity prevent costly false positives and enable timely clinical intervention.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'Telemedicine Systems & Primary Health Center Rollout',
+        focusArea: 'Healthcare Delivery',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can remote diagnostic platforms be deployed effectively across rural primary healthcare centers with intermittent bandwidth?`,
+        keyTakeaway: `Store-and-forward edge telemedicine ensures continuous patient triage even in bandwidth-constrained rural clinics.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Clinical Algorithmic Bias & Diagnostic Validation Limits',
+        focusArea: 'Analytical Safety',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the chief clinical limitations when diagnostic predictive models are trained on demographically homogeneous datasets?`,
+        keyTakeaway: `Multicenter cross-validation across diverse demographic cohorts is mandatory before clinical deployment.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'mRNA Vaccine Platforms & Targeted Immunotherapy Research',
+        focusArea: 'Translational Research',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What fundamental delivery vehicle challenge does lipid nanoparticle research attempt to solve in modern therapeutics?`,
+        keyTakeaway: `Targeted intracellular delivery without systemic cytotoxic side effects is the frontier of modern pharmacokinetics.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Medical Ethics, Patient Autonomy & Data Sovereignty',
+        focusArea: 'Bioethics & Law',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen if an autonomous diagnostic tool disagrees with a senior attending physician on a high-risk surgical intervention?`,
+        keyTakeaway: `Final clinical responsibility must remain anchored in human physician oversight while using AI strictly as assistive decision support.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Generative Protein Design & Robotic Surgical Horizons',
+        focusArea: 'Future Medicine',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How might robotic tele-surgery and generative molecular simulation revolutionize operating rooms over the next five years?`,
+        keyTakeaway: `Ultra-low latency 5G networks and haptic feedback will expand access to world-class specialist surgeons globally.`,
+      },
+    ],
+    ecommerce_retail: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Omnichannel Supply Chain Architecture & Dark Store Logistics',
+        focusArea: 'Logistics Foundations',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the fundamental algorithmic principle behind micro-fulfillment dark store inventory placement?`,
+        keyTakeaway: `Hyper-local predictive stocking reduces transit miles and prevents stockouts during sudden demand surges.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'Quick-Commerce Delivery Operations & Last-Mile Efficiency',
+        focusArea: 'Operational Execution',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can e-commerce logistics platforms optimize route batching without compromising rider safety on congested roads?`,
+        keyTakeaway: `Dynamic route grouping must prioritize delivery partner safety buffers over hyper-aggressive delivery countdown timers.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Customer Acquisition Costs & Margin Pressures in Retail',
+        focusArea: 'Economic Sustainability',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the financial limitations and burn-rate risks of discounting models when customer retention rates remain low?`,
+        keyTakeaway: `Sustainable unit economics depend on organic repeat orders and private label margins rather than perpetual capital subsidies.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'Dynamic Pricing Algorithms & Demand Forecasting Models',
+        focusArea: 'Predictive Analytics',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What exact problem in supply-demand elasticity does modern real-time dynamic pricing research aim to solve?`,
+        keyTakeaway: `Price elasticity models must balance short-term revenue optimization against long-term brand trust and customer loyalty.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Gig Worker Welfare, Ethical Logistics & Fair Labor Standards',
+        focusArea: 'Social Impact & Labor',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen to the quick-commerce business model if statutory minimum wages and occupational insurance become mandatory?`,
+        keyTakeaway: `Ethical labor standards, health coverage, and transparent payout formulas create stable, long-term supply chain workforces.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Autonomous Drone Delivery & Computer Vision Checkout',
+        focusArea: 'Future Retail',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How might cashierless sensor fusion and drone logistics reshape consumer grocery purchasing over the next five years?`,
+        keyTakeaway: `Frictionless checkout and aerial delivery will redefine urban convenience once civil aviation regulatory corridors mature.`,
+      },
+    ],
+    finance_crypto: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Digital Public Infrastructure & Real-Time Payment Switches',
+        focusArea: 'Fintech Architecture',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the core architectural principle that enables zero-cost, instant settlement in modern digital payment rails?`,
+        keyTakeaway: `Interoperable open APIs and unified authentication layers eliminate private intermediary monopolies in financial settlements.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'Algorithmic Credit Scoring for Underserved MSMEs',
+        focusArea: 'Financial Inclusion',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can cash-flow based underwriting be applied to extend formal credit to collateral-free small business enterprises?`,
+        keyTakeaway: `Transactional GST and invoice data provide more reliable credit assessment for small enterprises than static asset collateral.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Decentralized Consensus Protocols & Throughput Bottlenecks',
+        focusArea: 'Technical Limitations',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the fundamental trilemma trade-offs between decentralization, security, and transaction throughput in blockchain protocols?`,
+        keyTakeaway: `Layer-2 rollups and sharding address throughput bottlenecks while anchoring security in proven base settlement chains.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'Central Bank Digital Currencies (CBDC) & Programmable Money',
+        focusArea: 'Monetary Research',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What monetary transmission problem does central bank programmable currency solve compared to commercial bank electronic money?`,
+        keyTakeaway: `Programmable sovereign currency allows targeted welfare disbursements with guaranteed end-use verification.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Systemic Financial Contagion & Algorithmic Trading Risks',
+        focusArea: 'Risk & Governance',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen if high-frequency automated liquidity algorithms trigger a cascade liquidation during sudden market volatility?`,
+        keyTakeaway: `Circuit breakers and automated capital buffers are essential safeguards against algorithmic flash crashes and systemic contagion.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Tokenized Real-World Assets & Quantum-Resistant Cryptography',
+        focusArea: 'Future Capital Markets',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How might tokenization of illiquid assets and post-quantum encryption redefine institutional investment banking over the next five years?`,
+        keyTakeaway: `Fractional asset tokenization democratizes high-value investments while post-quantum encryption secures digital assets against future compute threats.`,
+      },
+    ],
+    general: [
+      {
+        seatNumber: 1,
+        subTopicTitle: 'Foundational Principles, Terminology & Framework Overview',
+        focusArea: 'Conceptual Foundations',
+        questionType: 'Conceptual',
+        suggestedQuestion: `What is the main principle underlying this topic, and what are its core structural components?`,
+        keyTakeaway: `Clear conceptual definitions and structured frameworks form the baseline for any successful technical endeavor.`,
+      },
+      {
+        seatNumber: 2,
+        subTopicTitle: 'Practical Real-World Implementation & Industry Applications',
+        focusArea: 'Application & Execution',
+        questionType: 'Application-based',
+        suggestedQuestion: `How can these core concepts be applied practically to solve a concrete real-world industrial challenge?`,
+        keyTakeaway: `Theoretical models must always be tested against ground-level operational realities and customer requirements.`,
+      },
+      {
+        seatNumber: 3,
+        subTopicTitle: 'Operational Limitations, Risk Factors & Implementation Hurdles',
+        focusArea: 'Critical Analysis',
+        questionType: 'Analytical',
+        suggestedQuestion: `What are the most significant limitations and potential failure modes of this approach in practice?`,
+        keyTakeaway: `Identifying hidden edge cases and failure modes early prevents costly rework and organizational friction.`,
+      },
+      {
+        seatNumber: 4,
+        subTopicTitle: 'Research Inquiries, Empirical Evidence & Problem Solving',
+        focusArea: 'Research & Evidence',
+        questionType: 'Research-oriented',
+        suggestedQuestion: `What specific research questions or empirical evidence validate the effectiveness of this methodology?`,
+        keyTakeaway: `Evidence-based decision making and controlled validation are paramount when evaluating competing solutions.`,
+      },
+      {
+        seatNumber: 5,
+        subTopicTitle: 'Multi-Stakeholder Trade-offs, Ethics & Governance Policies',
+        focusArea: 'Governance & Ethics',
+        questionType: 'Critical thinking',
+        suggestedQuestion: `What would happen if key stakeholder priorities or external economic conditions changed unexpectedly?`,
+        keyTakeaway: `Adaptive governance and transparent stakeholder communication ensure long-term organizational resilience.`,
+      },
+      {
+        seatNumber: 6,
+        subTopicTitle: 'Future Trajectory, Technological Evolution & Strategic Outlook',
+        focusArea: 'Future Strategy',
+        questionType: 'Future-oriented',
+        suggestedQuestion: `How is this domain expected to evolve over the next five years, and what skills should students prioritize?`,
+        keyTakeaway: `Continuous learning and interdisciplinary adaptability are essential to thrive amid accelerating industry change.`,
+      },
+    ],
+    cinema_media: [],
+    workplace_career: [],
+    education_learning: [],
+    social_governance: [],
+  };
+
+  // Default to general if domain not explicitly mapped
+  const list = domainMaps[domain] && domainMaps[domain].length === 6 ? domainMaps[domain] : domainMaps.general;
+  return list;
+}
+
+/**
+ * Generates an articulate academic presentation speech delivered by a student at the podium
+ */
+export function generateClassroomStudentPresentation(
+  student: Student,
+  mainTopic: string,
+  assigned: ClassroomAssignedTopic
+): string {
+  return `Respected Faculty, AI Instructor, and dear peers. Today, I am presenting on "${assigned.subTopicTitle}" as part of our discussion on "${mainTopic}". ` +
+    `To understand this subject, we must first examine the key principles: ${assigned.focusArea.toLowerCase()} plays a decisive role in driving measurable outcomes. ` +
+    `In practical industry environments, organizations that implement these standards experience significant improvements in efficiency, reliability, and technical quality. ` +
+    `However, we must also consider the practical challenges—such as resource constraints, backward compatibility, and regulatory compliance. ` +
+    `In conclusion, mastering these concepts enables us to build resilient, scalable solutions that meet modern professional expectations. Thank you, and I look forward to your questions.`;
+}
+
+/**
+ * Generates a thoughtful, relevant peer question from an audience member
+ */
+export function generateClassroomPeerQuestion(
+  peerStudent: Student,
+  presenter: Student,
+  assigned: ClassroomAssignedTopic
+): string {
+  const templates = [
+    `Thank you for that insightful presentation, ${presenter.name.split(' ')[0]}. Regarding "${assigned.subTopicTitle}", how would you suggest an engineering team address the primary limitation you highlighted when operating under tight budget constraints?`,
+    `Great presentation, ${presenter.name.split(' ')[0]}. In your discussion on "${assigned.subTopicTitle}", could you elaborate on a real-world scenario where this method significantly outperformed traditional alternatives?`,
+    `I appreciated your presentation on "${assigned.subTopicTitle}". From your research, what is the single biggest practical hurdle when scaling this solution in production?`,
+  ];
+  return templates[(peerStudent.seatNumber || 1) % templates.length];
+}
+
+/**
+ * Generates presenter's answer to a peer or AI instructor question
+ */
+export function generateClassroomStudentAnswer(
+  presenterStudent: Student,
+  question: string,
+  assigned: ClassroomAssignedTopic
+): string {
+  return `Thank you for that excellent question. Addressing that point directly: when implementing "${assigned.subTopicTitle}", the primary focus should be on modular design and incremental testing. By establishing clear benchmarks early and isolating edge cases, teams can overcome these limitations without excessive operational overhead. That balance between technical precision and practical feasibility is what makes this approach effective.`;
+}
