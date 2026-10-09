@@ -6896,6 +6896,48 @@ function classifyParticipantUtterance(text: string): UtteranceClassification {
   };
 }
 
+function detectTopicDomain(topic: string = ''): string {
+  const t = (topic || '').toLowerCase();
+  
+  if (/\b(movie|movies|film|films|cinema|cinemas|theatre|theater|hollywood|bollywood|tollywood|kollywood|actor|actress|director|ott|streaming|censor|censorship|box office|multiplex|entertainment|media|pop culture|drama|documentar(y|ies)|series)\b/i.test(t)) {
+    return 'cinema_media';
+  }
+  
+  if (/\b(health|healthcare|medical|medicine|hospital|doctor|patient|pharma|pharmaceutical|vaccine|disease|mental health|telemedicine|clinic|surgery|wellness|nurs(e|ing))\b/i.test(t)) {
+    return 'healthcare_medicine';
+  }
+  
+  if (/\b(e-?commerce|ecommerce|online shopping|retail|quick commerce|q-?commerce|delivery|blinkit|zepto|instamart|swiggy|zomato|amazon|flipkart|dark store|kirana|shopping|consumerism|logistics)\b/i.test(t)) {
+    return 'ecommerce_retail';
+  }
+  
+  if (/\b(ev|evs|electric vehicle|electric vehicles|solar|wind|renewable|clean energy|green energy|carbon|climate|climate change|battery|pollution|sustainable|sustainability|net zero|emissions)\b/i.test(t)) {
+    return 'clean_energy_ev';
+  }
+  
+  if (/\b(crypto|cryptocurrency|bitcoin|blockchain|fintech|banking|upi|digital currency|stock market|shares|inflation|investment|cbdc|cashless|finance|monetary)\b/i.test(t)) {
+    return 'finance_crypto';
+  }
+  
+  if (/\b(remote work|work from home|wfh|hybrid work|four-day|4-day|work-life|workplace|layoff|layoffs|moonlighting|gig economy|freelanc(e|ing)|corporate culture|career|retire|employment|unemployment)\b/i.test(t)) {
+    return 'workplace_career';
+  }
+  
+  if (/\b(education|edtech|school|schools|college|colleges|university|universities|student|students|teacher|teachers|curriculum|exam|exams|nep|rote learning|online learning|academic|degree|degrees|higher education)\b/i.test(t)) {
+    return 'education_learning';
+  }
+  
+  if (/\b(ai|artificial intelligence|machine learning|deep learning|genai|generative ai|llm|robot|robotics|automation|algorithm|algorithms|cyber|cybersecurity|data privacy|software|tech|technology|deepfake|metaverse)\b/i.test(t)) {
+    return 'technology_ai';
+  }
+  
+  if (/\b(govern(ance|ment)|polic(y|ies)|democra(cy|tic)|free speech|civil rights|urban planning|smart cit(y|ies)|traffic|public transport|reservation|corruption|law|legal|judiciar(y|ial)|social reform)\b/i.test(t)) {
+    return 'social_governance';
+  }
+
+  return 'general';
+}
+
 function analyzeThoughtHeuristically(
   topic: string,
   speakerName: string,
@@ -6910,17 +6952,42 @@ function analyzeThoughtHeuristically(
 
   const raw = (spokenText || '').trim();
   const lower = raw.toLowerCase();
+  const domain = detectTopicDomain(topic);
 
   // Extract cleanest core statement by stripping conversational preamble
   const cleaned = raw
-    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that|what i feel is that|personally i think)/i, '')
+    .replace(/^(i think that|in my opinion|according to me|i strongly believe that|i believe that|well|actually|basically|from my point of view|my point is that|what i feel is that|personally i think)\s*/i, '')
     .trim();
 
   let coreAnalysis = '';
   let probingFollowup = '';
   let peerTransition = '';
 
-  if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue') || lower.includes('budget')) {
+  const isCinema = domain === 'cinema_media' || /\b(movie|film|cinema|actor|actress|director|ott|theatre|theater|entertainment|song|music|media|censor|series|screen|box office|multiplex)\b/i.test(lower);
+
+  if (isCinema) {
+    if (lower.includes('village') || lower.includes('rural') || lower.includes('grassroot') || lower.includes('people') || lower.includes('mass') || lower.includes('impact') || lower.includes('society') || lower.includes('culture')) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you made an important observation regarding the cultural influence and grassroots reach of cinema in village and rural communities.`;
+      probingFollowup = `Do you believe mainstream cinema authentically reflects grassroots realities and inspires positive social change, or does it primarily create commercial escapism?`;
+      peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s point about the deep social impact of cinema on rural and grassroots audiences?`;
+    } else if (lower.includes('ott') || lower.includes('stream') || lower.includes('theatre') || lower.includes('theater') || lower.includes('hall') || lower.includes('multiplex') || lower.includes('digital')) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you brought up the evolving tension between traditional cinema theatres and digital OTT streaming platforms in ${topic}.`;
+      probingFollowup = `Can single-screen and regional theatres economically survive as viewers increasingly gravitate toward at-home streaming convenience?`;
+      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you see the future of communal movie viewing compared to personalized streaming?`;
+    } else if (lower.includes('censor') || lower.includes('freedom') || lower.includes('ban') || lower.includes('rating') || lower.includes('violence') || lower.includes('content')) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted the sensitive balance between creative artistic freedom and responsible content censorship in ${topic}.`;
+      probingFollowup = `Should regulatory boards enforce strict censorship, or should mature age-classification systems empower audiences to make their own choices?`;
+      peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, what is your stance on creative freedom versus social accountability in media?`;
+    } else if (lower.includes('budget') || lower.includes('cost') || lower.includes('ticket') || lower.includes('box office') || lower.includes('money') || lower.includes('commercial') || lower.includes('price')) {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you focused on commercial box office pressures and high production economics within ${topic}.`;
+      probingFollowup = `How can independent, content-driven films compete commercially when massive marketing budgets dominate theatre screens?`;
+      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you believe high production budgets guarantee quality, or is compelling storytelling being overshadowed?`;
+    } else {
+      coreAnalysis = `${firstName} from ${speakerSeat}, you underscored how ${topic} actively shapes societal mindsets and modern popular culture.`;
+      probingFollowup = `What responsibility do filmmakers and influential media stars have toward addressing pressing social issues?`;
+      peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s perspective on ${topic} resonate with your viewpoint?`;
+    }
+  } else if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive') || lower.includes('money') || lower.includes('afford') || lower.includes('financial') || lower.includes('econom') || lower.includes('margin') || lower.includes('revenue') || lower.includes('budget')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted financial feasibility and operational cost pressures in ${topic}.`;
     probingFollowup = `How can organizations mitigate these financial burdens without compromising service quality or consumer affordability?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s economic assessment, or do you view the financial returns differently?`;
@@ -6952,14 +7019,22 @@ function analyzeThoughtHeuristically(
     coreAnalysis = `${firstName} from ${speakerSeat}, you focused on the critical implications for public health, well-being, and institutional healthcare capacity in ${topic}.`;
     probingFollowup = `How can high-stress environments prevent burnout while maintaining operational excellence?`;
     peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s focus on health and well-being within this discussion?`;
-  } else if (lower.includes('rural') || lower.includes('access') || lower.includes('reach') || lower.includes('infrastruct') || lower.includes('tier') || lower.includes('divide')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the challenge of equitable regional access and infrastructure disparities in ${topic}.`;
-    probingFollowup = `What realistic infrastructure investments are required so underserved communities can participate on equal footing?`;
-    peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s emphasis on accessibility influence your stance on this subject?`;
-  } else if (lower.includes('delivery') || lower.includes('speed') || lower.includes('quick') || lower.includes('logistics') || lower.includes('convenien') || lower.includes('customer')) {
-    coreAnalysis = `${firstName} from ${speakerSeat}, your observation regarding customer convenience and rapid fulfillment touches the operational heart of ${topic}.`;
-    probingFollowup = `Does the push for instant delivery compromise employee well-being and operational safety? How should that balance be struck?`;
+  } else if (lower.includes('rural') || lower.includes('village') || lower.includes('grassroot') || lower.includes('town') || lower.includes('access') || lower.includes('reach') || lower.includes('infrastruct') || lower.includes('tier') || lower.includes('divide')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you underscored the vital challenge of equitable regional access, village realities, and infrastructure disparities in ${topic}.`;
+    probingFollowup = `What realistic infrastructure investments are required so underserved and rural communities can participate on equal footing?`;
+    peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s emphasis on grassroots accessibility influence your stance on this subject?`;
+  } else if (lower.includes('delivery') || lower.includes('speed') || lower.includes('quick') || lower.includes('logistics') || lower.includes('convenien') || lower.includes('customer') || lower.includes('kirana') || lower.includes('rider')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, your observation regarding customer convenience, local retail impact, and rapid fulfillment touches the operational heart of ${topic}.`;
+    probingFollowup = `Does the push for instant delivery compromise gig-worker safety and traditional local retailers? How should that balance be struck?`;
     peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you respond to ${firstName}'s analysis of customer convenience versus operational sustainability?`;
+  } else if (lower.includes('ev') || lower.includes('battery') || lower.includes('charging') || lower.includes('lithium') || lower.includes('grid')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out critical infrastructure, charging readiness, and battery lifecycle factors in ${topic}.`;
+    probingFollowup = `How can emerging markets scale high-voltage charging networks without causing localized power grid instability?`;
+    peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, what is your take on ${firstName}'s infrastructure concerns in this transition?`;
+  } else if (lower.includes('crypto') || lower.includes('bitcoin') || lower.includes('blockchain') || lower.includes('upi') || lower.includes('cashless') || lower.includes('fintech')) {
+    coreAnalysis = `${firstName} from ${speakerSeat}, you touched upon decentralized transaction models and digital financial infrastructure in ${topic}.`;
+    probingFollowup = `How can financial watchdogs prevent speculative fraud without stifling legitimate technological innovation?`;
+    peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, do you agree with ${firstName}'s view on digital financial adoption?`;
   } else if (lower.includes('tech') || lower.includes('ai') || lower.includes('automat') || lower.includes('digital') || lower.includes('platform') || lower.includes('tool') || lower.includes('software')) {
     coreAnalysis = `${firstName} from ${speakerSeat}, your insight on technological scalability and automated efficiency provides a strong practical foundation for ${topic}.`;
     probingFollowup = `While technology drives efficiency, where must human oversight remain strictly non-negotiable?`;
@@ -6971,16 +7046,16 @@ function analyzeThoughtHeuristically(
 
     if (styleIndex === 0) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out that ${snippet || 'this issue demands careful nuance'}.`;
-      probingFollowup = `Considering practical constraints, what potential counter-argument or implementation roadblock must be addressed?`;
-      peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint, and what counter-arguments or additions would you propose?`;
+      probingFollowup = `Considering practical constraints in ${topic}, what potential counter-argument or implementation roadblock must be addressed?`;
+      peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s viewpoint on ${topic}, and what counter-arguments or additions would you propose?`;
     } else if (styleIndex === 1) {
       coreAnalysis = `${firstName} from ${speakerSeat}, your emphasis that ${snippet || 'we must weigh the trade-offs carefully'} raises a pivotal point in ${topic}.`;
-      probingFollowup = `What real-world evidence or metric would prove that this approach is viable on a large scale?`;
-      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s perspective, or do you see a different challenge?`;
+      probingFollowup = `What real-world evidence or metric in ${topic} would prove that this approach is viable on a large scale?`;
+      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s perspective on ${topic}, or do you see a different challenge?`;
     } else {
-      coreAnalysis = `${firstName} from ${speakerSeat}, arguing that ${snippet || 'this issue requires structured planning'} introduces a critical dimension to our discussion.`;
-      probingFollowup = `How can decision-makers execute on this without creating unintended consequences?`;
-      peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s point, and how would you build upon it?`;
+      coreAnalysis = `${firstName} from ${speakerSeat}, arguing that ${snippet || 'this issue requires structured planning'} introduces a critical dimension to our discussion on ${topic}.`;
+      probingFollowup = `How can decision-makers execute on this in ${topic} without creating unintended consequences?`;
+      peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s point regarding ${topic}, and how would you build upon it?`;
     }
   }
 
@@ -7073,9 +7148,30 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     const seatStr = targetReal.seatNumber ? `Seat ${targetReal.seatNumber}` : 'your seat';
 
     let invitation = '';
+    const roomDomain = detectTopicDomain(room.topic);
 
     if (isOpening) {
-      invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
+      if (roomDomain === 'cinema_media') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Cinema holds immense cultural and social influence across our communities. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'healthcare_medicine') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Healthcare accessibility and clinical quality affect every citizen. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'ecommerce_retail') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Digital commerce and instant fulfillment are reshaping consumer habits and local economies. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'clean_energy_ev') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Sustainable infrastructure and clean mobility are crucial for our future. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'finance_crypto') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Digital financial systems must balance rapid innovation with security and stability. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'workplace_career') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Modern workplace dynamics, flexibility, and employee well-being are undergoing historic shifts. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'education_learning') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Education and skill development form the bedrock of societal progression. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'technology_ai') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Technological innovation brings immense potential alongside critical ethical questions. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else if (roomDomain === 'social_governance') {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. Effective public governance demands balancing civic welfare and administrative execution. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${room.topic}".`;
+      } else {
+        invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
+      }
     } else if (utteranceClassification.category === 'mic_check') {
       invitation = isSameSpeaker
         ? `Hello ${speakerFirstName} from ${speakerSeat}, your audio is loud and clear. Please go ahead and share your opening thoughts or perspective on "${room.topic}".`
@@ -7085,9 +7181,29 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
         ? `Hello ${speakerFirstName} from ${speakerSeat}. You have the floor—please go ahead and put forth your views on "${room.topic}".`
         : `Hello ${speakerFirstName} from ${speakerSeat}. When you are ready, please present your perspective on "${room.topic}". Otherwise, let us hear opening thoughts from ${targetReal.name} from ${seatStr}.`;
     } else if (utteranceClassification.category === 'filler') {
-      invitation = isSameSpeaker
-        ? `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments or real-world examples regarding "${room.topic}".`
-        : `Thank you, ${speakerFirstName} from ${speakerSeat}. Let us now hear from ${targetReal.name} from ${seatStr}. ${firstName}, what is your take on "${room.topic}"?`;
+      if (isSameSpeaker) {
+        if (roomDomain === 'cinema_media') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, how "${room.topic}" influences culture, box office realities, or grassroots community perspectives.`;
+        } else if (roomDomain === 'healthcare_medicine') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, addressing patient care, public health infrastructure, or affordability in "${room.topic}".`;
+        } else if (roomDomain === 'ecommerce_retail') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, how "${room.topic}" affects traditional Kiranas, consumer behavior, or delivery rider welfare.`;
+        } else if (roomDomain === 'clean_energy_ev') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, examining charging infrastructure, battery sustainability, or the economics of "${room.topic}".`;
+        } else if (roomDomain === 'finance_crypto') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, addressing financial inclusion, market volatility, or regulatory trust in "${room.topic}".`;
+        } else if (roomDomain === 'workplace_career') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, examining employee productivity, work-life balance, or organizational culture in "${room.topic}".`;
+        } else if (roomDomain === 'education_learning') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, addressing student well-being, curriculum modernization, or pedagogical quality in "${room.topic}".`;
+        } else if (roomDomain === 'technology_ai') {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments—for instance, discussing data privacy, algorithmic ethics, or human oversight in "${room.topic}".`;
+        } else {
+          invitation = `Understood, ${speakerFirstName} from ${speakerSeat}. Please elaborate with concrete arguments or real-world examples regarding "${room.topic}".`;
+        }
+      } else {
+        invitation = `Thank you, ${speakerFirstName} from ${speakerSeat}. Let us now hear from ${targetReal.name} from ${seatStr}. ${firstName}, what is your take on "${room.topic}"?`;
+      }
     } else {
       // Substantive argument! Analyze the argument and reply accordingly without empty praises.
       invitation = analyzeThoughtHeuristically(
@@ -7219,19 +7335,69 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
     .map((t) => `${t.speakerName}: ${t.text}`)
     .join('\n');
 
-  const fallbackQuestions = [
-    `${candidateName} ${seatStr}, since the floor is quiet, what is one practical example that supports your position on "${room.topic}"?`,
-    `${candidateName} ${seatStr}, ${firstName}, what is the strongest concern or counter-argument you see with the viewpoint discussed so far?`,
-    `${candidateName} ${seatStr}, how could this idea be implemented realistically in an Indian college or workplace environment?`,
-    `${candidateName} ${seatStr}, ${firstName}, who is most affected by this issue, and why should their perspective matter in this debate?`,
-    `${candidateName} ${seatStr}, if you had to challenge one core assumption in this discussion so far, which would you challenge?`,
-    `${candidateName} ${seatStr}, ${firstName}, what tangible evidence or outcome would convince you that this approach is truly viable?`,
-    `${candidateName} ${seatStr}, looking at the long-term trade-offs, what unintended consequence might arise if we rush into this?`,
-    `${candidateName} ${seatStr}, ${firstName}, how would you balance the economic demands against ethical responsibilities in "${room.topic}"?`,
-    `${candidateName} ${seatStr}, what policy or structural reform would be needed before this solution could succeed on ground?`,
-    `${candidateName} ${seatStr}, ${firstName}, the group has explored several angles; what fresh angle or missed dimension can you bring to "${room.topic}"?`
-  ];
-  let deadlockQuestion = fallbackQuestions[(room.deadlockCount - 1) % fallbackQuestions.length];
+  const deadlockDomain = detectTopicDomain(room.topic);
+
+  const domainDeadlockQuestions: Record<string, string[]> = {
+    cinema_media: [
+      `${candidateName} ${seatStr}, since the floor is quiet, do you believe cinema has an obligation to challenge deep-rooted social problems, or should it remain purely commercial entertainment?`,
+      `${candidateName} ${seatStr}, ${firstName}, how is the rapid rise of OTT streaming altering regional storytelling, theatre survival, and community viewing in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, what impact do you think film celebrities and modern media narratives have on youth mindsets and rural communities?`,
+      `${candidateName} ${seatStr}, ${firstName}, looking at "${room.topic}", where should regulatory bodies draw the line between artistic creative freedom and public content censorship?`,
+      `${candidateName} ${seatStr}, how can independent, content-driven cinema compete against mega-budget commercial franchises in "${room.topic}"?`,
+    ],
+    healthcare_medicine: [
+      `${candidateName} ${seatStr}, since the floor is quiet, how can public and private healthcare models bridge the acute divide between urban hospitals and rural clinics in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, what ethical safeguards are essential when deploying automated diagnostic algorithms or AI tools in critical patient care?`,
+      `${candidateName} ${seatStr}, how should policy address catastrophic out-of-pocket medical expenses that push vulnerable households into financial distress?`,
+      `${candidateName} ${seatStr}, ${firstName}, what systemic measures can prevent severe healthcare worker burnout while maintaining high clinical quality in "${room.topic}"?`,
+    ],
+    ecommerce_retail: [
+      `${candidateName} ${seatStr}, since the floor is quiet, does the intense push for 10-minute delivery compromise gig-worker safety and local Kirana store survival in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, how can small neighbourhood retailers adapt to digital supply chains without being marginalized by giant platform monopolies?`,
+      `${candidateName} ${seatStr}, looking at consumer habits in "${room.topic}", are dark stores and algorithmic discounts encouraging unsustainable consumerism and plastic waste?`,
+    ],
+    clean_energy_ev: [
+      `${candidateName} ${seatStr}, since the floor is quiet, what practical charging infrastructure solutions are needed before electric vehicles can become viable beyond tier-1 cities?`,
+      `${candidateName} ${seatStr}, ${firstName}, how do we ensure the clean energy transition in "${room.topic}" accounts for the environmental costs of battery mining and grid upgrades?`,
+      `${candidateName} ${seatStr}, if an electric vehicle is charged by a coal-dominated power grid, how green is the transition in reality?`,
+    ],
+    finance_crypto: [
+      `${candidateName} ${seatStr}, since the floor is quiet, how can digital financial innovation expand economic inclusion without exposing unbanked citizens to cyber fraud?`,
+      `${candidateName} ${seatStr}, ${firstName}, do decentralized cryptocurrencies represent the future of finance, or do volatility and illicit speculation demand strict regulation in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, looking at digital transactions and cashless models, how do we protect citizen privacy against excessive transaction surveillance?`,
+    ],
+    workplace_career: [
+      `${candidateName} ${seatStr}, since the floor is quiet, how can organizations balance the flexibility of remote and hybrid work against team culture and spontaneous innovation?`,
+      `${candidateName} ${seatStr}, ${firstName}, what concrete workplace policies can protect employees from chronic digital burnout and unreasonable after-hours connectivity in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, as automation shifts job roles, who bears the primary responsibility for continuous reskilling—the employee, the employer, or the state?`,
+    ],
+    education_learning: [
+      `${candidateName} ${seatStr}, since the floor is quiet, how must higher education pivot from rote exam memorization toward critical thinking and hands-on synthesis in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, what are the risks of hyper-competitive private coaching factories on student mental health and genuine intellectual curiosity?`,
+      `${candidateName} ${seatStr}, how can universities ensure emerging digital learning tools empower educators rather than creating an impersonal classroom experience?`,
+    ],
+    technology_ai: [
+      `${candidateName} ${seatStr}, since the floor is quiet, where must human oversight remain strictly non-negotiable as autonomous algorithms take over critical decisions in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, how should society balance the rapid benefits of automation against workforce disruption and data privacy risks in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, what institutional safeguards are necessary to prevent deepfakes and algorithmic misinformation from undermining public trust?`,
+    ],
+    social_governance: [
+      `${candidateName} ${seatStr}, since the floor is quiet, how can policymakers bridge the gap between ambitious top-down legislation and ground-level execution in "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, what mechanisms can empower citizens to actively participate in civic governance rather than remaining passive observers?`,
+      `${candidateName} ${seatStr}, looking at "${room.topic}", how should municipal authorities balance rapid urban infrastructure expansion with environmental sustainability?`,
+    ],
+    general: [
+      `${candidateName} ${seatStr}, since the floor is quiet, what is one practical example that supports your position on "${room.topic}"?`,
+      `${candidateName} ${seatStr}, ${firstName}, what is the strongest concern or counter-argument you see with the viewpoint discussed so far on "${room.topic}"?`,
+      `${candidateName} ${seatStr}, how could this idea be implemented realistically in an Indian college or workplace environment?`,
+      `${candidateName} ${seatStr}, ${firstName}, who is most affected by this issue, and why should their perspective matter in this debate?`,
+      `${candidateName} ${seatStr}, if you had to challenge one core assumption in this discussion so far regarding "${room.topic}", which would you challenge?`,
+      `${candidateName} ${seatStr}, ${firstName}, how would you balance the economic demands against ethical responsibilities in "${room.topic}"?`,
+    ]
+  };
+
+  const pool = domainDeadlockQuestions[deadlockDomain] || domainDeadlockQuestions.general;
+  let deadlockQuestion = pool[(room.deadlockCount - 1) % pool.length];
 
   if (ai) {
     try {
