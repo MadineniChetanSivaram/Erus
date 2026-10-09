@@ -1374,36 +1374,28 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
               <div className="flex items-center gap-2 shrink-0 flex-wrap">
                 <button
                   type="button"
-                  onClick={handleRegenerateSlots}
-                  disabled={isRegeneratingSlots}
-                  className="px-3.5 py-2.5 rounded-xl border border-amber-300 dark:border-amber-800/80 bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-slate-700 text-amber-800 dark:text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
-                  title="Regenerate random slots with 15 students per slot based on your college student limit"
+                  onClick={loadAllData}
+                  disabled={loading}
+                  className="px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Refresh discussion slots list"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingSlots ? 'animate-spin' : ''}`} />
-                  <span>{isRegeneratingSlots ? 'Generating...' : 'Regenerate 15-Student Slots'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenCreateSession) {
-                      onOpenCreateSession();
-                    } else {
-                      setIsScheduleSlotOpen(true);
-                    }
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Schedule Custom Slot</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  <span>Refresh Slots</span>
                 </button>
               </div>
             </div>
           </div>
 
           {/* Slots Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displaySlots.map((sl, idx) => {
+          {displaySlots.length === 0 ? (
+            <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+              <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-400 opacity-60" />
+              <p className="font-semibold text-sm">No discussion slots provisioned yet.</p>
+              <p className="text-xs mt-1">Slots are provisioned based on the student quota configured by the Super Admin.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {displaySlots.map((sl, idx) => {
               const cleanTitle = cleanSlotName(sl.slotName) || `Slot ${idx + 1}`;
               const isTopicPending =
                 !sl.topic ||
@@ -1576,7 +1568,8 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
         </div>
         )
       )}
@@ -2449,220 +2442,9 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
         </div>
       )}
 
-      {/* ==================================================== */}
-      {/* MODAL: SCHEDULE NEW GD SLOT */}
-      {/* ==================================================== */}
-      {isScheduleSlotOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl animate-fade-in">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-amber-600" />
-                <h3 className="font-heading font-extrabold text-base text-slate-900 dark:text-white">
-                  Schedule New GD Slot
-                </h3>
-              </div>
-              <button onClick={() => setIsScheduleSlotOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <form onSubmit={handleScheduleSlotSubmit} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Slot Name / Batch</label>
-                <input
-                  type="text"
-                  value={newSlot.slotName}
-                  onChange={(e) => setNewSlot({ ...newSlot, slotName: e.target.value })}
-                  placeholder="e.g. Slot 3: Engineering Placement Round"
-                  required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                />
-              </div>
 
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Discussion Topic</label>
-                <textarea
-                  rows={2}
-                  value={newSlot.topic}
-                  onChange={(e) => setNewSlot({ ...newSlot, topic: e.target.value })}
-                  placeholder="Enter the debate or discussion topic..."
-                  required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                />
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Scheduled Date</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={newSlot.slotDate}
-                    onChange={(e) => setNewSlot({ ...newSlot, slotDate: e.target.value })}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Scheduled Timing</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={newSlot.slotTiming}
-                    onChange={(e) => setNewSlot({ ...newSlot, slotTiming: e.target.value })}
-                    placeholder="11:30 AM - 11:45 AM"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Duration (Minutes)</label>
-                  <input
-                    type="number"
-                    value={newSlot.durationMinutes}
-                    onChange={(e) => setNewSlot({ ...newSlot, durationMinutes: parseInt(e.target.value, 10) || 15 })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Assign Faculty Evaluator (Observer)
-                </label>
-                <select
-                  value={newSlot.assignedFacultyId}
-                  onChange={(e) => {
-                    const sel = faculty.find((f) => f.facultyId === e.target.value);
-                    setNewSlot({
-                      ...newSlot,
-                      assignedFacultyId: e.target.value,
-                      assignedFacultyName: sel?.name || '',
-                    });
-                  }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950"
-                >
-                  {faculty.map((f) => (
-                    <option key={f.facultyId} value={f.facultyId}>
-                      {f.name} ({f.department})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 text-xs">
-                    <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>Number of Students for this GD Session</span>
-                  </label>
-                  <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-                    {newSlot.participantCount} Students
-                  </span>
-                </div>
-
-                {/* Quick Capacity Presets */}
-                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                  <span className="text-[10px] text-slate-500 font-medium">Quick Select:</span>
-                  {[4, 6, 8, 10, 12, 15].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => setNewSlot({ ...newSlot, participantCount: count })}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        newSlot.participantCount === count
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {count}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Custom Number Input & Slider */}
-                <div className="grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-8">
-                    <input
-                      type="range"
-                      min={2}
-                      max={15}
-                      value={newSlot.participantCount}
-                      onChange={(e) => setNewSlot({ ...newSlot, participantCount: parseInt(e.target.value, 10) || 8 })}
-                      className="w-full accent-amber-600 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-400 px-0.5 -mt-1 font-mono">
-                      <span>2 (Min)</span>
-                      <span>8 (Recommended)</span>
-                      <span>15 (Max)</span>
-                    </div>
-                  </div>
-                  <div className="col-span-4">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min={2}
-                        max={15}
-                        value={newSlot.participantCount}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          if (!isNaN(val)) {
-                            setNewSlot({ ...newSlot, participantCount: Math.max(2, Math.min(15, val)) });
-                          }
-                        }}
-                        className="w-full px-3 py-1.5 text-xs text-center font-bold font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 focus:ring-2 focus:ring-amber-500"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
-                        seats
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dynamic Roster Allocation Preview Note */}
-                <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/50 text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
-                  {students.length >= newSlot.participantCount ? (
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span><strong>{newSlot.participantCount} registered students</strong> will be seated (Seats 1 to {newSlot.participantCount}) from your enrolled roster.</span>
-                    </span>
-                  ) : students.length > 0 ? (
-                    <span className="flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span><strong>{students.length} registered students</strong> + <strong>{newSlot.participantCount - students.length} AI peer personas</strong> will be seated to fill all {newSlot.participantCount} seats.</span>
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>All <strong>{newSlot.participantCount} seats</strong> will be filled by Indian English AI peer personas with automated multi-turn debate.</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsScheduleSlotOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs"
-                >
-                  Confirm & Schedule
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ==================================================== */}
       {/* MODAL: ALLOT TOPIC & FACULTY IN-CHARGE */}
