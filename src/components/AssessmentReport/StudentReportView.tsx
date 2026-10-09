@@ -903,8 +903,8 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
         </div>
       )}
 
-      {/* Discussion Audio & Video Archive & Playback Player */}
-      {(session?.recordingUrl || currentReport?.recordingUrl) && (
+      {/* Discussion Audio & Video Archive & Playback Player (Hidden for students; visible to faculty/admin) */}
+      {!isStudent && (session?.recordingUrl || currentReport?.recordingUrl) && (
         <div className="no-print p-4 rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-indigo-500/10 dark:from-teal-950/40 dark:via-emerald-950/40 dark:to-indigo-950/40 border border-teal-500/30 dark:border-teal-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
@@ -1424,8 +1424,8 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
       </div>
 
-      {/* GD Video Recording Playback Modal */}
-      {showVideoModal && (
+      {/* GD Video Recording Playback Modal (Faculty & Admin Only) */}
+      {showVideoModal && !isStudent && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => setShowVideoModal(false)}

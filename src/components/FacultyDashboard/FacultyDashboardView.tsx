@@ -74,6 +74,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [persistedReports, setPersistedReports] = useState<any[]>([]);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [activeVideoSlot, setActiveVideoSlot] = useState<any | null>(null);
 
 
   const aiSummary = persistedReports.length > 0
@@ -450,6 +451,21 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                         </button>
 
                         <div className="flex items-center gap-2 shrink-0">
+                          {sl.recordingUrl && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveVideoSlot(sl);
+                                setShowVideoModal(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                              title="Watch full recorded video of this GD session"
+                            >
+                              <Video className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span className="hidden sm:inline">Watch Video</span>
+                            </button>
+                          )}
+
                           {sl.recordingUrl && (
                             <a
                               href={sl.recordingUrl}
@@ -1198,7 +1214,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
       {showVideoModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
-          onClick={() => setShowVideoModal(false)}
+          onClick={() => {
+            setShowVideoModal(false);
+            setActiveVideoSlot(null);
+          }}
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl flex flex-col gap-3"
@@ -1214,12 +1233,15 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                     Recorded Group Discussion Video
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Topic: {safeSession?.topic || 'Group Discussion'}
+                    Topic: {activeVideoSlot?.topic || activeVideoSlot?.slotName || safeSession?.topic || 'Group Discussion'}
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setShowVideoModal(false)}
+                onClick={() => {
+                  setShowVideoModal(false);
+                  setActiveVideoSlot(null);
+                }}
                 className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Close"
               >
@@ -1231,7 +1253,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               <video
                 controls
                 autoPlay
-                src={safeSession?.recordingUrl}
+                src={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
                 className="w-full h-full object-contain"
               >
                 Your browser does not support the video tag.
@@ -1244,8 +1266,8 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                 <span>Recorded Discussion Session</span>
               </span>
               <a
-                href={safeSession?.recordingUrl}
-                download={`GD-Video-${safeSession?.id || 'session'}.webm`}
+                href={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
+                download={`GD-Video-${activeVideoSlot?.id || safeSession?.id || 'session'}.webm`}
                 target="_blank"
                 rel="noreferrer"
                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"

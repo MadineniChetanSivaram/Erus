@@ -304,7 +304,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
     onSessionEnded: () => {
       // Synchronized GD termination: faculty has completed the GD, so student view automatically finishes & evaluates
-      if (isFacultyOrAdmin && gdRecorderRef.current?.isRecording) {
+      if (gdRecorderRef.current?.isRecording) {
         gdRecorderRef.current.stopAndUploadRecording(session.slotId || session.id).catch(() => {});
       }
       onFinishSession();
@@ -711,15 +711,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     videoStream,
   ]);
 
-  // Automated Live Discussion Multi-Stream Video/Audio Recorder (Runs ONLY on faculty/admin portal)
-  // Prevents duplicate recordings and avoids draining mobile devices/student laptops
+  // Automated Live Discussion Multi-Stream Video/Audio Recorder
+  // Runs on Faculty/Admin if present; otherwise runs on primary student client so EVERY GD is recorded
+  const isRecordingClient = useMemo(() => {
+    if (isFacultyOrAdmin) return true;
+    // Check if there is a faculty peer present in WebRTC room
+    const hasFacultyInRoom = Array.from(rtcPeerStreams?.keys() || []).some((k) => k.toLowerCase().includes('faculty'));
+    if (hasFacultyInRoom) return false;
+    // Primary student acts as background recorder to guarantee recording exists
+    const userStudent = activeDisplayStudents.find((s) => s.isUser);
+    if (!userStudent) return false;
+    const allUserSeats = activeDisplayStudents.filter((s) => s.isUser).map((s) => s.seatNumber || 1);
+    return (userStudent.seatNumber || 1) === Math.min(...allUserSeats);
+  }, [isFacultyOrAdmin, rtcPeerStreams, activeDisplayStudents]);
+
   const gdRecorder = useGDRecorder({
     slotId: session.slotId || session.id || 'slot-1',
     isSessionActive: session.status === 'active',
-    localStream: isFacultyOrAdmin ? videoStream : null,
+    localStream: videoStream,
     peerStreams: rtcPeerStreams,
-    recordVideo: isFacultyOrAdmin,
-    enabled: isFacultyOrAdmin,
+    recordVideo: isRecordingClient,
+    enabled: isRecordingClient,
     topicTitle: session.topic || (session as any).topicTitle || 'Group Discussion',
     participantTiles: activeDisplayStudents.map((st) => ({
       id: st.id,
@@ -736,7 +748,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   // Conclude or leave GD discussion with automatic video recording preservation
   const handleConcludeOrLeaveSession = useCallback(async () => {
-    if (isFacultyOrAdmin && gdRecorder.isRecording) {
+    if (gdRecorder.isRecording) {
       try {
         await gdRecorder.stopAndUploadRecording(session.slotId || session.id);
       } catch (recErr) {
@@ -747,7 +759,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       rtcFinishSession();
     }
     onFinishSession();
-  }, [isFacultyOrAdmin, gdRecorder, session.slotId, session.id, isFaculty, rtcFinishSession, onFinishSession]);
+  }, [gdRecorder, session.slotId, session.id, isFaculty, rtcFinishSession, onFinishSession]);
 
   const latestSpeakerTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
   const activeStudentUser = !isFaculty ? activeDisplayStudents.find((s) => s.isUser) : null;
@@ -1637,18 +1649,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <span>Faculty: <strong>{session?.assignedFacultyName || 'Assigned Faculty Evaluator'}</strong></span>
               </span>
 
-              {/* Live Video Recording Status Indicator (Recorded strictly from Faculty portal) */}
+              {/* Live Video Recording Status Indicator (Recorded strictly for Faculty/Admin portal) */}
               {isFacultyOrAdmin && gdRecorder.isRecording ? (
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1.5 shadow-2xs animate-pulse" title="GD discussion video grid is actively being recorded and stored to ERUS server">
                   <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping inline-block" />
                   <span className="font-mono">REC {gdRecorder.formattedDuration} (Video Grid)</span>
                 </span>
-              ) : !isFacultyOrAdmin && isSessionActive ? (
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-50/70 dark:bg-rose-950/50 text-rose-600 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 flex items-center gap-1.5 shadow-2xs" title="Session is being recorded by the faculty evaluator">
-                  <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                  <span className="font-mono">Session Recording Active</span>
-                </span>
-              ) : (gdRecorder.recordingUrl || session.recordingUrl) ? (
+              ) : isFacultyOrAdmin && (gdRecorder.recordingUrl || session.recordingUrl) ? (
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 shadow-2xs">
                   <Video className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>Discussion Video Saved</span>
@@ -1691,7 +1698,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {(gdRecorder.recordingUrl || session.recordingUrl) && (
+                  {isFacultyOrAdmin && (gdRecorder.recordingUrl || session.recordingUrl) && (
                     <div className="flex items-center gap-1.5 bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-xl border border-purple-200 dark:border-purple-800 shadow-2xs">
                       <button
                         onClick={() => setShowVideoModal(true)}
@@ -3577,8 +3584,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         </div>
       )}
 
-      {/* GD Video Recording Playback Modal */}
-      {showVideoModal && (
+      {/* GD Video Recording Playback Modal (Faculty & Admin Only) */}
+      {showVideoModal && isFacultyOrAdmin && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => setShowVideoModal(false)}

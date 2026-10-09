@@ -22,7 +22,8 @@ import {
   Building2, 
   Star,
   RefreshCw,
-  Volume2
+  Volume2,
+  Video
 } from 'lucide-react';
 import { fetchSlotReports } from '../../utils/authApi';
 import { formatSlotDate } from '../../utils/studentBooking';
@@ -49,6 +50,7 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
   const [search, setSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState<string>('ALL');
   const [selectedReportForModal, setSelectedReportForModal] = useState<any | null>(null);
+  const [showVideoModal, setShowVideoModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,19 +248,26 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
 
         <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
           {slot?.recordingUrl && (
-            <div className="flex items-center gap-2 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 p-1 rounded-xl shadow-2xs">
-              <Volume2 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 ml-1.5" />
-              <audio controls src={slot.recordingUrl} className="h-7 w-40 sm:w-48" />
+            <div className="flex items-center gap-2 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 p-1 rounded-xl shadow-2xs flex-wrap">
+              <button
+                onClick={() => setShowVideoModal(true)}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                title="Watch recorded video of this discussion session"
+              >
+                <Video className="w-3.5 h-3.5" />
+                <span>Watch Video</span>
+              </button>
+              <audio controls src={slot.recordingUrl} className="h-7 w-36 sm:w-44" />
               <a
                 href={slot.recordingUrl}
                 download={`GD-${slotId}-Recording.webm`}
                 target="_blank"
                 rel="noreferrer"
                 className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1 transition-all"
-                title="Download discussion audio (.webm)"
+                title="Download discussion recording (.webm)"
               >
                 <Download className="w-3 h-3" />
-                <span className="hidden sm:inline">Audio</span>
+                <span className="hidden sm:inline">Download</span>
               </a>
             </div>
           )}
@@ -708,6 +717,70 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
               >
                 Close Report
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GD Video Playback Modal */}
+      {showVideoModal && slot?.recordingUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+          onClick={() => setShowVideoModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Video className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Recorded Group Discussion Video
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Topic: {slot?.slotName || slot?.topic || 'Discussion Session'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowVideoModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+              <video
+                controls
+                autoPlay
+                src={slot.recordingUrl}
+                className="w-full h-full object-contain"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Recorded GD Session (Video Grid &amp; Audio)</span>
+              </span>
+              <a
+                href={slot.recordingUrl}
+                download={`GD-${slotId}-Video.webm`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Video</span>
+              </a>
             </div>
           </div>
         </div>

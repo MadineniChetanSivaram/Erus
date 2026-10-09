@@ -496,8 +496,8 @@ export const StudentGDJourneyProfile: React.FC<StudentGDJourneyProfileProps> = (
         </div>
       </div>
 
-      {/* Discussion Audio Archive Player */}
-      {currentReport?.recordingUrl && (
+      {/* Discussion Audio Archive Player (Hidden for students; visible to faculty/admin) */}
+      {currentUser?.role !== 'student' && currentReport?.recordingUrl && (
         <div className="no-print p-4 rounded-3xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
