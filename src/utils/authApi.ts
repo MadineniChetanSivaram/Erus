@@ -334,6 +334,69 @@ export async function addCollegeStudents(payload: { students?: any[]; student?: 
   return { success: true, addedCount: incoming.length, students: updated };
 }
 
+export async function updateCollegeStudent(studentIdOrId: string, updates: any, collegeCode: string = '') {
+  const code = (collegeCode || '').trim().toUpperCase();
+  const existing = getLocalStudents(code);
+  const studentIdx = existing.findIndex(
+    (s) => s.id === studentIdOrId || s.studentId === studentIdOrId || s.email?.toLowerCase() === studentIdOrId.toLowerCase()
+  );
+
+  let updatedStudent = { ...updates };
+  if (studentIdx >= 0) {
+    updatedStudent = { ...existing[studentIdx], ...updates };
+    existing[studentIdx] = updatedStudent;
+    saveLocalStudents(code, existing);
+  }
+
+  // Also update in registered users cache
+  try {
+    const raw = localStorage.getItem('erus_registered_users_db');
+    if (raw) {
+      const users = JSON.parse(raw);
+      if (Array.isArray(users)) {
+        const uIdx = users.findIndex(
+          (u: any) =>
+            u.id === studentIdOrId ||
+            u.studentId === studentIdOrId ||
+            u.email?.toLowerCase() === studentIdOrId.toLowerCase() ||
+            (existing[studentIdx] && u.email?.toLowerCase() === existing[studentIdx].email?.toLowerCase())
+        );
+        if (uIdx >= 0) {
+          users[uIdx] = {
+            ...users[uIdx],
+            name: updatedStudent.name || users[uIdx].name,
+            email: updatedStudent.email || users[uIdx].email,
+            studentId: updatedStudent.studentId || users[uIdx].studentId,
+            course: updatedStudent.course || users[uIdx].course,
+            batch: updatedStudent.batch || users[uIdx].batch,
+            seatNumber: updatedStudent.seatNumber || users[uIdx].seatNumber,
+            password: updatedStudent.password || users[uIdx].password,
+          };
+          localStorage.setItem('erus_registered_users_db', JSON.stringify(users));
+        }
+      }
+    }
+  } catch {}
+
+  try {
+    const res = await fetch(`/api/college/students/${encodeURIComponent(studentIdOrId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...updates, collegeCode: code }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.student) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('Error updating student in backend:', e);
+  }
+
+  return { success: true, student: updatedStudent };
+}
+
 export async function fetchCollegeFaculty(collegeCode: string = ''): Promise<any[]> {
   const code = (collegeCode || '').trim().toUpperCase();
   if (!code) return [];
@@ -403,6 +466,68 @@ export async function addCollegeFaculty(payload: any) {
   }
 
   return { success: true, faculty: facObj };
+}
+
+export async function updateCollegeFaculty(facultyIdOrId: string, updates: any, collegeCode: string = '') {
+  const code = (collegeCode || '').trim().toUpperCase();
+  const existing = getLocalFaculty(code);
+  const facIdx = existing.findIndex(
+    (f) => f.id === facultyIdOrId || f.facultyId === facultyIdOrId || f.email?.toLowerCase() === facultyIdOrId.toLowerCase()
+  );
+
+  let updatedFaculty = { ...updates };
+  if (facIdx >= 0) {
+    updatedFaculty = { ...existing[facIdx], ...updates };
+    existing[facIdx] = updatedFaculty;
+    saveLocalFaculty(code, existing);
+  }
+
+  // Also update in registered users cache
+  try {
+    const raw = localStorage.getItem('erus_registered_users_db');
+    if (raw) {
+      const users = JSON.parse(raw);
+      if (Array.isArray(users)) {
+        const uIdx = users.findIndex(
+          (u: any) =>
+            u.id === facultyIdOrId ||
+            u.facultyId === facultyIdOrId ||
+            u.email?.toLowerCase() === facultyIdOrId.toLowerCase() ||
+            (existing[facIdx] && u.email?.toLowerCase() === existing[facIdx].email?.toLowerCase())
+        );
+        if (uIdx >= 0) {
+          users[uIdx] = {
+            ...users[uIdx],
+            name: updatedFaculty.name || users[uIdx].name,
+            email: updatedFaculty.email || users[uIdx].email,
+            facultyId: updatedFaculty.facultyId || users[uIdx].facultyId,
+            department: updatedFaculty.department || users[uIdx].department,
+            designation: updatedFaculty.designation || users[uIdx].designation,
+            password: updatedFaculty.password || users[uIdx].password,
+          };
+          localStorage.setItem('erus_registered_users_db', JSON.stringify(users));
+        }
+      }
+    }
+  } catch {}
+
+  try {
+    const res = await fetch(`/api/college/faculty/${encodeURIComponent(facultyIdOrId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...updates, collegeCode: code }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.faculty) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('Error updating faculty in backend:', e);
+  }
+
+  return { success: true, faculty: updatedFaculty };
 }
 
 export function isFacultyAssignedToSlot(slot: any, user: any): boolean {

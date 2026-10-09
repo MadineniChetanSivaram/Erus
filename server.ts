@@ -2115,6 +2115,106 @@ app.patch('/api/college/students/:id/seat', async (req, res) => {
   res.json({ success: true, student });
 });
 
+app.put(['/api/college/students/:id', '/api/college/students/:id/edit'], async (req, res) => {
+  const { id } = req.params;
+  const { name, email, studentId, course, batch, seatNumber, password, collegeCode } = req.body;
+  const code = normalizeCollegeCode(collegeCode || (req.query.collegeCode as string) || 'BMSIT');
+  const stuList = persistentState.students[code] || [];
+  const student = stuList.find(
+    (s) => s.id === id || s.email?.toLowerCase() === id.toLowerCase() || s.studentId === id
+  );
+  if (!student) {
+    return res.status(404).json({ success: false, error: 'Student not found in roster' });
+  }
+
+  const oldEmail = student.email?.toLowerCase();
+  const oldId = student.id;
+  const oldStudentId = student.studentId;
+
+  if (name !== undefined) student.name = String(name).trim();
+  if (email !== undefined) student.email = String(email).trim();
+  if (studentId !== undefined) student.studentId = String(studentId).trim();
+  if (course !== undefined) student.course = String(course).trim();
+  if (batch !== undefined) student.batch = String(batch).trim();
+  if (seatNumber !== undefined) {
+    const sNum = Number(seatNumber);
+    if (sNum >= 1 && sNum <= 15) student.seatNumber = sNum;
+  }
+  if (password && String(password).trim()) {
+    student.password = String(password).trim();
+  }
+
+  // Update corresponding user in persistentState.users
+  const user = persistentState.users.find(
+    (u) =>
+      u.id === oldId ||
+      u.email?.toLowerCase() === oldEmail ||
+      (oldStudentId && u.studentId === oldStudentId)
+  );
+  if (user) {
+    if (student.name) user.name = student.name;
+    if (student.email) user.email = student.email;
+    if (student.studentId) user.studentId = student.studentId;
+    if (student.course) user.course = student.course;
+    if (student.batch) user.batch = student.batch;
+    if (student.seatNumber) user.seatNumber = student.seatNumber;
+    if (student.password) user.password = student.password;
+    await persistUserToMongoDB(user);
+  }
+
+  // Update enrolled student details in slots
+  const slots = persistentState.slots[code] || [];
+  for (const slot of slots) {
+    if (Array.isArray(slot.students)) {
+      for (const st of slot.students) {
+        if (
+          st.id === oldId ||
+          st.email?.toLowerCase() === oldEmail ||
+          (oldStudentId && st.studentId === oldStudentId)
+        ) {
+          if (student.name) st.name = student.name;
+          if (student.email) st.email = student.email;
+          if (student.studentId) st.studentId = student.studentId;
+          if (student.course) st.course = student.course;
+          if (student.batch) st.batch = student.batch;
+          if (student.seatNumber) st.seatNumber = student.seatNumber;
+        }
+      }
+    }
+  }
+
+  // PostgreSQL update if connected
+  if (isDbConnected && prisma && user) {
+    try {
+      const updateData: any = {
+        name: student.name,
+        email: student.email?.toLowerCase(),
+      };
+      if (student.password) {
+        updateData.passwordHash = await bcrypt.hash(student.password, 10);
+      }
+      await prisma.user.update({
+        where: { id: user.id },
+        data: updateData,
+      });
+      await prisma.studentProfile.updateMany({
+        where: { userId: user.id },
+        data: {
+          studentId: student.studentId,
+          course: student.course,
+          batch: student.batch,
+          seatNumber: student.seatNumber,
+        },
+      });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to update student in PostgreSQL:', dbErr.message);
+    }
+  }
+
+  savePersistentState();
+  res.json({ success: true, student });
+});
+
 app.delete('/api/college/students/:id', async (req, res) => {
   const { id } = req.params;
   const code = normalizeCollegeCode((req.query.collegeCode as string) || 'BMSIT');
@@ -2423,6 +2523,119 @@ app.post('/api/college/faculty', async (req, res) => {
   }
 
   res.json({ success: true, faculty: newFac });
+});
+
+app.put(['/api/college/faculty/:id', '/api/college/faculty/:id/edit'], async (req, res) => {
+  const { id } = req.params;
+  const { name, email, facultyId, department, designation, password, collegeCode } = req.body;
+  const code = normalizeCollegeCode(collegeCode || (req.query.collegeCode as string) || 'BMSIT');
+  const facList = persistentState.faculty[code] || [];
+
+  const faculty = facList.find(
+    (f) => f.id === id || f.email?.toLowerCase() === id.toLowerCase() || f.facultyId === id
+  );
+  if (!faculty) {
+    return res.status(404).json({ success: false, error: 'Faculty member not found in roster' });
+  }
+
+  const oldEmail = faculty.email?.toLowerCase();
+  const oldId = faculty.id;
+  const oldFacultyId = faculty.facultyId;
+
+  if (name !== undefined) faculty.name = String(name).trim();
+  if (email !== undefined) faculty.email = String(email).trim();
+  if (facultyId !== undefined) faculty.facultyId = String(facultyId).trim();
+  if (department !== undefined) faculty.department = String(department).trim();
+  if (designation !== undefined) faculty.designation = String(designation).trim();
+  if (password && String(password).trim()) {
+    faculty.password = String(password).trim();
+  }
+
+  // Update corresponding user in persistentState.users
+  const user = persistentState.users.find(
+    (u) =>
+      u.id === oldId ||
+      u.email?.toLowerCase() === oldEmail ||
+      (oldFacultyId && u.facultyId === oldFacultyId)
+  );
+  if (user) {
+    if (faculty.name) user.name = faculty.name;
+    if (faculty.email) user.email = faculty.email;
+    if (faculty.facultyId) user.facultyId = faculty.facultyId;
+    if (faculty.department) user.department = faculty.department;
+    if (faculty.designation) user.designation = faculty.designation;
+    if (faculty.password) user.password = faculty.password;
+    await persistUserToMongoDB(user);
+  }
+
+  // Update faculty references in slots
+  const slots = persistentState.slots[code] || [];
+  for (const slot of slots) {
+    if (
+      slot.assignedFacultyId === oldFacultyId ||
+      slot.assignedFacultyId === oldId ||
+      slot.facultyEmail?.toLowerCase() === oldEmail
+    ) {
+      if (faculty.name) slot.faculty = faculty.name;
+      if (faculty.name) slot.facultyName = faculty.name;
+      if (faculty.email) slot.facultyEmail = faculty.email;
+      if (faculty.facultyId) slot.assignedFacultyId = faculty.facultyId;
+    }
+  }
+
+  // PostgreSQL update if connected
+  if (isDbConnected && prisma && user) {
+    try {
+      const updateData: any = {
+        name: faculty.name,
+        email: faculty.email?.toLowerCase(),
+      };
+      if (faculty.password) {
+        updateData.passwordHash = await bcrypt.hash(faculty.password, 10);
+      }
+      await prisma.user.update({
+        where: { id: user.id },
+        data: updateData,
+      });
+      await prisma.facultyProfile.updateMany({
+        where: { userId: user.id },
+        data: {
+          facultyId: faculty.facultyId,
+          department: faculty.department,
+          designation: faculty.designation,
+        },
+      });
+    } catch (dbErr: any) {
+      console.warn('[Database] Failed to update faculty in PostgreSQL:', dbErr.message);
+    }
+  }
+
+  savePersistentState();
+  res.json({ success: true, faculty });
+});
+
+app.delete('/api/college/faculty/:id', async (req, res) => {
+  const { id } = req.params;
+  const code = normalizeCollegeCode((req.query.collegeCode as string) || req.body?.collegeCode || 'BMSIT');
+  if (persistentState.faculty[code]) {
+    persistentState.faculty[code] = persistentState.faculty[code].filter(
+      (f) => f.id !== id && f.email?.toLowerCase() !== id.toLowerCase() && f.facultyId !== id
+    );
+  }
+  persistentState.users = persistentState.users.filter(
+    (u) => u.id !== id && u.email?.toLowerCase() !== id.toLowerCase() && u.facultyId !== id
+  );
+  if (isMongoConnected()) {
+    try {
+      await UserModel.deleteMany({
+        $or: [{ id }, { email: id.toLowerCase() }, { 'facultyProfile.facultyId': id }]
+      });
+    } catch (e: any) {
+      console.warn('[MongoDB] Delete faculty error:', e.message);
+    }
+  }
+  savePersistentState();
+  res.json({ success: true, message: 'Faculty member removed successfully' });
 });
 
 app.post('/api/college/dispatch-credentials', async (req, res) => {

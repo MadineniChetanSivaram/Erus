@@ -47,8 +47,10 @@ import {
   fetchCollegeStats, 
   fetchCollegeStudents, 
   addCollegeStudents, 
+  updateCollegeStudent,
   fetchCollegeFaculty, 
   addCollegeFaculty, 
+  updateCollegeFaculty,
   fetchCollegeSlots, 
   createCollegeSlot,
   deleteCollegeSlot,
@@ -151,6 +153,15 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     password: `Fac@${Math.floor(1000 + Math.random() * 9000)}!`,
     sendEmail: true,
   });
+
+  // Edit Student & Faculty State
+  const [editingStudent, setEditingStudent] = useState<any | null>(null);
+  const [isEditStudentOpen, setIsEditStudentOpen] = useState(false);
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+
+  const [editingFaculty, setEditingFaculty] = useState<any | null>(null);
+  const [isEditFacultyOpen, setIsEditFacultyOpen] = useState(false);
+  const [isSavingFaculty, setIsSavingFaculty] = useState(false);
 
   // Slots State
   const [slots, setSlots] = useState<any[]>([]);
@@ -513,6 +524,51 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     }
   };
 
+  const handleOpenEditStudent = (st: any) => {
+    setEditingStudent({
+      id: st.id,
+      name: st.name || '',
+      email: st.email || '',
+      studentId: st.studentId || '',
+      course: st.course || '',
+      batch: st.batch || '',
+      seatNumber: st.seatNumber || 1,
+      password: st.password || '',
+    });
+    setIsEditStudentOpen(true);
+  };
+
+  const handleEditStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    if (!editingStudent.name || !editingStudent.email) return;
+
+    setIsSavingStudent(true);
+    try {
+      const targetId = editingStudent.id || editingStudent.studentId || editingStudent.email;
+      const res = await updateCollegeStudent(targetId, editingStudent, collegeCode);
+      if (res && res.success) {
+        setBannerMsg(`Student "${editingStudent.name}" details updated successfully.`);
+        setStudents((prev) =>
+          prev.map((s) =>
+            s.id === editingStudent.id || s.studentId === editingStudent.studentId || s.email?.toLowerCase() === editingStudent.email?.toLowerCase()
+              ? { ...s, ...editingStudent }
+              : s
+          )
+        );
+        setIsEditStudentOpen(false);
+        setEditingStudent(null);
+        loadAllData();
+      } else {
+        setBannerMsg(res?.error || 'Failed to update student details.');
+      }
+    } catch (err: any) {
+      setBannerMsg(err?.message || 'Error updating student details.');
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
+
   // CSV parsing
   const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -664,6 +720,50 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
         sendEmail: true,
       });
       loadAllData();
+    }
+  };
+
+  const handleOpenEditFaculty = (fac: any) => {
+    setEditingFaculty({
+      id: fac.id,
+      name: fac.name || '',
+      email: fac.email || '',
+      facultyId: fac.facultyId || '',
+      department: fac.department || '',
+      designation: fac.designation || '',
+      password: fac.password || '',
+    });
+    setIsEditFacultyOpen(true);
+  };
+
+  const handleEditFacultySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFaculty) return;
+    if (!editingFaculty.name || !editingFaculty.email) return;
+
+    setIsSavingFaculty(true);
+    try {
+      const targetId = editingFaculty.id || editingFaculty.facultyId || editingFaculty.email;
+      const res = await updateCollegeFaculty(targetId, editingFaculty, collegeCode);
+      if (res && res.success) {
+        setBannerMsg(`Faculty evaluator "${editingFaculty.name}" details updated successfully.`);
+        setFaculty((prev) =>
+          prev.map((f) =>
+            f.id === editingFaculty.id || f.facultyId === editingFaculty.facultyId || f.email?.toLowerCase() === editingFaculty.email?.toLowerCase()
+              ? { ...f, ...editingFaculty }
+              : f
+          )
+        );
+        setIsEditFacultyOpen(false);
+        setEditingFaculty(null);
+        loadAllData();
+      } else {
+        setBannerMsg(res?.error || 'Failed to update faculty details.');
+      }
+    } catch (err: any) {
+      setBannerMsg(err?.message || 'Error updating faculty details.');
+    } finally {
+      setIsSavingFaculty(false);
     }
   };
 
@@ -1078,7 +1178,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <th className="py-3 px-4">Default Seat</th>
                   <th className="py-3 px-4">Default Password</th>
                   <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Credentials</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1142,15 +1242,25 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => handleDispatchSingleStudentEmail(st)}
-                          disabled={isDispatching}
-                          title="Send credentials email to this student"
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-600 hover:text-blue-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
-                        >
-                          <Mail className="w-3.5 h-3.5 text-blue-600" />
-                          <span className="text-[11px] font-semibold">Send Email</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenEditStudent(st)}
+                            title="Edit student details"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-slate-600 hover:text-amber-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                            <span className="text-[11px] font-semibold">Edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDispatchSingleStudentEmail(st)}
+                            disabled={isDispatching}
+                            title="Send credentials email to this student"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-600 hover:text-blue-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-blue-600" />
+                            <span className="text-[11px] font-semibold">Send Email</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1226,7 +1336,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <th className="py-3 px-4">Default Password</th>
                   <th className="py-3 px-4">Assigned Slots</th>
                   <th className="py-3 px-4">Privileges</th>
-                  <th className="py-3 px-4 text-right">Credentials</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1290,15 +1400,25 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => handleDispatchSingleFacultyEmail(fac)}
-                          disabled={isDispatching}
-                          title="Send credentials email to this faculty member"
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-600 hover:text-teal-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
-                        >
-                          <Mail className="w-3.5 h-3.5 text-teal-600" />
-                          <span className="text-[11px] font-semibold">Send Email</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenEditFaculty(fac)}
+                            title="Edit faculty evaluator details"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-600 hover:text-teal-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-teal-600" />
+                            <span className="text-[11px] font-semibold">Edit</span>
+                          </button>
+                          <button
+                            onClick={() => handleDispatchSingleFacultyEmail(fac)}
+                            disabled={isDispatching}
+                            title="Send credentials email to this faculty member"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-slate-600 hover:text-teal-600 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-teal-600" />
+                            <span className="text-[11px] font-semibold">Send Email</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -2218,6 +2338,149 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       )}
 
       {/* ==================================================== */}
+      {/* MODAL: EDIT STUDENT */}
+      {/* ==================================================== */}
+      {isEditStudentOpen && editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-600" />
+                <h3 className="font-heading font-extrabold text-base text-slate-900 dark:text-white">
+                  Edit Student Details
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditStudentOpen(false);
+                  setEditingStudent(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditStudentSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editingStudent.name}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                  placeholder="e.g. Rahul Sharma"
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Institutional Email</label>
+                <input
+                  type="email"
+                  value={editingStudent.email}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, email: e.target.value })}
+                  placeholder="e.g. rahul.s@college.edu.in"
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Roll / ID</label>
+                  <input
+                    type="text"
+                    value={editingStudent.studentId}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, studentId: e.target.value })}
+                    placeholder="STU-2024-301"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Batch</label>
+                  <input
+                    type="text"
+                    value={editingStudent.batch}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, batch: e.target.value })}
+                    placeholder="2024-2028"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Seat (1–15)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="15"
+                    value={editingStudent.seatNumber}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, seatNumber: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono font-bold text-amber-600 dark:text-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Course / Specialization</label>
+                <input
+                  type="text"
+                  value={editingStudent.course}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, course: e.target.value })}
+                  placeholder="B.Tech Computer Science & Engineering"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditingStudent({ ...editingStudent, password: `Stud@${Math.floor(1000 + Math.random() * 9000)}!` })}
+                    className="text-[11px] text-amber-600 hover:underline cursor-pointer"
+                  >
+                    Auto-generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={editingStudent.password || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, password: e.target.value })}
+                    placeholder="e.g. Stud@1024!"
+                    required
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditStudentOpen(false);
+                    setEditingStudent(null);
+                  }}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingStudent}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  {isSavingStudent ? 'Saving...' : 'Update Student'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
       {/* MODAL: BULK CSV UPLOAD */}
       {/* ==================================================== */}
       {isCsvModalOpen && (
@@ -2442,9 +2705,137 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
         </div>
       )}
 
+      {/* ==================================================== */}
+      {/* MODAL: EDIT FACULTY */}
+      {/* ==================================================== */}
+      {isEditFacultyOpen && editingFaculty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-teal-600" />
+                <h3 className="font-heading font-extrabold text-base text-slate-900 dark:text-white">
+                  Edit Faculty Details
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditFacultyOpen(false);
+                  setEditingFaculty(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
+            <form onSubmit={handleEditFacultySubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editingFaculty.name}
+                  onChange={(e) => setEditingFaculty({ ...editingFaculty, name: e.target.value })}
+                  placeholder="e.g. Dr. Harish Chandra"
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
 
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Institutional Email</label>
+                <input
+                  type="email"
+                  value={editingFaculty.email}
+                  onChange={(e) => setEditingFaculty({ ...editingFaculty, email: e.target.value })}
+                  placeholder="e.g. harish.c@college.edu.in"
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Faculty ID</label>
+                  <input
+                    type="text"
+                    value={editingFaculty.facultyId}
+                    onChange={(e) => setEditingFaculty({ ...editingFaculty, facultyId: e.target.value })}
+                    placeholder="FAC-CSE-105"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Designation</label>
+                  <input
+                    type="text"
+                    value={editingFaculty.designation}
+                    onChange={(e) => setEditingFaculty({ ...editingFaculty, designation: e.target.value })}
+                    placeholder="Associate Professor"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">Department</label>
+                <input
+                  type="text"
+                  value={editingFaculty.department}
+                  onChange={(e) => setEditingFaculty({ ...editingFaculty, department: e.target.value })}
+                  placeholder="Computer Science & Engineering"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditingFaculty({ ...editingFaculty, password: `Fac@${Math.floor(1000 + Math.random() * 9000)}!` })}
+                    className="text-[11px] text-teal-600 hover:underline cursor-pointer"
+                  >
+                    Auto-generate
+                  </button>
+                </div>
+                <div className="relative">
+                  <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={editingFaculty.password || ''}
+                    onChange={(e) => setEditingFaculty({ ...editingFaculty, password: e.target.value })}
+                    placeholder="e.g. Fac@2026!"
+                    required
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditFacultyOpen(false);
+                    setEditingFaculty(null);
+                  }}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingFaculty}
+                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-bold shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  {isSavingFaculty ? 'Saving...' : 'Update Faculty'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* MODAL: ALLOT TOPIC & FACULTY IN-CHARGE */}
