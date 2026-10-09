@@ -99,6 +99,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   bookedSlotId,
 }) => {
   const [activeTab, setActiveTab] = useState<'transcript' | 'rules' | 'analytics' | 'breakout'>('transcript');
+  const deduplicatedTranscripts = useMemo(() => {
+    return transcripts.filter((entry, idx, arr) => {
+      if (entry.isFacilitator) {
+        const firstIdx = arr.findIndex((t) => t.isFacilitator && t.text.trim() === entry.text.trim());
+        return firstIdx === idx;
+      }
+      return true;
+    });
+  }, [transcripts]);
   const [liveSpeechTranscript, setLiveSpeechTranscript] = useState('');
   const [typedStatement, setTypedStatement] = useState('');
   const liveTranscriptRef = useRef<string>('');
@@ -328,7 +337,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     onFacilitatorIntervention: (intervention) => {
       setTranscripts((prev) => {
-        if (prev.some((t) => t.id === intervention.transcript.id)) return prev;
+        if (prev.some((t) => t.id === intervention.transcript.id || (t.isFacilitator && t.text.trim() === intervention.text.trim()))) return prev;
         return [...prev, intervention.transcript];
       });
 
@@ -1083,7 +1092,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       sentiment: 'positive',
     };
 
-    setTranscripts((prev) => [...prev, entry]);
+    setTranscripts((prev) => {
+      if (prev.some((t) => t.isFacilitator && t.text.trim() === text.trim())) {
+        return prev;
+      }
+      return [...prev, entry];
+    });
 
     facilitatorVoice.speak(text, () => {
       setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
@@ -1444,6 +1458,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
+    if (hasInitiatedOpeningRef.current) return;
+    const hasFacilitatorSpoken = transcripts.some((t) => t.isFacilitator);
+    if (hasFacilitatorSpoken) {
+      hasInitiatedOpeningRef.current = true;
+      return;
+    }
     if (!force) {
       if (!isSessionActive || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
     }
@@ -1523,8 +1543,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
 
-    // 1. Opening silence (if no one speaks within 8 seconds of commencing)
-    if (studentTranscripts.length === 0 && !hasInitiatedOpeningRef.current) {
+    // 1. Opening silence (if no one speaks within 8 seconds of commencing and facilitator has not already spoken)
+    const hasAnyFacilitatorSpeech = transcripts.some((t) => t.isFacilitator);
+    if (studentTranscripts.length === 0 && !hasInitiatedOpeningRef.current && !hasAnyFacilitatorSpeech) {
       if (session.silenceTimerSeconds >= 8 || elapsedSeconds >= 8) {
         handleInitiateOpeningSpeaker();
         return;
@@ -1549,18 +1570,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     rtcSimulationMode,
   ]);
 
-  // Reset initiation flag when a session is freshly started or restarted
+  // Reset initiation flag only when leaving active session
   useEffect(() => {
-    if (session.status === 'active') {
-      const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
-      if (studentTranscripts.length === 0) {
-        hasInitiatedOpeningRef.current = false;
-      }
-    } else {
+    if (session.status !== 'active') {
       hasInitiatedOpeningRef.current = false;
       setInvitedStudentPrompt(null);
     }
-  }, [session.status, session.startedAt]);
+  }, [session.status]);
 
   const handleRaiseHandToggle = () => {
     const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0];
@@ -2905,7 +2921,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
-                  Transcript ({transcripts.length})
+                  Transcript ({deduplicatedTranscripts.length})
                 </button>
                 <button
                   id="tab-rules-sub"
@@ -2947,7 +2963,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             {activeTab === 'transcript' && (
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="flex-1 overflow-y-auto pr-1 space-y-3">
-                  {transcripts.map((entry) => (
+                  {deduplicatedTranscripts.map((entry) => (
                     <div
                       key={entry.id}
                       className={`p-3 rounded-xl border text-xs leading-relaxed transition-all ${
