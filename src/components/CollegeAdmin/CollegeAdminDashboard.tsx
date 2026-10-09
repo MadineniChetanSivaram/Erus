@@ -84,6 +84,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   onCreateSlot,
   onDeleteSlot,
 }) => {
+  const collegeCode = currentUser.collegeCode || 'DIT';
   const [activeTab, setActiveTab] = useState<'students' | 'faculty' | 'slots' | 'analytics'>('students');
   const [selectedReportSlotId, setSelectedReportSlotId] = useState<string>('');
 
@@ -286,8 +287,6 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     }
     setRevealedPasswords((prev) => ({ ...prev, ...map }));
   };
-
-  const collegeCode = currentUser.collegeCode || 'DIT';
 
   // Load data on mount
   useEffect(() => {
