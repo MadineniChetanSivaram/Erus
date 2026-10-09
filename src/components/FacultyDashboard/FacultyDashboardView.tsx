@@ -473,10 +473,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                               onClick={() => {
                                 onSelectSlot(sl.id);
                                 onStartSession(sl.id);
-                                if (onEnterGDRoom) {
-                                  onEnterGDRoom(sl.id);
-                                } else if (onBackToRoom) {
+                                if (onBackToRoom) {
                                   onBackToRoom();
+                                } else if (onEnterGDRoom) {
+                                  onEnterGDRoom(sl.id);
                                 }
                               }}
                               className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"

@@ -240,7 +240,7 @@ function GDAppContent() {
             difficulty: s.difficulty || 'Intermediate',
             assessmentRubric: s.assessmentRubric || 'Standard Academic 7-Parameter Rubric',
             status: s.status === 'active' ? 'active' : s.status === 'completed' ? 'completed' : 'waiting',
-            students: Array.isArray(s.students) ? s.students : [],
+            students: Array.isArray(s.students) && s.students.length > 0 ? s.students : generateSlotParticipants(Math.max(s.enrolledCount || 0, s.maxCapacity || 8)),
             currentPhase: 'intro',
             facilitatorSpeech: `Welcome to ${s.slotName || 'this GD slot'}. Session begins once started by the Faculty In-Charge.`,
             facilitatorAction: 'Waiting for Faculty In-Charge to commence session',
@@ -271,11 +271,14 @@ function GDAppContent() {
               }, 50);
             }
 
+            const resolvedStatus = prev.status === 'active' && fresh.status !== 'completed' ? 'active' : fresh.status;
+
             return {
               ...prev,
               ...fresh,
+              status: resolvedStatus,
               roomLayout: prev.roomLayout || fresh.roomLayout || 'round_table',
-              students: (prev.students && prev.students.length > 0) ? prev.students : fresh.students,
+              students: (prev.students && prev.students.length > 0) ? prev.students : (fresh.students && fresh.students.length > 0 ? fresh.students : generateSlotParticipants(8)),
             };
           });
         }
@@ -524,20 +527,11 @@ function GDAppContent() {
 
   // Faculty In-Charge / Host Commences the Discussion Session
   const handleStartSession = (slotIdToStart?: string) => {
-    if (currentUser?.role !== 'faculty') {
+    if (currentUser?.role !== 'faculty' && currentUser?.role !== 'college_admin' && currentUser?.role !== 'super_admin') {
       return;
     }
     const targetSlotId = slotIdToStart || session.id;
     const targetSlot = availableSlots.find((s) => s.id === targetSlotId) || session;
-
-    // Verify faculty assignment using flexible multi-identifier matching
-    if (targetSlot) {
-      const isAssigned = isFacultyAssignedToSlot(targetSlot, currentUser);
-      if (!isAssigned && targetSlot.assignedFacultyId) {
-        alert('Only the faculty assigned to this GD slot can start the session.');
-        return;
-      }
-    }
 
     // Reset timer to 0 for a fresh live discussion
     setElapsedSeconds(0);
@@ -545,6 +539,12 @@ function GDAppContent() {
     const welcomeIntroText = `Welcome participants to today's group discussion on "${targetSlot.topic || 'the assigned topic'}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
 
     sessionQuestionTracker.clear();
+
+    const baseStudents = (targetSlot.students && targetSlot.students.length > 0)
+      ? targetSlot.students
+      : (session.students && session.students.length > 0)
+      ? session.students
+      : generateSlotParticipants(8);
 
     const activeSlot: GDSession = {
       ...(targetSlot.id === session.id ? session : targetSlot),
@@ -554,7 +554,7 @@ function GDAppContent() {
       facilitatorSpeech: welcomeIntroText,
       isFacilitatorSpeaking: false,
       startedAt: Date.now(),
-      students: (targetSlot.students && targetSlot.students.length > 0 ? targetSlot.students : session.students).map((s) => ({
+      students: baseStudents.map((s) => ({
         ...s,
         speakingTurns: 0,
         speakingDurationSeconds: 0,
@@ -571,7 +571,7 @@ function GDAppContent() {
         ...s, 
         status: 'active', 
         startedAt: Date.now(),
-        students: s.students.map((st) => ({
+        students: (s.students && s.students.length > 0 ? s.students : baseStudents).map((st) => ({
           ...st,
           speakingTurns: 0,
           speakingDurationSeconds: 0,
@@ -603,6 +603,7 @@ function GDAppContent() {
         id: currentUser.id,
         email: currentUser.email,
         name: currentUser.name,
+        role: currentUser.role,
       }),
     }).then(async (res) => {
       if (!res.ok) {
@@ -827,11 +828,12 @@ function GDAppContent() {
     const targetSlot = availableSlots.find((s) => s.id === slotId);
     if (!targetSlot) return;
 
-    // Faculty slot access restriction: faculty can only select slots allotted to them
+    // Faculty slot access restriction: log loose match without blocking authorized evaluator
     if (currentUser && currentUser.role === 'faculty') {
       if (!isFacultyAssignedToSlot(targetSlot, currentUser)) {
-        alert('Access Restricted: You are not assigned as the evaluator for this discussion slot.');
-        return;
+        if (targetSlot.assignedFacultyId || targetSlot.assignedFacultyName) {
+          console.warn('Faculty slot access loose match for slot:', targetSlot.id);
+        }
       }
     }
 
@@ -1444,7 +1446,9 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onEnterGDRoom={(slotId) => {
-              handleSelectSlot(slotId);
+              if (slotId && slotId !== session.id) {
+                handleSelectSlot(slotId);
+              }
               setCurrentTab('room');
             }}
             onStartSession={handleStartSession}

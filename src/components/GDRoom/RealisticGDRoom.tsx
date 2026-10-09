@@ -129,7 +129,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   const isFaculty = currentUser?.role === 'faculty';
   const isFacultyOrAdmin = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
-  const canStartSession = isFaculty;
+  const canStartSession = isFacultyOrAdmin;
   const isStudent = currentUser?.role === 'student';
   const isSessionActive = session.status === 'active';
   const [showVideoModal, setShowVideoModal] = useState(false);
@@ -1442,12 +1442,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   };
 
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
-  const handleInitiateOpeningSpeaker = () => {
+  const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
-    if (!isSessionActive || hasRealStudentPeers || hasInitiatedOpeningRef.current || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
+    if (!force) {
+      if (!isSessionActive || session.isFacilitatorSpeaking || session.currentSpeakerId) return;
+    }
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
-    if (studentTranscripts.length > 0) {
+    if (!force && studentTranscripts.length > 0) {
       hasInitiatedOpeningRef.current = true;
       return;
     }
@@ -1455,10 +1457,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     hasInitiatedOpeningRef.current = true;
 
     // Select candidate to initiate (Seat 1 or first available student)
-    const openingCandidate = session.students.find((s) => !s.isEmptySeat) || session.students[0];
+    const rawCandidates = (session.students && session.students.length > 0) ? session.students : generateSlotParticipants(8);
+    const openingCandidate = rawCandidates.find((s) => !s.isEmptySeat) || rawCandidates[0];
     if (!openingCandidate) return;
 
     const initiationPrompt = generateInitiationPrompt(openingCandidate, session.topic);
+
+    // Broadcast over socket so all connected peers receive the opening facilitator prompt
+    if (rtcBroadcastFacilitatorSpeech) {
+      rtcBroadcastFacilitatorSpeech(initiationPrompt, 'initiate_opening_speaker');
+    }
 
     speakFacilitator(initiationPrompt, 'initiate_opening_speaker', 'intro', () => {
       if (openingCandidate.isUser) {
@@ -1760,15 +1768,18 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                 <button
                   id="start-gd-btn"
                   onClick={() => {
+                    setSession((prev) => ({
+                      ...prev,
+                      status: 'active',
+                      startedAt: prev.startedAt || Date.now(),
+                    }));
                     if (onStartSession) {
                       onStartSession(session.id);
                     }
                     rtcStartSession();
-                    if (!hasRealStudentPeers) {
-                      setTimeout(() => {
-                        handleInitiateOpeningSpeaker();
-                      }, 600);
-                    }
+                    setTimeout(() => {
+                      handleInitiateOpeningSpeaker(true);
+                    }, 400);
                   }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
                 >
@@ -2603,15 +2614,18 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       <button
                         id="dock-start-gd-btn"
                         onClick={() => {
+                          setSession((prev) => ({
+                            ...prev,
+                            status: 'active',
+                            startedAt: prev.startedAt || Date.now(),
+                          }));
                           if (onStartSession) {
                             onStartSession(session.id);
                           }
                           rtcStartSession();
-                          if (!hasRealStudentPeers) {
-                            setTimeout(() => {
-                              handleInitiateOpeningSpeaker();
-                            }, 600);
-                          }
+                          setTimeout(() => {
+                            handleInitiateOpeningSpeaker(true);
+                          }, 400);
                         }}
                         className="px-4 py-2.5 rounded-full font-bold text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 flex items-center gap-1.5 cursor-pointer transition-all animate-pulse"
                         title="Start Group Discussion round"
