@@ -194,7 +194,16 @@ export function saveLocalFaculty(collegeCode: string, faculty: any[]) {
 export function getLocalSlots(collegeCode: string): any[] {
   try {
     const raw = localStorage.getItem(`erus_college_slots_${collegeCode.toUpperCase()}`);
-    return raw ? JSON.parse(raw) : [];
+    const list = raw ? JSON.parse(raw) : [];
+    return (list || []).map((s: any) => {
+      const topic = s.topic ? String(s.topic).trim() : '';
+      const numMatch = (s.slotName || '').match(/^(Slot\s+\d+)/i) || (s.id || '').match(/slot-.*?-(\d+)/i);
+      const prefix = numMatch ? (numMatch[1].startsWith('Slot') ? numMatch[1] : `Slot ${numMatch[1]}`) : '';
+      if (prefix && topic && !topic.toLowerCase().includes('pending') && !s.description?.includes('Waiting for College Admin to allot')) {
+        return { ...s, slotName: `${prefix}: ${topic}` };
+      }
+      return s;
+    });
   } catch {
     return [];
   }
@@ -885,11 +894,15 @@ export async function allotSlotTopicAndFaculty(
     const local = getLocalSlots(code);
     const updated = local.map((s: any) => {
       if (s.id === slotId) {
+        const slotNumMatch = (data.slotName || s.slotName || '').match(/^(Slot\s+\d+)/i) || (s.id || '').match(/slot-.*?-(\d+)/i);
+        const prefix = slotNumMatch ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`) : 'Slot';
+        const syncedSlotName = data.topic ? `${prefix}: ${data.topic}` : (data.slotName || s.slotName || prefix);
+
         return {
           ...s,
           ...data,
           topic: data.topic,
-          slotName: (data.slotName || s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim() || data.topic,
+          slotName: syncedSlotName,
           assignedFacultyId: data.assignedFacultyId,
           assignedFacultyName: data.assignedFacultyName,
           assignedFacultyEmail: data.assignedFacultyEmail || s.assignedFacultyEmail,

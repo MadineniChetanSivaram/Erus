@@ -2826,10 +2826,29 @@ app.get('/api/college/slots', async (req, res) => {
       ? facultyList.find((f) => f.facultyId === slot.assignedFacultyId || f.id === slot.assignedFacultyId)
       : undefined;
 
+    const rawTopic = slot.topic ? String(slot.topic).trim() : '';
+    const isTopicValid =
+      rawTopic !== '' &&
+      !rawTopic.toLowerCase().includes('pending') &&
+      !/^slot\s+\d+/i.test(rawTopic) &&
+      !slot.description?.includes('Waiting for College Admin to allot');
+    const currentTopic = isTopicValid ? rawTopic : '';
+
+    let rawSlotName = cleanSlotName(slot.slotName) || slot.slotName || 'Slot';
+    const slotNumMatch = rawSlotName.match(/^(Slot\s+\d+)/i) || (slot.id || '').match(/slot-.*?-(\d+)/i);
+    const prefix = slotNumMatch
+      ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`)
+      : 'Slot';
+
+    const resolvedSlotName = currentTopic ? `${prefix}: ${currentTopic}` : prefix;
+
+    slot.slotName = resolvedSlotName;
+    slot.topic = currentTopic;
+
     const baseSlot: BackendCollegeSlotItem = {
       ...slot,
-      slotName: cleanSlotName(slot.slotName) || slot.slotName,
-      topic: slot.topic && slot.topic !== slot.slotName && !/^slot\s+\d+/i.test(slot.topic) ? slot.topic : (slot.topic || ''),
+      slotName: resolvedSlotName,
+      topic: currentTopic,
       assignedFacultyId: faculty?.facultyId || slot.assignedFacultyId || '',
       assignedFacultyName: faculty?.name || slot.assignedFacultyName || 'Unassigned',
       assignedFacultyEmail: faculty?.email || slot.assignedFacultyEmail || '',
@@ -3062,16 +3081,18 @@ app.put(['/api/college/slots/:id/allot', '/api/college/slots/:id'], async (req, 
   }
 
   if (topic !== undefined) targetSlot.topic = String(topic).trim();
-  if (slotName !== undefined) targetSlot.slotName = cleanSlotName(String(slotName).trim());
-  else if (topic && targetSlot.slotName) {
-    const cleanCurrent = cleanSlotName(targetSlot.slotName);
-    const match = cleanCurrent.match(/^(Slot\s+\d+)/i);
-    if (match) {
-      targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
-    } else {
-      targetSlot.slotName = String(topic).trim();
-    }
-  }
+
+  const proposedSlotName = slotName !== undefined ? String(slotName).trim() : (targetSlot.slotName || '');
+  const cleanProposed = cleanSlotName(proposedSlotName);
+  const slotNumMatch = cleanProposed.match(/^(Slot\s+\d+)/i) || 
+                       (targetSlot.slotName || '').match(/^(Slot\s+\d+)/i) ||
+                       (targetSlot.id || '').match(/slot-.*?-(\d+)/i);
+  const prefix = slotNumMatch 
+    ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`) 
+    : (cleanProposed.split(':')[0].trim() || 'Slot');
+
+  const validTopic = targetSlot.topic && !targetSlot.topic.toLowerCase().includes('pending') && !targetSlot.description?.includes('Waiting for College Admin to allot') ? targetSlot.topic : '';
+  targetSlot.slotName = validTopic ? `${prefix}: ${validTopic}` : prefix;
   if (description !== undefined) targetSlot.description = String(description).trim();
   if (slotTiming !== undefined) targetSlot.slotTiming = String(slotTiming).trim();
   if (slotDate !== undefined) targetSlot.slotDate = String(slotDate).trim();
@@ -3147,16 +3168,18 @@ app.post('/api/college/slots/:id/allot', async (req, res) => {
   }
 
   if (topic !== undefined) targetSlot.topic = String(topic).trim();
-  if (slotName !== undefined) targetSlot.slotName = cleanSlotName(String(slotName).trim());
-  else if (topic && targetSlot.slotName) {
-    const cleanCurrent = cleanSlotName(targetSlot.slotName);
-    const match = cleanCurrent.match(/^(Slot\s+\d+)/i);
-    if (match) {
-      targetSlot.slotName = `${match[1]}: ${String(topic).trim()}`;
-    } else {
-      targetSlot.slotName = String(topic).trim();
-    }
-  }
+
+  const proposedSlotName = slotName !== undefined ? String(slotName).trim() : (targetSlot.slotName || '');
+  const cleanProposed = cleanSlotName(proposedSlotName);
+  const slotNumMatch = cleanProposed.match(/^(Slot\s+\d+)/i) || 
+                       (targetSlot.slotName || '').match(/^(Slot\s+\d+)/i) ||
+                       (targetSlot.id || '').match(/slot-.*?-(\d+)/i);
+  const prefix = slotNumMatch 
+    ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`) 
+    : (cleanProposed.split(':')[0].trim() || 'Slot');
+
+  const validTopic = targetSlot.topic && !targetSlot.topic.toLowerCase().includes('pending') && !targetSlot.description?.includes('Waiting for College Admin to allot') ? targetSlot.topic : '';
+  targetSlot.slotName = validTopic ? `${prefix}: ${validTopic}` : prefix;
   if (description !== undefined) targetSlot.description = String(description).trim();
   if (slotTiming !== undefined) targetSlot.slotTiming = String(slotTiming).trim();
   if (slotDate !== undefined) targetSlot.slotDate = String(slotDate).trim();

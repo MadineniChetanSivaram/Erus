@@ -192,9 +192,22 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
       return true;
     })
     .map((s, idx) => {
-      const cleanName = cleanSlotName(s.slotName) || `Slot ${idx + 1}`;
-      const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
-      const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
+      const rawTopic = s.topic ? String(s.topic).trim() : '';
+      const isTopicAllotted =
+        rawTopic !== '' &&
+        !rawTopic.toLowerCase().includes('pending') &&
+        !/^slot\s+\d+/i.test(rawTopic) &&
+        !s.description?.includes('Waiting for College Admin to allot');
+      const cleanTopic = isTopicAllotted ? rawTopic : '';
+
+      // Derive consistent slot prefix: "Slot 1", "Slot 2", etc.
+      const slotNumMatch = (s.slotName || '').match(/^(Slot\s+\d+)/i) || (s.id || '').match(/slot-.*?-(\d+)/i);
+      const prefix = slotNumMatch
+        ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`)
+        : `Slot ${idx + 1}`;
+
+      // Strictly synchronize slot title to the allotted topic so there is never a topic mismatch
+      const cleanName = cleanTopic ? `${prefix}: ${cleanTopic}` : prefix;
 
       return {
         id: s.id,
@@ -371,10 +384,20 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     setIsSavingAllotment(true);
     const chosenDescription = allotForm.description.trim() || `Autonomous AI evaluated discussion on "${chosenTopic}".`;
     const cleanBaseSlotName = cleanSlotName(allottingSlot.slotName) || `Slot`;
+
+    // Extract base slot label (e.g. "Slot 1") so any previously stale topic in slotName is replaced
+    const slotNumMatch = (allottingSlot.slotName || '').match(/^(Slot\s+\d+)/i) || 
+                         (allottingSlot.id || '').match(/slot-.*?-(\d+)/i);
+    const slotPrefix = slotNumMatch 
+      ? (slotNumMatch[1].startsWith('Slot') ? slotNumMatch[1] : `Slot ${slotNumMatch[1]}`)
+      : (cleanBaseSlotName.split(':')[0].trim() || 'Slot');
+
+    const newSlotName = `${slotPrefix}: ${chosenTopic}`;
+
     const payload = {
       topic: chosenTopic,
       description: chosenDescription,
-      slotName: cleanBaseSlotName.includes(':') ? cleanBaseSlotName : `${cleanBaseSlotName}: ${chosenTopic}`,
+      slotName: newSlotName,
       assignedFacultyId: allotForm.assignedFacultyId,
       assignedFacultyName: allotForm.assignedFacultyName,
       assignedFacultyDept: allotForm.assignedFacultyDept,
@@ -386,7 +409,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
     setIsSavingAllotment(false);
 
     if (res && res.success) {
-      setBannerMsg(`Successfully allotted topic "${chosenTopic}" and faculty ${allotForm.assignedFacultyName} to ${allottingSlot.slotName}.`);
+      setBannerMsg(`Successfully allotted topic "${chosenTopic}" and faculty ${allotForm.assignedFacultyName} to ${newSlotName}.`);
       setAllottingSlot(null);
       // Immediately reflect updates in local slot state
       setSlots((prev) =>
@@ -395,6 +418,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
             return {
               ...s,
               ...payload,
+              slotName: newSlotName,
               topic: payload.topic,
               description: payload.description,
               assignedFacultyName: payload.assignedFacultyName,
@@ -402,6 +426,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
               rawSession: {
                 ...(s.rawSession || {}),
                 ...payload,
+                slotName: newSlotName,
               },
             };
           }
