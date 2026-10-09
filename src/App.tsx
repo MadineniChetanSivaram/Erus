@@ -26,7 +26,7 @@ import {
 import { addReportToStudentHistory } from './utils/studentReportHistory';
 import { facilitatorVoice } from './utils/speechSynthesis';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, fetchStudentAssignedSlots, isFacultyAssignedToSlot, isStudentAssignedToSlot, hasStudentParticipatedInSlot, sendUserHeartbeat } from './utils/authApi';
+import { clearStoredAuth, verifyCurrentSession, createCollegeSlot, fetchCollegeSlots, fetchFacultyAssignedSlots, fetchStudentAssignedSlots, isFacultyAssignedToSlot, isSlotAssignedToFaculty, isStudentAssignedToSlot, hasStudentParticipatedInSlot, sendUserHeartbeat } from './utils/authApi';
 import { getSocket } from './utils/socket';
 import { 
   getStudentBookedSlotsByTopic,
@@ -219,6 +219,8 @@ function GDAppContent() {
           let filteredRaw = rawSlots.filter((s: any) => s && s.id);
           if (currentUser.role === 'faculty') {
             filteredRaw = filteredRaw.filter((s: any) => isFacultyAssignedToSlot(s, currentUser));
+          } else if (currentUser.role === 'student') {
+            filteredRaw = filteredRaw.filter((s: any) => isSlotAssignedToFaculty(s) || isStudentAssignedToSlot(s, currentUser));
           }
           const mappedSlots: GDSession[] = filteredRaw.map((s: any, sIdx: number): GDSession => {
             const rawName = String(s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
@@ -342,6 +344,8 @@ function GDAppContent() {
         let activeBackendSlots = backendSlots;
         if (user.role === 'faculty') {
           activeBackendSlots = activeBackendSlots.filter((s: any) => isFacultyAssignedToSlot(s, user));
+        } else if (user.role === 'student') {
+          activeBackendSlots = activeBackendSlots.filter((s: any) => isSlotAssignedToFaculty(s) || isStudentAssignedToSlot(s, user));
         }
         // Map backend slot objects to GDSession format expected by the frontend
         const mappedSlots: GDSession[] = activeBackendSlots.map((s: any, sIdx: number): GDSession => {
@@ -1305,7 +1309,7 @@ function GDAppContent() {
           <StudentTopicPortal
             availableSlots={
               currentUser?.role === 'student'
-                ? availableSlots.filter((s) => isStudentAssignedToSlot(s, currentUser))
+                ? availableSlots.filter((s) => isSlotAssignedToFaculty(s) || isStudentAssignedToSlot(s, currentUser))
                 : availableSlots
             }
             bookedSlotId={studentBookedSlotId}

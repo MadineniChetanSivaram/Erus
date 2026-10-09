@@ -581,6 +581,32 @@ export function isFacultyAssignedToSlot(slot: any, user: any): boolean {
   return false;
 }
 
+export function isSlotAssignedToFaculty(slot: any): boolean {
+  if (!slot) return false;
+  const facId = String(slot.assignedFacultyId || slot.facultyId || '').trim();
+  const facName = String(slot.assignedFacultyName || slot.facultyName || slot.faculty || '').trim();
+  const allotted = String(slot.allottedFaculty || '').trim();
+
+  const isExplicitlyUnassigned =
+    (!facName && !facId && !allotted) ||
+    facName.toLowerCase() === 'unassigned' ||
+    facName.toLowerCase().includes('unassigned') ||
+    allotted.toLowerCase() === 'unassigned' ||
+    allotted.toLowerCase().includes('unassigned') ||
+    facId.toLowerCase() === 'unassigned' ||
+    facId.toLowerCase().includes('unassigned');
+
+  if (isExplicitlyUnassigned) {
+    return false;
+  }
+
+  return (
+    (facId !== '' && facId.toLowerCase() !== 'unassigned') ||
+    (facName !== '' && facName.toLowerCase() !== 'unassigned') ||
+    (allotted !== '' && allotted.toLowerCase() !== 'unassigned')
+  );
+}
+
 export function isStudentAssignedToSlot(slot: any, user: any): boolean {
   if (!user) return false;
   if (user.role !== 'student') return true;
@@ -720,7 +746,7 @@ export async function fetchStudentAssignedSlots(
     console.warn('Error fetching student assigned slots:', e);
   }
   const allSlots = await fetchCollegeSlots(code);
-  return allSlots.filter((s) => isStudentAssignedToSlot(s, { id: studentId, email: studentEmail, role: 'student' }));
+  return allSlots.filter((s) => isSlotAssignedToFaculty(s) || isStudentAssignedToSlot(s, { id: studentId, email: studentEmail, role: 'student' }));
 }
 
 export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<any[]> {

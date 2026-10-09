@@ -26,7 +26,7 @@ import {
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { checkCanReviveSlot, formatSlotDate } from '../../utils/studentBooking';
-import { isStudentAssignedToSlot } from '../../utils/authApi';
+import { isStudentAssignedToSlot, isSlotAssignedToFaculty } from '../../utils/authApi';
 
 interface StudentTopicPortalProps {
   availableSlots: GDSession[];
@@ -53,10 +53,10 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [reviveModalSlot, setReviveModalSlot] = useState<GDSession | null>(null);
 
-  // Institutional Policy: Students can strictly see only slots they are assigned/allotted to
+  // Institutional Policy: Students can view all slots that have an assigned faculty evaluator, or where they are specifically enrolled
   const assignedSlots = useMemo(() => {
     if (!currentUser || currentUser.role !== 'student') return availableSlots || [];
-    return (availableSlots || []).filter((s) => isStudentAssignedToSlot(s, currentUser));
+    return (availableSlots || []).filter((s) => isSlotAssignedToFaculty(s) || isStudentAssignedToSlot(s, currentUser));
   }, [availableSlots, currentUser]);
 
   // Normalize map of { [topic]: slotId } for the student
@@ -139,7 +139,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
     });
 
     return Array.from(topicMap.values());
-  }, [availableSlots, bookedSlotsMap]);
+  }, [assignedSlots, bookedSlotsMap]);
 
   // Filter topics by search query
   const filteredTopics = useMemo(() => {

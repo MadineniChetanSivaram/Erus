@@ -2922,7 +2922,7 @@ app.get('/api/college/slots', async (req, res) => {
   persistentState.slots[code] = finalSlots;
   savePersistentState();
 
-  // Institutional Restriction: Students can strictly see only slots they are assigned/allotted to
+  // Institutional Restriction: Students see all slots assigned to faculty, plus any slot they are individually enrolled in
   const studentId = String(req.query.studentId || '').trim();
   const userRole = String(req.query.role || '').trim();
   const studentEmail = String(req.query.email || '').trim().toLowerCase();
@@ -2932,6 +2932,23 @@ app.get('/api/college/slots', async (req, res) => {
     const targetStudentId = studentId.toLowerCase();
     const targetEmail = studentEmail.toLowerCase();
     const studentSlots = finalSlots.filter((slot) => {
+      // 0. Check if slot has an assigned faculty evaluator/in-charge
+      const facId = String(slot.assignedFacultyId || '').trim();
+      const facName = String(slot.assignedFacultyName || '').trim();
+      const allotted = String((slot as any).allottedFaculty || '').trim();
+      const isUnassigned =
+        (!facName && !facId && !allotted) ||
+        facName.toLowerCase() === 'unassigned' ||
+        facName.toLowerCase().includes('unassigned') ||
+        allotted.toLowerCase() === 'unassigned' ||
+        allotted.toLowerCase().includes('unassigned') ||
+        facId.toLowerCase() === 'unassigned' ||
+        facId.toLowerCase().includes('unassigned');
+
+      if (!isUnassigned && (facId !== '' || facName !== '' || allotted !== '')) {
+        return true;
+      }
+
       // 1. Check slot.students list
       if (Array.isArray(slot.students)) {
         if (slot.students.some((s: any) => {
