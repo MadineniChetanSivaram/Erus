@@ -256,6 +256,10 @@ function GDAppContent() {
             assignedFacultyEmail: s.assignedFacultyEmail || '',
             assignedFacultyDept: s.assignedFacultyDept || '',
             facultyLiveNotes: s.facultyLiveNotes || [],
+            recordingUrl: s.recordingUrl || '',
+            recordingDurationSeconds: s.recordingDurationSeconds || 0,
+            recordingFileSize: s.recordingFileSize || 0,
+            recordedAt: s.recordedAt || '',
             createdAt: s.createdAt || new Date().toISOString(),
           };
         });
@@ -336,11 +340,21 @@ function GDAppContent() {
         }
       }
     };
+    const handleRecordingSaved = (data: any) => {
+      if (data?.slotId && data?.recordingUrl) {
+        setAvailableSlots((prev) =>
+          prev.map((s) => (s.id === data.slotId ? { ...s, recordingUrl: data.recordingUrl, recordingDurationSeconds: data.durationSeconds } : s))
+        );
+        setSession((prev) => (prev?.id === data.slotId ? { ...prev, recordingUrl: data.recordingUrl, recordingDurationSeconds: data.durationSeconds } : prev));
+      }
+    };
     socket.on('session-ended', handleRemoteSessionEnded);
     socket.on('slot-updated', handleSlotUpdated);
+    socket.on('session-recording-saved', handleRecordingSaved);
     return () => {
       socket.off('session-ended', handleRemoteSessionEnded);
       socket.off('slot-updated', handleSlotUpdated);
+      socket.off('session-recording-saved', handleRecordingSaved);
     };
   }, [currentUser, session?.id, currentTab]);
 
@@ -417,6 +431,10 @@ function GDAppContent() {
           assignedFacultyEmail: s.assignedFacultyEmail || '',
           assignedFacultyDept: s.assignedFacultyDept || '',
           facultyLiveNotes: s.facultyLiveNotes || [],
+          recordingUrl: s.recordingUrl || '',
+          recordingDurationSeconds: s.recordingDurationSeconds || 0,
+          recordingFileSize: s.recordingFileSize || 0,
+          recordedAt: s.recordedAt || '',
           createdAt: s.createdAt || new Date().toISOString(),
         };
       });

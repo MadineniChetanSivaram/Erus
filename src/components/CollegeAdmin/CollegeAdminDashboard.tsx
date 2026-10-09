@@ -234,6 +234,10 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
         assignedFacultyName: (s as any).assignedFacultyName || 'Unassigned',
         assignedFacultyId: (s as any).assignedFacultyId || '',
         students: s.students || s.rawSession?.students || [],
+        recordingUrl: s.recordingUrl || (s as any).rawSession?.recordingUrl || '',
+        recordingDurationSeconds: s.recordingDurationSeconds || (s as any).rawSession?.recordingDurationSeconds || 0,
+        recordingFileSize: s.recordingFileSize || (s as any).rawSession?.recordingFileSize || 0,
+        recordedAt: s.recordedAt || (s as any).rawSession?.recordedAt || '',
         rawSession: s,
       };
     });
@@ -1705,11 +1709,21 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                       </button>
                     )}
 
-                    {sl.status === 'completed' && sl.recordingUrl && (
+                    {(sl.status === 'completed' || sl.recordingUrl) && (
                       <button
-                        onClick={() => {
-                          setSelectedVideoUrl(sl.recordingUrl);
+                        onClick={async () => {
+                          let videoUrl = sl.recordingUrl;
                           setSelectedVideoTitle(sl.topic || sl.slotName || 'GD Session');
+                          if (!videoUrl) {
+                            try {
+                              const r = await fetch(`/api/sessions/${encodeURIComponent(sl.id)}/recording`);
+                              const d = await r.json();
+                              if (d.success && d.recordingUrl) {
+                                videoUrl = d.recordingUrl;
+                              }
+                            } catch {}
+                          }
+                          setSelectedVideoUrl(videoUrl || null);
                           setShowVideoModal(true);
                         }}
                         className="py-2 px-3 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer truncate shadow-2xs"
@@ -1720,7 +1734,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                       </button>
                     )}
 
-                    {sl.status === 'completed' && sl.recordingUrl && (
+                    {sl.recordingUrl && (
                       <a
                         href={sl.recordingUrl}
                         download={`GD-${sl.id}-Recording.webm`}
@@ -3172,7 +3186,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
       )}
 
       {/* Video Recording Playback Modal */}
-      {showVideoModal && selectedVideoUrl && (
+      {showVideoModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col">
             <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
@@ -3184,7 +3198,7 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     GD Screen & Audio Recording
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold uppercase tracking-wider">
-                      Full Session
+                      {selectedVideoUrl ? 'Full Session' : 'Recording Archive'}
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400 truncate max-w-md">
@@ -3193,35 +3207,49 @@ Karan Verma,karan.verma@dit.edu.in,STU-2022-205,B.Tech AI,2022-2026,5`;
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href={selectedVideoUrl}
-                  download="GD-Discussion-Recording.webm"
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download
-                </a>
+                {selectedVideoUrl && (
+                  <a
+                    href={selectedVideoUrl}
+                    download="GD-Discussion-Recording.webm"
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download
+                  </a>
+                )}
                 <button
                   onClick={() => {
                     setShowVideoModal(false);
                     setSelectedVideoUrl(null);
                     setSelectedVideoTitle(null);
                   }}
-                  className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+                  className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
-            <div className="p-4 bg-black flex items-center justify-center">
-              <video
-                src={selectedVideoUrl}
-                controls
-                autoPlay
-                className="w-full max-h-[70vh] rounded-2xl bg-black shadow-lg"
-              >
-                Your browser does not support the video tag.
-              </video>
+            <div className="p-6 bg-black flex flex-col items-center justify-center min-h-[300px]">
+              {selectedVideoUrl ? (
+                <video
+                  src={selectedVideoUrl}
+                  controls
+                  autoPlay
+                  className="w-full max-h-[70vh] rounded-2xl bg-black shadow-lg"
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <div className="text-center py-12 px-6 max-w-md">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
+                    <Video className="w-8 h-8" />
+                  </div>
+                  <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.
+                  </p>
+                </div>
+              )}
             </div>
             <div className="p-3.5 bg-slate-950 border-t border-slate-800 text-center">
               <p className="text-xs text-slate-400">

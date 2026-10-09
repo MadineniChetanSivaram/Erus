@@ -303,32 +303,49 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </div>
           )}
 
-          {safeSession.recordingUrl && (
+          {(safeSession.status === 'completed' || safeSession.recordingUrl) && (
             <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-1.5 rounded-xl shadow-2xs flex-wrap">
               <button
-                onClick={() => setShowVideoModal(true)}
+                onClick={async () => {
+                  let recUrl = safeSession.recordingUrl;
+                  if (!recUrl) {
+                    try {
+                      const res = await fetch(`/api/sessions/${encodeURIComponent(safeSession.id)}/recording`);
+                      const d = await res.json();
+                      if (d.success && d.recordingUrl) {
+                        recUrl = d.recordingUrl;
+                      }
+                    } catch {}
+                  }
+                  setActiveVideoSlot({ ...safeSession, recordingUrl: recUrl });
+                  setShowVideoModal(true);
+                }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs cursor-pointer"
                 title="Watch full recorded video of this GD session"
               >
                 <Video className="w-3.5 h-3.5" />
                 <span>Watch Video</span>
               </button>
-              <audio
-                controls
-                src={safeSession.recordingUrl}
-                className="h-7 w-36 sm:w-44"
-              />
-              <a
-                href={safeSession.recordingUrl}
-                download={`GD-${safeSession.id}-Recording.webm`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs"
-                title="Download recording of this GD (.webm)"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download</span>
-              </a>
+              {safeSession.recordingUrl && (
+                <>
+                  <audio
+                    controls
+                    src={safeSession.recordingUrl}
+                    className="h-7 w-36 sm:w-44"
+                  />
+                  <a
+                    href={safeSession.recordingUrl}
+                    download={`GD-${safeSession.id}-Recording.webm`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs"
+                    title="Download recording of this GD (.webm)"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
+                  </a>
+                </>
+              )}
             </div>
           )}
 
@@ -451,11 +468,21 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                         </button>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          {sl.recordingUrl && (
+                          {(sl.status === 'completed' || sl.recordingUrl) && (
                             <button
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation();
-                                setActiveVideoSlot(sl);
+                                let targetSlot = sl;
+                                if (!targetSlot.recordingUrl) {
+                                  try {
+                                    const res = await fetch(`/api/sessions/${encodeURIComponent(sl.id)}/recording`);
+                                    const d = await res.json();
+                                    if (d.success && d.recordingUrl) {
+                                      targetSlot = { ...sl, recordingUrl: d.recordingUrl };
+                                    }
+                                  } catch {}
+                                }
+                                setActiveVideoSlot(targetSlot);
                                 setShowVideoModal(true);
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
@@ -1249,33 +1276,47 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
               </button>
             </div>
 
-            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
-              <video
-                controls
-                autoPlay
-                src={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
-                className="w-full h-full object-contain"
-              >
-                Your browser does not support the video tag.
-              </video>
-            </div>
+            {activeVideoSlot?.recordingUrl || safeSession?.recordingUrl ? (
+              <>
+                <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+                  <video
+                    controls
+                    autoPlay
+                    src={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
+                    className="w-full h-full object-contain"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
 
-            <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
-              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Recorded Discussion Session</span>
-              </span>
-              <a
-                href={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
-                download={`GD-Video-${activeVideoSlot?.id || safeSession?.id || 'session'}.webm`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Video</span>
-              </a>
-            </div>
+                <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Recorded Discussion Session</span>
+                  </span>
+                  <a
+                    href={activeVideoSlot?.recordingUrl || safeSession?.recordingUrl}
+                    download={`GD-Video-${activeVideoSlot?.id || safeSession?.id || 'session'}.webm`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Video</span>
+                  </a>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12 px-6 max-w-md mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
+                  <Video className="w-8 h-8" />
+                </div>
+                <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

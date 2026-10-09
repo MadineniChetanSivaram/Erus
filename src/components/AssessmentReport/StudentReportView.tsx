@@ -944,7 +944,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       )}
 
       {/* Discussion Audio & Video Archive & Playback Player (Hidden for students; visible to faculty/admin) */}
-      {!isStudent && (session?.recordingUrl || currentReport?.recordingUrl) && (
+      {!isStudent && (
         <div className="no-print p-4 rounded-2xl bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-indigo-500/10 dark:from-teal-950/40 dark:via-emerald-950/40 dark:to-indigo-950/40 border border-teal-500/30 dark:border-teal-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
@@ -960,36 +960,54 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                Watch or listen to the full discussion recording, evaluate your speaking turns, and review faculty interjections.
+                Watch or listen to the full discussion recording, evaluate speaking turns, and review participant interactions.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
             <button
-              onClick={() => setShowVideoModal(true)}
+              onClick={async () => {
+                if (!session?.recordingUrl && !currentReport?.recordingUrl) {
+                  const targetId = session?.id || currentReport?.sessionId;
+                  if (targetId) {
+                    try {
+                      const res = await fetch(`/api/sessions/${encodeURIComponent(targetId)}/recording`);
+                      const d = await res.json();
+                      if (d.success && d.recordingUrl && currentReport) {
+                        currentReport.recordingUrl = d.recordingUrl;
+                      }
+                    } catch {}
+                  }
+                }
+                setShowVideoModal(true);
+              }}
               className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
               title="Watch full recorded video of this discussion"
             >
               <Video className="w-3.5 h-3.5" />
               <span>Watch Video</span>
             </button>
-            <audio
-              controls
-              src={session?.recordingUrl || currentReport?.recordingUrl}
-              className="h-8 w-44 sm:w-56"
-            />
-            <a
-              href={session?.recordingUrl || currentReport?.recordingUrl}
-              download={`GD-${session?.id || 'session'}-Recording.webm`}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1.5 shadow-xs transition-all"
-              title="Download audio/video recording to device"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download</span>
-            </a>
+            {(session?.recordingUrl || currentReport?.recordingUrl) && (
+              <>
+                <audio
+                  controls
+                  src={session?.recordingUrl || currentReport?.recordingUrl}
+                  className="h-8 w-44 sm:w-56"
+                />
+                <a
+                  href={session?.recordingUrl || currentReport?.recordingUrl}
+                  download={`GD-${session?.id || 'session'}-Recording.webm`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white flex items-center gap-1.5 shadow-xs transition-all"
+                  title="Download audio/video recording to device"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1497,33 +1515,47 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               </button>
             </div>
 
-            <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
-              <video
-                controls
-                autoPlay
-                src={session?.recordingUrl || currentReport?.recordingUrl}
-                className="w-full h-full object-contain"
-              >
-                Your browser does not support the video tag.
-              </video>
-            </div>
+            {session?.recordingUrl || currentReport?.recordingUrl ? (
+              <>
+                <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+                  <video
+                    controls
+                    autoPlay
+                    src={session?.recordingUrl || currentReport?.recordingUrl}
+                    className="w-full h-full object-contain"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
 
-            <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
-              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Recorded Discussion Session</span>
-              </span>
-              <a
-                href={session?.recordingUrl || currentReport?.recordingUrl}
-                download={`GD-Video-${session?.id || 'session'}.webm`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Video</span>
-              </a>
-            </div>
+                <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Recorded Discussion Session</span>
+                  </span>
+                  <a
+                    href={session?.recordingUrl || currentReport?.recordingUrl}
+                    download={`GD-Video-${session?.id || 'session'}.webm`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Video</span>
+                  </a>
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-12 px-6 max-w-md mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
+                  <Video className="w-8 h-8" />
+                </div>
+                <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

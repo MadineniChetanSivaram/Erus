@@ -6244,6 +6244,13 @@ app.get('/api/student/reports', async (req, res) => {
               aiRecommendations: r.aiRecommendations || raw.aiRecommendations || ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
               generatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
               facultyEndorsement: raw.facultyEndorsement || { endorsed: false },
+              recordingUrl: r.recordingUrl || raw.recordingUrl || (() => {
+                for (const list of Object.values(persistentState.slots)) {
+                  const s = list.find((slot) => slot.id === r.sessionId);
+                  if (s?.recordingUrl) return s.recordingUrl;
+                }
+                return '';
+              })(),
             };
           }),
         });
@@ -6272,6 +6279,13 @@ app.get('/api/student/reports', async (req, res) => {
             aiRecommendations: ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
             fillerWordsBreakdown: [],
             generatedAt: r.createdAt.toISOString(), facultyEndorsement: { endorsed: false },
+            recordingUrl: (() => {
+              for (const list of Object.values(persistentState.slots)) {
+                const s = list.find((slot) => slot.id === r.sessionId);
+                if (s?.recordingUrl) return s.recordingUrl;
+              }
+              return '';
+            })(),
           };
         }),
       });
@@ -6432,6 +6446,10 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
           enrolledCount: (dbSlot as any).students?.length ?? dbSlot.enrolledCount ?? 0,
           assignedFacultyName: dbSlot.assignedFacultyName || 'Assigned Faculty',
           students: dbSlot.students || [],
+          recordingUrl: (dbSlot as any).recordingUrl || '',
+          recordingDurationSeconds: (dbSlot as any).recordingDurationSeconds || 0,
+          recordingFileSize: (dbSlot as any).recordingFileSize || 0,
+          recordedAt: (dbSlot as any).recordedAt ? new Date((dbSlot as any).recordedAt).toISOString() : '',
         };
       }
     } catch (e: any) {
@@ -6459,6 +6477,10 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
           enrolledCount: pSlot.enrolledCount || 0,
           assignedFacultyName: pSlot.assignedFacultyName || 'Assigned Faculty',
           students: [],
+          recordingUrl: (pSlot as any).recordingUrl || '',
+          recordingDurationSeconds: (pSlot as any).recordingDuration || 0,
+          recordingFileSize: (pSlot as any).recordingFileSize || 0,
+          recordedAt: (pSlot as any).recordedAt ? (pSlot as any).recordedAt.toISOString() : '',
         };
       }
     } catch (e: any) {
