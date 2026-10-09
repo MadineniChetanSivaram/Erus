@@ -370,11 +370,26 @@ export interface IAssessmentReport extends Document {
   sessionId: string; // Foreign key referencing gd_sessions.id
   studentId: string; // Foreign key referencing users.id
   studentName?: string;
+  seatNumber?: number | null;
+  topic?: string;
   overallScore: number;
+  grade?: string;
+  speakingDurationSeconds?: number;
+  speakingTimeFormatted?: string;
+  speakingTurns?: number;
+  wpm?: number;
+  wpmStatus?: string;
+  fillerWordsCount?: number;
+  fillerWordsBreakdown?: any[];
+  interruptionCount?: number;
+  questionsAnswered?: number;
+  questionsInitiated?: number;
   rubricJson: any; // 7 parameters: English, Fluency, Clarity, Confidence, Content, Collaboration, Leadership
   feedback: string;
   strengths?: string[];
   improvements?: string[];
+  aiRecommendations?: string[];
+  fullReportJson?: any;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -385,11 +400,26 @@ const AssessmentReportSchema = new Schema<IAssessmentReport>(
     sessionId: { type: String, required: true, index: true }, // Sub-table reference
     studentId: { type: String, required: true, index: true },
     studentName: { type: String, default: '' },
+    seatNumber: { type: Number, default: null },
+    topic: { type: String, default: '' },
     overallScore: { type: Number, default: 80 },
+    grade: { type: String, default: 'Good' },
+    speakingDurationSeconds: { type: Number, default: 0 },
+    speakingTimeFormatted: { type: String, default: '0 min 0 sec' },
+    speakingTurns: { type: Number, default: 0 },
+    wpm: { type: Number, default: 0 },
+    wpmStatus: { type: String, default: 'Optimal' },
+    fillerWordsCount: { type: Number, default: 0 },
+    fillerWordsBreakdown: { type: [Schema.Types.Mixed], default: [] },
+    interruptionCount: { type: Number, default: 0 },
+    questionsAnswered: { type: Number, default: 0 },
+    questionsInitiated: { type: Number, default: 0 },
     rubricJson: { type: Schema.Types.Mixed, default: {} },
     feedback: { type: String, default: '' },
     strengths: { type: [String], default: [] },
     improvements: { type: [String], default: [] },
+    aiRecommendations: { type: [String], default: [] },
+    fullReportJson: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true, collection: 'assessment_reports', autoIndex: false }
 );

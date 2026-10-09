@@ -308,6 +308,18 @@ function GDAppContent() {
         );
         if (session?.id === data.slotId) {
           setSession((prev) => ({ ...prev, status: 'completed' }));
+          if (Array.isArray(data?.reports)) {
+            const myReport = data.reports.find(
+              (r: any) =>
+                r.studentId === currentUser.id ||
+                r.studentId === (currentUser as any).studentId ||
+                (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase())
+            );
+            if (myReport) {
+              setActiveReport(myReport);
+              addReportToStudentHistory(myReport);
+            }
+          }
           if (currentUser.role === 'student' && currentTab === 'room') {
             handleFinishSession();
           }
@@ -832,7 +844,7 @@ function GDAppContent() {
     }
   };
 
-  const handleOpenAssessmentReport = (slotId: string) => {
+  const handleOpenAssessmentReport = async (slotId: string) => {
     const targetSlot = availableSlots.find((s) => s.id === slotId) || (session.id === slotId ? session : null);
     if (!targetSlot) return;
 
@@ -876,14 +888,61 @@ function GDAppContent() {
           },
         ];
       }
+
+      // Check student history first
+      const uHistory = getStudentReportHistory(currentUser.studentId || currentUser.id || currentUser.name || 'student');
+      let foundReport: any = uHistory.find((r) => r.sessionId === slotId);
+
+      // Fetch from /api/college/slots/:id/reports
+      try {
+        const res = await fetch(`/api/college/slots/${encodeURIComponent(slotId)}/reports`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.reports)) {
+          const matched = data.reports.find(
+            (r: any) =>
+              r.studentId === currentUser.id ||
+              r.studentId === (currentUser as any).studentId ||
+              (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase())
+          );
+          if (matched) {
+            foundReport = matched;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch slot reports for student:', err);
+      }
+
+      // If still not found, fetch from /api/student/reports
+      if (!foundReport) {
+        try {
+          const sRes = await fetch(
+            `/api/student/reports?studentId=${encodeURIComponent(currentUser.id)}&studentName=${encodeURIComponent(currentUser.name || '')}&sessionId=${encodeURIComponent(slotId)}`
+          );
+          const sData = await sRes.json();
+          if (sData.success && Array.isArray(sData.reports) && sData.reports.length > 0) {
+            foundReport = sData.reports[0];
+          }
+        } catch (err) {
+          console.warn('Failed to fetch student reports directly:', err);
+        }
+      }
+
+      const userStudent = updatedTargetStudents.find((s) => s.isUser) || updatedTargetStudents[0];
+      if (foundReport) {
+        userStudent.speakingDurationSeconds = foundReport.speakingTimeSeconds ?? foundReport.speakingDurationSeconds ?? 0;
+        userStudent.speakingTurns = foundReport.speakingTurns ?? 0;
+        userStudent.interruptionCount = foundReport.interruptions ?? foundReport.interruptionCount ?? 0;
+        userStudent.questionsAnswered = foundReport.questionsAnswered ?? 0;
+        userStudent.questionsInitiated = foundReport.questionsInitiated ?? 0;
+      }
+
       const slotForState: GDSession = { ...targetSlot, status: 'completed', students: updatedTargetStudents };
       setSession(slotForState);
       setAvailableSlots((prev) =>
         prev.map((s) => (s.id === slotId ? { ...s, status: 'completed', students: updatedTargetStudents } : s))
       );
 
-      const userStudent = updatedTargetStudents.find((s) => s.isUser) || updatedTargetStudents[0];
-      const studentReport = generateStudentReport(userStudent, targetSlot.topic, targetSlot.durationMinutes);
+      const studentReport = foundReport || generateStudentReport(userStudent, targetSlot.topic, targetSlot.durationMinutes);
       setActiveReport(studentReport);
       addReportToStudentHistory(studentReport);
       setViewingStudentId(userStudent.id);
@@ -896,7 +955,21 @@ function GDAppContent() {
         students: facultyStudents,
       };
       setSession(slotForState);
-      if (facultyStudents.length > 0) {
+
+      // Fetch slot reports for faculty
+      let foundFacultyReport: any = null;
+      try {
+        const res = await fetch(`/api/college/slots/${encodeURIComponent(slotId)}/reports`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.reports) && data.reports.length > 0) {
+          foundFacultyReport = data.reports[0];
+        }
+      } catch {}
+
+      if (foundFacultyReport) {
+        setViewingStudentId(foundFacultyReport.studentId);
+        setActiveReport(foundFacultyReport);
+      } else if (facultyStudents.length > 0) {
         const firstStudent = facultyStudents[0];
         setViewingStudentId(firstStudent.id);
         const studentReport = generateStudentReport(firstStudent, targetSlot.topic, targetSlot.durationMinutes);

@@ -97,15 +97,32 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
   const rawImprovements = Array.isArray(raw.areasForImprovement) ? raw.areasForImprovement : (typeof raw.areasForImprovement === 'string' ? raw.areasForImprovement.split('; ').filter(Boolean) : (typeof raw.improvements === 'string' ? raw.improvements.split('; ').filter(Boolean) : []));
   const rawRecommendations = Array.isArray(raw.aiRecommendations) ? raw.aiRecommendations : (typeof raw.aiRecommendations === 'string' ? [raw.aiRecommendations] : []);
 
+  const durationSec = typeof raw.speakingTimeSeconds === 'number'
+    ? raw.speakingTimeSeconds
+    : (typeof raw.speakingDurationSeconds === 'number' ? raw.speakingDurationSeconds : (base.speakingTimeSeconds || 0));
+  const formattedSpeaking = raw.speakingTimeFormatted || `${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`;
+  const turns = typeof raw.speakingTurns === 'number' ? raw.speakingTurns : (base.speakingTurns || 0);
+  const wpmVal = typeof raw.wpm === 'number' ? raw.wpm : (durationSec > 0 ? 130 : 0);
+  const wpmLabel = raw.wpmStatus || (durationSec === 0 ? 'No Speech' : wpmVal < 115 ? 'Too Slow' : wpmVal > 165 ? 'Too Fast' : 'Optimal');
+
   return {
     ...base,
     ...raw,
     id: raw.id || base.id,
+    sessionId: raw.sessionId || base.sessionId,
     studentId: raw.studentId || base.studentId,
     studentName: raw.studentName || base.studentName,
     overallScore: typeof raw.overallScore === 'number' ? raw.overallScore : (typeof raw.score === 'number' ? raw.score : base.overallScore),
     grade: raw.grade || base.grade,
     percentile: typeof raw.percentile === 'number' ? raw.percentile : base.percentile,
+    speakingTimeSeconds: durationSec,
+    speakingDurationSeconds: durationSec,
+    speakingTimeFormatted: formattedSpeaking,
+    speakingTurns: turns,
+    wpm: wpmVal,
+    wpmStatus: wpmLabel,
+    fillerWordsCount: typeof raw.fillerWordsCount === 'number' ? raw.fillerWordsCount : (base.fillerWordsCount || 0),
+    interruptions: typeof raw.interruptions === 'number' ? raw.interruptions : (typeof raw.interruptionCount === 'number' ? raw.interruptionCount : (base.interruptions || 0)),
     strengths: rawStrengths.length > 0 ? rawStrengths : (base.strengths || ['Clear vocal delivery', 'Constructive arguments']),
     areasForImprovement: rawImprovements.length > 0 ? rawImprovements : (base.areasForImprovement || ['Include more case evidence']),
     aiRecommendations: rawRecommendations.length > 0 ? rawRecommendations : (base.aiRecommendations || ['Practice timed syntheses of multi-perspective debates.']),
@@ -345,9 +362,27 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/student/reports?studentId=' + encodeURIComponent(currentUser.id) + '&sessionId=' + encodeURIComponent(session?.id || ''));
+        const studentQuery = encodeURIComponent(currentUser.id);
+        const nameQuery = encodeURIComponent(currentUser.name || '');
+        const res = await fetch(`/api/student/reports?studentId=${studentQuery}&studentName=${nameQuery}&sessionId=${encodeURIComponent(session?.id || '')}`);
         const data = await res.json();
-        const persisted = Array.isArray(data.reports) ? data.reports[0] : null;
+        let persisted = Array.isArray(data.reports) && data.reports.length > 0 ? data.reports[0] : null;
+
+        if (!persisted && session?.id) {
+          try {
+            const slotRes = await fetch(`/api/college/slots/${encodeURIComponent(session.id)}/reports`);
+            const slotData = await slotRes.json();
+            if (slotData.success && Array.isArray(slotData.reports)) {
+              persisted = slotData.reports.find(
+                (r: any) =>
+                  r.studentId === currentUser.id ||
+                  r.studentId === (currentUser as any).studentId ||
+                  (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase())
+              );
+            }
+          } catch {}
+        }
+
         if (!cancelled && persisted) {
           setCurrentReport((prev) => normalizeReport({ ...prev, ...persisted }, prev));
         }
@@ -356,16 +391,21 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [isStudent, currentUser?.id, session?.id, session?.status]);
+  }, [isStudent, currentUser?.id, currentUser?.name, session?.id, session?.status]);
 
   // Ensure report stays synchronized with active session and student
   useEffect(() => {
     if (isStudent && userStudent) {
       setSelectedStudentId(userStudent.id);
-      if (initialReport && (initialReport.sessionId === session?.id || initialReport.studentName === (currentUser?.name || userStudent.name))) {
+      if (initialReport && (initialReport.sessionId === session?.id || initialReport.studentName?.toLowerCase() === (currentUser?.name || userStudent.name)?.toLowerCase())) {
         setCurrentReport(normalizeReport(initialReport));
       } else {
-        setCurrentReport(normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport)));
+        setCurrentReport((prev) => {
+          if (prev && prev.sessionId === session?.id && (prev.speakingTurns > 0 || prev.speakingTimeSeconds > 0)) {
+            return prev;
+          }
+          return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
+        });
       }
     } else if (targetStudentId && targetStudentId !== selectedStudentId) {
       setSelectedStudentId(targetStudentId);

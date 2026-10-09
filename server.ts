@@ -3449,11 +3449,73 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
   const reports: any[] = [];
   for (const participantId of participantIds) {
     let studentUser: any = persistentState.users.find((u) => u.id === participantId || u.studentId === participantId);
+    if (!studentUser && isMongoConnected()) {
+      try {
+        const u = await UserModel.findOne({ $or: [{ id: participantId }, { 'studentProfile.studentId': participantId }] });
+        if (u) {
+          studentUser = {
+            id: u.id,
+            name: u.name,
+            role: u.role,
+            college: u.college,
+            studentId: u.studentProfile?.studentId,
+            course: u.studentProfile?.course,
+            batch: u.studentProfile?.batch,
+            seatNumber: u.studentProfile?.seatNumber,
+          };
+        }
+      } catch (e) {}
+    }
     if (!studentUser && isDbConnected && prisma) {
       try {
         const u = await prisma.user.findUnique({ where: { id: participantId }, include: { studentProfile: true } });
         if (u) studentUser = { id: u.id, name: u.name, role: u.role, college: u.college, studentId: u.studentProfile?.studentId, course: u.studentProfile?.course, batch: u.studentProfile?.batch, seatNumber: u.studentProfile?.seatNumber };
       } catch (e) {}
+    }
+    if (!studentUser && Array.isArray(target.students)) {
+      const slotStudent = target.students.find((s: any) => s.id === participantId || s.studentId === participantId);
+      if (slotStudent) {
+        studentUser = {
+          id: slotStudent.id || participantId,
+          name: slotStudent.name || 'Candidate',
+          role: 'student',
+          college: slotStudent.college || target.collegeCode || 'Engineering Institute',
+          studentId: slotStudent.studentId || participantId,
+          course: slotStudent.course || 'Engineering',
+          batch: slotStudent.batch || '2024-2028',
+          seatNumber: slotStudent.seatNumber || 1,
+        };
+      }
+    }
+    if (!studentUser && room) {
+      const peer = Array.from(room.peers.values()).find((p) => p.userId === participantId);
+      if (peer && peer.role === 'student') {
+        studentUser = {
+          id: peer.userId,
+          name: peer.name || 'Candidate',
+          role: 'student',
+          college: target.collegeCode || 'Engineering Institute',
+          studentId: peer.userId,
+          course: 'Engineering',
+          batch: '2024-2028',
+          seatNumber: peer.seatNumber || 1,
+        };
+      }
+    }
+    if (!studentUser) {
+      const speakerEntry = transcriptHistory.find((t: any) => t.speakerId === participantId);
+      if (speakerEntry && !speakerEntry.isFacilitator) {
+        studentUser = {
+          id: participantId,
+          name: speakerEntry.speakerName || 'Candidate',
+          role: 'student',
+          college: target.collegeCode || 'Engineering Institute',
+          studentId: participantId,
+          course: 'Engineering',
+          batch: '2024-2028',
+          seatNumber: speakerEntry.seatNumber || 1,
+        };
+      }
     }
     if (!studentUser || studentUser.role !== 'student') continue;
     const peer = room ? Array.from(room.peers.values()).find((p) => p.userId === studentUser.id || p.userId === studentUser.studentId) : undefined;
@@ -6069,6 +6131,12 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
 async function persistAssessmentReport(report: any) {
   if (!report?.sessionId) return;
 
+  const durationSec = Math.max(0, Number(report.speakingTimeSeconds ?? report.speakingDurationSeconds ?? 0));
+  const formattedDuration = report.speakingTimeFormatted || `${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`;
+  const turns = Math.max(0, Number(report.speakingTurns ?? 0));
+  const wpmVal = Math.max(0, Number(report.wpm ?? (durationSec > 0 ? 130 : 0)));
+  const wpmLabel = report.wpmStatus || (durationSec === 0 ? 'No Speech' : wpmVal < 115 ? 'Too Slow' : wpmVal > 165 ? 'Too Fast' : 'Optimal');
+
   // Persist to MongoDB (Sub-Table: assessment_reports)
   if (isMongoConnected()) {
     try {
@@ -6080,11 +6148,26 @@ async function persistAssessmentReport(report: any) {
           sessionId: report.sessionId,
           studentId: report.studentId,
           studentName: report.studentName || '',
+          seatNumber: report.seatNumber ?? null,
+          topic: report.topic || '',
           overallScore: report.overallScore || 80,
+          grade: report.grade || gradeForScore(report.overallScore || 80),
+          speakingDurationSeconds: durationSec,
+          speakingTimeFormatted: formattedDuration,
+          speakingTurns: turns,
+          wpm: wpmVal,
+          wpmStatus: wpmLabel,
+          fillerWordsCount: Math.max(0, Number(report.fillerWordsCount ?? 0)),
+          fillerWordsBreakdown: Array.isArray(report.fillerWordsBreakdown) ? report.fillerWordsBreakdown : [],
+          interruptionCount: Math.max(0, Number(report.interruptions ?? report.interruptionCount ?? 0)),
+          questionsAnswered: Math.max(0, Number(report.questionsAnswered ?? 0)),
+          questionsInitiated: Math.max(0, Number(report.questionsInitiated ?? 0)),
           rubricJson: report.skills || {},
-          feedback: report.aiSummary || '',
+          feedback: report.aiSummary || report.feedback || '',
           strengths: report.strengths || [],
-          improvements: report.areasForImprovement || [],
+          improvements: report.areasForImprovement || report.improvements || [],
+          aiRecommendations: report.aiRecommendations || [],
+          fullReportJson: report,
         },
         { upsert: true, new: true }
       );
@@ -6100,8 +6183,8 @@ async function persistAssessmentReport(report: any) {
       const existing = await prisma.assessmentReport.findFirst({ where: { sessionId: report.sessionId, studentId: report.studentId } });
       const data = {
         sessionId: report.sessionId, studentId: report.studentId, overallScore: report.overallScore,
-        rubricJson: JSON.stringify(report.skills), feedback: report.aiSummary || '',
-        strengths: (report.strengths || []).join('; '), improvements: (report.areasForImprovement || []).join('; '),
+        rubricJson: JSON.stringify(report.skills), feedback: report.aiSummary || report.feedback || '',
+        strengths: (report.strengths || []).join('; '), improvements: (report.areasForImprovement || report.improvements || []).join('; '),
       };
       if (existing) {
         await prisma.assessmentReport.update({ where: { id: existing.id }, data });
@@ -6136,33 +6219,67 @@ app.post('/api/facilitator/evaluate', async (req, res) => {
 // Authoritative persisted report for a student.
 app.get('/api/student/reports', async (req, res) => {
   const studentId = String(req.query.studentId || '').trim();
+  const studentName = String(req.query.studentName || '').trim();
   const sessionId = String(req.query.sessionId || '').trim();
-  if (!studentId) return res.status(400).json({ success: false, error: 'studentId is required' });
+  if (!studentId && !studentName) return res.status(400).json({ success: false, error: 'studentId or studentName is required' });
 
   // Query MongoDB Sub-Table: assessment_reports
   if (isMongoConnected()) {
     try {
-      const filter: any = { studentId };
+      const orConditions: any[] = [];
+      if (studentId) {
+        orConditions.push({ studentId });
+        const userObj = await UserModel.findOne({ $or: [{ id: studentId }, { 'studentProfile.studentId': studentId }] });
+        if (userObj) {
+          if (userObj.name) orConditions.push({ studentName: new RegExp(`^${userObj.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+          if (userObj.studentProfile?.studentId) orConditions.push({ studentId: userObj.studentProfile.studentId });
+        }
+      }
+      if (studentName) {
+        orConditions.push({ studentName: new RegExp(`^${studentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+      }
+      const filter: any = orConditions.length > 1 ? { $or: orConditions } : (orConditions[0] || {});
       if (sessionId) filter.sessionId = sessionId;
+
       const mongoReports = await AssessmentReportModel.find(filter).sort({ createdAt: -1 });
       if (mongoReports.length > 0) {
         return res.json({
           success: true,
-          reports: mongoReports.map((r) => ({
-            id: r.id,
-            sessionId: r.sessionId,
-            studentId: r.studentId,
-            overallScore: r.overallScore,
-            grade: gradeForScore(r.overallScore),
-            skills: r.rubricJson,
-            aiSummary: r.feedback,
-            strengths: r.strengths || [],
-            areasForImprovement: r.improvements || [],
-            aiRecommendations: ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
-            fillerWordsBreakdown: [],
-            generatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-            facultyEndorsement: { endorsed: false },
-          })),
+          reports: mongoReports.map((r: any) => {
+            const raw = r.fullReportJson || {};
+            const durationSec = r.speakingDurationSeconds ?? raw.speakingTimeSeconds ?? raw.speakingDurationSeconds ?? 0;
+            const turns = r.speakingTurns ?? raw.speakingTurns ?? 0;
+            const wpmVal = r.wpm ?? raw.wpm ?? (durationSec > 0 ? 130 : 0);
+            return {
+              id: r.id,
+              sessionId: r.sessionId,
+              studentId: r.studentId,
+              studentName: r.studentName || raw.studentName || '',
+              seatNumber: r.seatNumber ?? raw.seatNumber,
+              topic: r.topic || raw.topic || '',
+              overallScore: r.overallScore,
+              grade: r.grade || gradeForScore(r.overallScore),
+              skills: r.rubricJson || raw.skills || {},
+              speakingTimeSeconds: durationSec,
+              speakingDurationSeconds: durationSec,
+              speakingTimeFormatted: r.speakingTimeFormatted || raw.speakingTimeFormatted || `${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`,
+              speakingTurns: turns,
+              wpm: wpmVal,
+              wpmStatus: r.wpmStatus || raw.wpmStatus || (durationSec === 0 ? 'No Speech' : wpmVal < 115 ? 'Too Slow' : wpmVal > 165 ? 'Too Fast' : 'Optimal'),
+              fillerWordsCount: r.fillerWordsCount ?? raw.fillerWordsCount ?? 0,
+              fillerWordsBreakdown: r.fillerWordsBreakdown || raw.fillerWordsBreakdown || [],
+              interruptions: r.interruptionCount ?? raw.interruptions ?? 0,
+              questionsAnswered: r.questionsAnswered ?? raw.questionsAnswered ?? 0,
+              questionsInitiated: r.questionsInitiated ?? raw.questionsInitiated ?? 0,
+              feedback: r.feedback || raw.aiSummary || '',
+              aiSummary: r.feedback || raw.aiSummary || '',
+              strengths: r.strengths || raw.strengths || [],
+              areasForImprovement: r.improvements || raw.areasForImprovement || [],
+              aiRecommendations: r.aiRecommendations || raw.aiRecommendations || ['Practice articulating structured viewpoints with relevant examples.', 'Maintain steady vocal pacing throughout the discussion.'],
+              generatedAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+              facultyEndorsement: raw.facultyEndorsement || { endorsed: false },
+            };
+          }),
         });
       }
     } catch (e: any) {
@@ -6172,7 +6289,8 @@ app.get('/api/student/reports', async (req, res) => {
 
   if (isDbConnected && prisma) {
     try {
-      const where: any = { studentId };
+      const where: any = {};
+      if (studentId) where.studentId = studentId;
       if (sessionId) where.sessionId = sessionId;
       const reports = await prisma.assessmentReport.findMany({ where, orderBy: { createdAt: 'desc' } });
       return res.json({
@@ -6220,18 +6338,39 @@ app.get('/api/faculty/sessions/:id/reports', async (req, res) => {
         ? await UserModel.find({ id: { $in: reportStudentIds } })
         : [];
       const reportNameById = new Map(mongoUsers.map((u) => [u.id, u.name]));
-      const reportsWithStudentNames = mongoReports.map((r) => ({
-        id: r.id,
-        sessionId: r.sessionId,
-        studentId: r.studentId,
-        studentName: reportNameById.get(r.studentId) || r.studentName || r.studentId,
-        overallScore: r.overallScore,
-        rubricJson: typeof r.rubricJson === 'string' ? r.rubricJson : JSON.stringify(r.rubricJson),
-        feedback: r.feedback,
-        strengths: (r.strengths || []).join('; '),
-        improvements: (r.improvements || []).join('; '),
-        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-      }));
+      const reportsWithStudentNames = mongoReports.map((r: any) => {
+        const raw = r.fullReportJson || {};
+        const durationSec = r.speakingDurationSeconds ?? raw.speakingTimeSeconds ?? raw.speakingDurationSeconds ?? 0;
+        const turns = r.speakingTurns ?? raw.speakingTurns ?? 0;
+        const wpmVal = r.wpm ?? raw.wpm ?? (durationSec > 0 ? 130 : 0);
+        return {
+          id: r.id,
+          sessionId: r.sessionId,
+          studentId: r.studentId,
+          studentName: reportNameById.get(r.studentId) || r.studentName || r.studentId,
+          seatNumber: r.seatNumber ?? raw.seatNumber,
+          overallScore: r.overallScore,
+          grade: r.grade || gradeForScore(r.overallScore),
+          speakingDurationSeconds: durationSec,
+          speakingTimeSeconds: durationSec,
+          speakingTimeFormatted: r.speakingTimeFormatted || raw.speakingTimeFormatted || `${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`,
+          speakingTurns: turns,
+          wpm: wpmVal,
+          wpmStatus: r.wpmStatus || raw.wpmStatus || (durationSec === 0 ? 'No Speech' : wpmVal < 115 ? 'Too Slow' : wpmVal > 165 ? 'Too Fast' : 'Optimal'),
+          fillerWordsCount: r.fillerWordsCount ?? raw.fillerWordsCount ?? 0,
+          fillerWordsBreakdown: r.fillerWordsBreakdown || raw.fillerWordsBreakdown || [],
+          interruptions: r.interruptionCount ?? raw.interruptions ?? 0,
+          questionsAnswered: r.questionsAnswered ?? raw.questionsAnswered ?? 0,
+          questionsInitiated: r.questionsInitiated ?? raw.questionsInitiated ?? 0,
+          skills: typeof r.rubricJson === 'object' && r.rubricJson !== null ? r.rubricJson : (typeof r.rubricJson === 'string' ? JSON.parse(r.rubricJson || '{}') : (raw.skills || {})),
+          rubricJson: typeof r.rubricJson === 'string' ? r.rubricJson : JSON.stringify(r.rubricJson),
+          feedback: r.feedback || raw.aiSummary || '',
+          aiSummary: r.feedback || raw.aiSummary || '',
+          strengths: Array.isArray(r.strengths) ? (r.strengths.join('; ')) : (r.strengths || ''),
+          improvements: Array.isArray(r.improvements) ? (r.improvements.join('; ')) : (r.improvements || ''),
+          createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        };
+      });
 
       const bookings = await GDBookingModel.find({ sessionId, status: { $ne: 'CANCELLED' } });
       const bookingStudentIds = bookings.map((b) => b.studentId);
@@ -6390,25 +6529,43 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
           : [];
         const reportNameById = new Map(mongoUsers.map((u) => [u.id, u.name]));
 
-        existingReports = mongoReports.map((r) => {
+        existingReports = mongoReports.map((r: any) => {
           let rubric: any = {};
           try {
             rubric = typeof r.rubricJson === 'string' ? JSON.parse(r.rubricJson) : (r.rubricJson || {});
           } catch {}
+          const raw = r.fullReportJson || {};
+          const durationSec = r.speakingDurationSeconds ?? raw.speakingTimeSeconds ?? raw.speakingDurationSeconds ?? 0;
+          const turns = r.speakingTurns ?? raw.speakingTurns ?? 0;
+          const wpmVal = r.wpm ?? raw.wpm ?? (durationSec > 0 ? 130 : 0);
           return {
             id: r.id,
             sessionId: r.sessionId,
             studentId: r.studentId,
             studentName: reportNameById.get(r.studentId) || r.studentName || r.studentId,
+            seatNumber: r.seatNumber ?? raw.seatNumber,
+            topic: r.topic || raw.topic || '',
             overallScore: r.overallScore,
-            grade: gradeForScore(r.overallScore),
+            grade: r.grade || gradeForScore(r.overallScore),
             skills: rubric,
-            feedback: r.feedback || 'Candidate demonstrated constructive engagement.',
-            aiSummary: r.feedback || 'Candidate demonstrated constructive engagement.',
-            strengths: Array.isArray(r.strengths) ? r.strengths : (r.strengths ? String(r.strengths).split('; ').filter(Boolean) : ['Clear articulation', 'Balanced speaking']),
-            areasForImprovement: Array.isArray(r.improvements) ? r.improvements : (r.improvements ? String(r.improvements).split('; ').filter(Boolean) : ['Incorporate more domain metrics']),
-            aiRecommendations: ['Practice timed syntheses of multi-perspective debates.'],
+            speakingDurationSeconds: durationSec,
+            speakingTimeSeconds: durationSec,
+            speakingTimeFormatted: r.speakingTimeFormatted || raw.speakingTimeFormatted || `${Math.floor(durationSec / 60)} min ${durationSec % 60} sec`,
+            speakingTurns: turns,
+            wpm: wpmVal,
+            wpmStatus: r.wpmStatus || raw.wpmStatus || (durationSec === 0 ? 'No Speech' : wpmVal < 115 ? 'Too Slow' : wpmVal > 165 ? 'Too Fast' : 'Optimal'),
+            fillerWordsCount: r.fillerWordsCount ?? raw.fillerWordsCount ?? 0,
+            fillerWordsBreakdown: r.fillerWordsBreakdown || raw.fillerWordsBreakdown || [],
+            interruptions: r.interruptionCount ?? raw.interruptions ?? 0,
+            questionsAnswered: r.questionsAnswered ?? raw.questionsAnswered ?? 0,
+            questionsInitiated: r.questionsInitiated ?? raw.questionsInitiated ?? 0,
+            feedback: r.feedback || raw.aiSummary || 'Candidate demonstrated constructive engagement.',
+            aiSummary: r.feedback || raw.aiSummary || 'Candidate demonstrated constructive engagement.',
+            strengths: Array.isArray(r.strengths) ? r.strengths : (r.strengths ? String(r.strengths).split('; ').filter(Boolean) : (raw.strengths || ['Clear articulation', 'Balanced speaking'])),
+            areasForImprovement: Array.isArray(r.improvements) ? r.improvements : (r.improvements ? String(r.improvements).split('; ').filter(Boolean) : (raw.areasForImprovement || ['Incorporate more domain metrics'])),
+            aiRecommendations: r.aiRecommendations || raw.aiRecommendations || ['Practice timed syntheses of multi-perspective debates.'],
             createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+            facultyEndorsement: raw.facultyEndorsement || { endorsed: false },
           };
         });
       }
@@ -6535,6 +6692,17 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
         overallScore: generated.overallScore,
         grade: generated.grade || gradeForScore(generated.overallScore),
         skills: generated.skills,
+        speakingDurationSeconds: generated.speakingTimeSeconds,
+        speakingTimeSeconds: generated.speakingTimeSeconds,
+        speakingTimeFormatted: generated.speakingTimeFormatted,
+        speakingTurns: generated.speakingTurns,
+        wpm: generated.wpm,
+        wpmStatus: generated.wpmStatus,
+        fillerWordsCount: generated.fillerWordsCount,
+        fillerWordsBreakdown: generated.fillerWordsBreakdown,
+        interruptions: generated.interruptions,
+        questionsAnswered: generated.questionsAnswered,
+        questionsInitiated: generated.questionsInitiated,
         feedback: generated.aiSummary,
         aiSummary: generated.aiSummary,
         strengths: generated.strengths,
