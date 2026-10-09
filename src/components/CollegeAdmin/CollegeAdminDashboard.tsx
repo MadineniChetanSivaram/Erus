@@ -175,8 +175,14 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
   });
   const [isScheduleSlotOpen, setIsScheduleSlotOpen] = useState(false);
 
-  // Computed display slots: merges parent availableSlots and locally scheduled slots without dropping any
-  const allRawSlots: any[] = [...(availableSlots || []), ...slots];
+  // Authoritative college slots: use loaded college slots when available, fallback to availableSlots matching this college
+  const allRawSlots: any[] =
+    slots.length > 0
+      ? slots
+      : (availableSlots || []).filter((s) => {
+          const sCode = (s.collegeCode || '').toUpperCase();
+          return sCode === collegeCode || !s.collegeCode;
+        });
   const seenSlotIds = new Set<string>();
   const displaySlots = allRawSlots
     .filter((s) => {

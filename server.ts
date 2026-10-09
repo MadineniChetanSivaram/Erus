@@ -1548,6 +1548,18 @@ app.put(['/api/admin/colleges/:id/limit', '/api/admin/colleges/:id/quota'], asyn
   savePersistentState();
   persistCollegeToMongoDB(col);
 
+  // Clear existing slots for this college from MongoDB and PostgreSQL so old slots do not accumulate
+  if (isMongoConnected()) {
+    try {
+      await GDSessionModel.deleteMany({ collegeCode: col.code });
+    } catch {}
+  }
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.deleteMany({ where: { college: { code: col.code } } });
+    } catch {}
+  }
+
   // Auto-generate fresh 15-student slots for this college matching new limit
   const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
   persistentState.slots[col.code] = newSlots;
@@ -1576,6 +1588,17 @@ app.post('/api/admin/colleges/:id/limit', async (req, res) => {
   col.studentLimit = limitNum;
   savePersistentState();
   persistCollegeToMongoDB(col);
+
+  if (isMongoConnected()) {
+    try {
+      await GDSessionModel.deleteMany({ collegeCode: col.code });
+    } catch {}
+  }
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.deleteMany({ where: { college: { code: col.code } } });
+    } catch {}
+  }
 
   const newSlots = generateRandomSlotsForCollege(col.code, limitNum);
   persistentState.slots[col.code] = newSlots;
@@ -2857,8 +2880,46 @@ app.get('/api/college/slots', async (req, res) => {
     return ensureSlotParticipants(baseSlot, code);
   });
 
+  const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === code);
+  const quotaLimit = col?.studentLimit || 60;
+  const maxAllowedSlots = Math.max(1, Math.ceil(quotaLimit / 15));
+
+  let finalSlots = slots;
+  if (finalSlots.length > maxAllowedSlots) {
+    // Keep allotted/active slots first
+    finalSlots.sort((a, b) => {
+      const aAllotted = a.topic && !a.topic.toLowerCase().includes('pending') ? 1 : 0;
+      const bAllotted = b.topic && !b.topic.toLowerCase().includes('pending') ? 1 : 0;
+      if (bAllotted !== aAllotted) return bAllotted - aAllotted;
+      return 0;
+    });
+
+    const excessSlots = finalSlots.slice(maxAllowedSlots);
+    finalSlots = finalSlots.slice(0, maxAllowedSlots);
+
+    // Re-index slots cleanly so numbering is sequential (Slot 1..Slot N)
+    finalSlots = finalSlots.map((s, idx) => {
+      const isAllotted = s.topic && !s.topic.toLowerCase().includes('pending');
+      const prefix = `Slot ${idx + 1}`;
+      return {
+        ...s,
+        slotName: isAllotted ? `${prefix}: ${s.topic}` : prefix,
+      };
+    });
+
+    const excessIds = excessSlots.map((s) => s.id);
+    if (excessIds.length > 0) {
+      if (isMongoConnected()) {
+        GDSessionModel.deleteMany({ id: { $in: excessIds } }).catch(() => {});
+      }
+      if (isDbConnected && prisma) {
+        prisma.gDSession.deleteMany({ where: { id: { $in: excessIds } } }).catch(() => {});
+      }
+    }
+  }
+
   // Keep in-memory cache synchronized
-  persistentState.slots[code] = slots;
+  persistentState.slots[code] = finalSlots;
   savePersistentState();
 
   // Institutional Restriction: Students can strictly see only slots they are assigned/allotted to
@@ -2870,7 +2931,7 @@ app.get('/api/college/slots', async (req, res) => {
   if (studentId || userRole === 'student') {
     const targetStudentId = studentId.toLowerCase();
     const targetEmail = studentEmail.toLowerCase();
-    const studentSlots = slots.filter((slot) => {
+    const studentSlots = finalSlots.filter((slot) => {
       // 1. Check slot.students list
       if (Array.isArray(slot.students)) {
         if (slot.students.some((s: any) => {
@@ -2903,7 +2964,7 @@ app.get('/api/college/slots', async (req, res) => {
     const targetEmail = String(req.query.email || req.query.facultyEmail || '').trim().toLowerCase();
     const targetName = String(req.query.name || req.query.facultyName || '').trim().toLowerCase();
 
-    const facultySlots = slots.filter((slot) => {
+    const facultySlots = finalSlots.filter((slot) => {
       const slotFacId = String(slot.assignedFacultyId || '').trim().toLowerCase();
       const slotFacEmail = String(slot.assignedFacultyEmail || '').trim().toLowerCase();
       const slotFacName = String(slot.assignedFacultyName || '').trim().toLowerCase();
@@ -2917,7 +2978,7 @@ app.get('/api/college/slots', async (req, res) => {
     return res.json({ success: true, slots: facultySlots });
   }
 
-  res.json({ success: true, slots });
+  res.json({ success: true, slots: finalSlots });
 });
 
 app.post('/api/college/slots', async (req, res) => {
@@ -3211,6 +3272,18 @@ app.post('/api/college/generate-slots', async (req, res) => {
 
   const col = persistentState.colleges.find((c) => normalizeCollegeCode(c.code) === code);
   const limit = studentLimit || col?.studentLimit || 60;
+
+  // Clear old slots for this college from MongoDB & PostgreSQL
+  if (isMongoConnected()) {
+    try {
+      await GDSessionModel.deleteMany({ collegeCode: code });
+    } catch {}
+  }
+  if (isDbConnected && prisma) {
+    try {
+      await prisma.gDSession.deleteMany({ where: { college: { code } } });
+    } catch {}
+  }
 
   const slots = generateRandomSlotsForCollege(code, limit);
   persistentState.slots[code] = slots;

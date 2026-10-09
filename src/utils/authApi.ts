@@ -840,6 +840,12 @@ export async function updateCollegeStudentLimit(
     });
     if (res.ok) {
       const data = await res.json();
+      if (data.slots && Array.isArray(data.slots)) {
+        saveLocalSlots(collegeIdOrCode, data.slots);
+        if (data.college?.code) {
+          saveLocalSlots(data.college.code, data.slots);
+        }
+      }
       return data;
     }
   } catch (e) {
