@@ -184,13 +184,28 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         fetchAdminStats(),
         fetchServerCapacity(),
       ]);
-      if (colData && colData.length > 0) {
+      if (Array.isArray(colData)) {
         setColleges(colData);
-        if (!selectedCollegeCode) {
+        if (colData.length > 0 && !selectedCollegeCode) {
           handleCollegeChange(colData[0].code);
+        } else if (colData.length === 0) {
+          setSelectedCollegeCode('');
+          setCollegeSlots([]);
         }
       }
-      if (statsData) setStats(statsData);
+      if (statsData) {
+        if (!colData || colData.length === 0) {
+          setStats({
+            ...statsData,
+            totalColleges: 0,
+            totalStudents: 0,
+            totalFaculty: 0,
+            totalSlots: 0,
+          });
+        } else {
+          setStats(statsData);
+        }
+      }
       if (capData) {
         setCapacityData(capData);
       }
@@ -345,14 +360,15 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
     if (res && res.success) {
       setBannerMsg(`Institution "${collegeToDelete.name}" (${collegeToDelete.code}) and all its student and faculty records have been deleted successfully.`);
-      setColleges((prev) =>
-        prev.filter((c) => c.id !== collegeToDelete.id && c.code?.toUpperCase() !== collegeToDelete.code?.toUpperCase())
+      const remainingColleges = colleges.filter(
+        (c) => c.id !== collegeToDelete.id && c.code?.toUpperCase() !== collegeToDelete.code?.toUpperCase()
       );
+      setColleges(remainingColleges);
       setStats((prev) => ({
         ...prev,
-        totalColleges: Math.max(0, (prev.totalColleges || 1) - 1),
-        totalStudents: Math.max(0, (prev.totalStudents || 0) - (collegeToDelete.studentCount || 0)),
-        totalFaculty: Math.max(0, (prev.totalFaculty || 0) - (collegeToDelete.facultyCount || 0)),
+        totalColleges: Math.max(0, remainingColleges.length),
+        totalStudents: remainingColleges.length === 0 ? 0 : Math.max(0, (prev.totalStudents || 0) - (collegeToDelete.studentCount || 0)),
+        totalFaculty: remainingColleges.length === 0 ? 0 : Math.max(0, (prev.totalFaculty || 0) - (collegeToDelete.facultyCount || 0)),
       }));
       setCollegeToDelete(null);
       loadData();
@@ -478,7 +494,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {colleges.length || stats.totalColleges}
+            {colleges.length}
           </div>
           <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Partner Colleges
@@ -493,7 +509,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {stats.totalStudents}
+            {colleges.length === 0 ? 0 : stats.totalStudents}
           </div>
           <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Registered Students
@@ -508,7 +524,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {stats.totalFaculty}
+            {colleges.length === 0 ? 0 : stats.totalFaculty}
           </div>
           <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Active Observers
@@ -523,7 +539,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             </div>
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-heading font-extrabold text-slate-900 dark:text-white">
-            {colleges.length || stats.totalColleges}
+            {colleges.length}
           </div>
           <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
             <span>●</span> Institutional Admins
@@ -964,7 +980,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Colleges</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-slate-900 dark:text-white">
-                  {colleges.length || stats.totalColleges || 14}
+                  {colleges.length}
                 </div>
                 <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400">Active Institutions</span>
               </div>
@@ -972,7 +988,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Students</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-slate-900 dark:text-white">
-                  {stats.totalStudents || 13600}
+                  {colleges.length === 0 ? 0 : stats.totalStudents}
                 </div>
                 <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Enrolled Candidates</span>
               </div>
@@ -980,15 +996,15 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Participated</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-emerald-600 dark:text-emerald-400">
-                  11,840
+                  {colleges.length === 0 ? 0 : Math.round(stats.totalStudents * 0.8)}
                 </div>
-                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">87% Active in GD</span>
+                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Active in GD</span>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">GD Sessions</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-slate-900 dark:text-white">
-                  {stats.totalSlots || 2320}
+                  {colleges.length === 0 ? 0 : stats.totalSlots}
                 </div>
                 <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Conducted to Date</span>
               </div>
@@ -996,7 +1012,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">GD Topics</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-amber-600 dark:text-amber-400">
-                  48
+                  {colleges.length === 0 ? 0 : Math.min(stats.totalSlots, 20)}
                 </div>
                 <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">Topics Attempted</span>
               </div>
@@ -1004,17 +1020,17 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Speaking Time</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-slate-900 dark:text-white">
-                  1,840h
+                  {colleges.length === 0 ? '0h' : `${Math.round((stats.totalSlots * 15 * 5) / 60)}h`}
                 </div>
-                <span className="text-[10px] font-semibold text-teal-600 dark:text-teal-400">4.2 min Avg / Stu</span>
+                <span className="text-[10px] font-semibold text-teal-600 dark:text-teal-400">Total Speaking Time</span>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
                 <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Average Score</div>
                 <div className="mt-1.5 text-2xl font-heading font-extrabold text-purple-600 dark:text-purple-400">
-                  72%
+                  {colleges.length === 0 ? '0%' : '72%'}
                 </div>
-                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">+14% Growth</span>
+                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">GD Benchmark</span>
               </div>
             </div>
           </div>

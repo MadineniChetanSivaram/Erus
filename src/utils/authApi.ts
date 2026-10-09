@@ -808,32 +808,29 @@ export async function allotSlotTopicAndFaculty(
 // ==========================================
 
 export async function fetchAdminColleges(): Promise<any[]> {
-  let backendColleges: any[] = [];
   try {
     const res = await fetch('/api/admin/colleges');
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.colleges)) {
-        backendColleges = data.colleges;
+        try {
+          localStorage.setItem(CUSTOM_COLLEGES_KEY, JSON.stringify(data.colleges));
+        } catch {}
+        return data.colleges;
       }
     }
   } catch (e) {
-    console.warn('Error fetching admin colleges:', e);
+    console.warn('Error fetching admin colleges from server:', e);
   }
 
+  // Fallback to local storage only if backend is unreachable
   const localCustom = getLocalCustomColleges();
   const map = new Map<string, any>();
 
   DEFAULT_ADMIN_COLLEGES.forEach((c) => map.set(c.code.toUpperCase(), c));
   localCustom.forEach((c) => map.set(c.code.toUpperCase(), { ...map.get(c.code.toUpperCase()), ...c }));
-  backendColleges.forEach((c) => map.set(c.code.toUpperCase(), { ...map.get(c.code.toUpperCase()), ...c }));
 
-  const merged = Array.from(map.values());
-  try {
-    localStorage.setItem(CUSTOM_COLLEGES_KEY, JSON.stringify(merged));
-  } catch {}
-
-  return merged;
+  return Array.from(map.values());
 }
 
 export async function registerNewCollege(payload: any) {
@@ -947,6 +944,19 @@ export async function deleteCollege(
       localStorage.removeItem(`erus_college_students_${c}`);
       localStorage.removeItem(`erus_college_slots_${c}`);
       localStorage.removeItem(`erus_college_faculty_${c}`);
+    }
+
+    if (updated.length === 0) {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('erus_college_students_') || k.startsWith('erus_college_slots_') || k.startsWith('erus_college_faculty_'))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      } catch {}
     }
 
     // Purge registered users belonging to this college from `erus_registered_users_db`

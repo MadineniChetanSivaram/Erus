@@ -1623,10 +1623,27 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
   // ----------------------------------------------------
   // A. CLEAN IN-MEMORY PERSISTENT STATE
   // ----------------------------------------------------
-  for (const c of allCodes) {
-    delete persistentState.students[c];
-    delete persistentState.faculty[c];
-    delete persistentState.slots[c];
+  const matchKeysLower = new Set([
+    ...allCodes.map((c) => c.toLowerCase()),
+    ...allNames.map((n) => n.toLowerCase()),
+  ]);
+
+  for (const key of Object.keys(persistentState.students)) {
+    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
+      delete persistentState.students[key];
+    }
+  }
+
+  for (const key of Object.keys(persistentState.faculty)) {
+    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
+      delete persistentState.faculty[key];
+    }
+  }
+
+  for (const key of Object.keys(persistentState.slots)) {
+    if (matchKeysLower.has(key.toLowerCase()) || allCodes.some((c) => c.toLowerCase() === key.toLowerCase())) {
+      delete persistentState.slots[key];
+    }
   }
 
   // Clean any slots in other keys that reference this college
@@ -1636,9 +1653,21 @@ app.delete('/api/admin/colleges/:id', async (req, res) => {
     );
   }
 
+  // If no colleges remain in persistentState.colleges, purge all remaining students, faculty, and slots
+  if (persistentState.colleges.length === 0) {
+    persistentState.students = {};
+    persistentState.faculty = {};
+    persistentState.slots = {};
+  }
+
   // Collect IDs of deleted users for booking state cleanup
   const deletedUserIds = new Set<string>();
   persistentState.users = persistentState.users.filter((u) => {
+    if (persistentState.colleges.length === 0 && u.role !== 'super_admin') {
+      deletedUserIds.add(u.id);
+      if ((u as any).studentId) deletedUserIds.add((u as any).studentId);
+      return false;
+    }
     const uCode = (u.collegeCode || '').trim().toUpperCase();
     const uCollege = (u.college || '').trim().toLowerCase();
     const isCodeMatch = allCodes.includes(uCode);
@@ -1788,13 +1817,24 @@ app.get('/api/admin/stats', (req, res) => {
   pruneInactiveUsers();
 
   let totalStu = 0;
-  Object.values(persistentState.students).forEach((list) => { totalStu += list.length; });
   let totalFac = 0;
-  Object.values(persistentState.faculty).forEach((list) => { totalFac += list.length; });
   let totalSl = 0;
-  Object.values(persistentState.slots).forEach((list) => { totalSl += list.length; });
 
-  const activeCount = Math.max(1, liveActiveUsers.size);
+  if (persistentState.colleges.length > 0) {
+    for (const col of persistentState.colleges) {
+      const code = (col.code || '').trim().toUpperCase();
+      const stuList = persistentState.students[code] || persistentState.students[col.code] || [];
+      totalStu += stuList.length || col.studentCount || 0;
+
+      const facList = persistentState.faculty[code] || persistentState.faculty[col.code] || [];
+      totalFac += facList.length || col.facultyCount || 0;
+
+      const slList = persistentState.slots[code] || persistentState.slots[col.code] || [];
+      totalSl += slList.length || col.slotCount || 0;
+    }
+  }
+
+  const activeCount = Math.max(0, liveActiveUsers.size);
   const todayCount = persistentState.systemSettings.activeUsersToday.length || activeCount;
   const limit = persistentState.systemSettings.dailyUserLimit;
   const loadPercent = limit > 0 ? Math.min(100, Math.round((todayCount / limit) * 100)) : Math.min(100, Math.round((activeCount / 50) * 100));
@@ -1803,10 +1843,10 @@ app.get('/api/admin/stats', (req, res) => {
     success: true,
     stats: {
       totalColleges: persistentState.colleges.length,
-      totalStudents: totalStu || 215,
-      totalFaculty: totalFac || 32,
-      totalSlots: totalSl || 14,
-      activeLiveGDs: (typeof LIVE_ROOMS !== 'undefined' ? LIVE_ROOMS.size : 0) || 1,
+      totalStudents: totalStu,
+      totalFaculty: totalFac,
+      totalSlots: totalSl,
+      activeLiveGDs: typeof LIVE_ROOMS !== 'undefined' ? LIVE_ROOMS.size : 0,
       activeUsersCount: activeCount,
       activeUsersTodayCount: todayCount,
       dailyUserLimit: limit,
@@ -1916,8 +1956,8 @@ app.get('/api/college/stats', (req, res) => {
       collegeName: college?.name || 'Delhi Institute of Technology',
       collegeCode: code,
       studentLimit: college?.studentLimit || 60,
-      totalStudents: stuList.length || (code === 'DIT' ? 120 : 0),
-      totalFaculty: facList.length || (code === 'DIT' ? 18 : 0),
+      totalStudents: stuList.length,
+      totalFaculty: facList.length,
       scheduledSlots: slotList.filter((s) => s.status === 'scheduled').length,
       completedSlots: slotList.filter((s) => s.status === 'completed').length,
       totalSlots: slotList.length,
