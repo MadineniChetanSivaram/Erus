@@ -90,6 +90,216 @@ export function calculateGrade(score: number): GradeLevel {
   return 'Needs Improvement';
 }
 
+/**
+ * Calculates duration score up to 70 points according to institutional GD policy:
+ * - 0s: 0 points
+ * - 20s: 15 points
+ * - 40s: 30 points
+ * - 60s (1 min): 40 points
+ * - 120s (2 mins): 60 points
+ * - 180s (3:00 mins and more): 70 points
+ */
+export function calculateDurationScore(seconds: number): number {
+  if (!seconds || seconds <= 0) return 0;
+  if (seconds <= 20) {
+    return (seconds / 20) * 15;
+  }
+  if (seconds <= 40) {
+    return 15 + ((seconds - 20) / 20) * (30 - 15);
+  }
+  if (seconds <= 60) {
+    return 30 + ((seconds - 40) / 20) * (40 - 30);
+  }
+  if (seconds <= 120) {
+    return 40 + ((seconds - 60) / 60) * (60 - 40);
+  }
+  if (seconds <= 180) {
+    return 60 + ((seconds - 120) / 60) * (70 - 60);
+  }
+  return 70;
+}
+
+/**
+ * Calculates qualitative performance score up to 30 points:
+ * Assesses fluency, pacing (WPM), vocabulary diversity, argument structure,
+ * and conversational collaboration/leadership.
+ */
+export function calculateQualityScore(params: {
+  seconds: number;
+  words?: number;
+  turns?: number;
+  wpm?: number;
+  fillerWordsCount?: number;
+  hasCollab?: boolean;
+  hasLead?: boolean;
+}): number {
+  const { seconds, words = 0, turns = 1, wpm = 0, fillerWordsCount = 0, hasCollab = false, hasLead = false } = params;
+  if (!seconds || seconds <= 0) return 0;
+
+  // Fluency & pacing component (up to 10 points)
+  let fluencyPoints = 5;
+  if (wpm >= 110 && wpm <= 165) {
+    fluencyPoints = 10;
+  } else if (wpm >= 90 && wpm <= 185) {
+    fluencyPoints = 8;
+  } else if (wpm > 0) {
+    fluencyPoints = 5;
+  }
+  if (fillerWordsCount > 4) {
+    fluencyPoints = Math.max(2, fluencyPoints - 2);
+  }
+
+  // Content quality, vocabulary & articulation (up to 10 points)
+  let contentPoints = 4;
+  if (words >= 150) contentPoints = 10;
+  else if (words >= 80) contentPoints = 8;
+  else if (words >= 35) contentPoints = 6;
+  else if (words > 0) contentPoints = Math.max(2, Math.round((words / 35) * 5));
+
+  // Collaboration, turn taking & presence (up to 6 points)
+  let collabPoints = 3;
+  if (hasCollab || turns >= 3) collabPoints = 6;
+  else if (turns >= 2) collabPoints = 5;
+  else collabPoints = 3;
+
+  // Leadership & initiative (up to 4 points)
+  let leadPoints = 2;
+  if (hasLead || turns >= 4) leadPoints = 4;
+  else if (turns >= 2) leadPoints = 3;
+
+  const rawQuality = fluencyPoints + contentPoints + collabPoints + leadPoints;
+  const volumeFactor = Math.min(1, Math.max(0.2, seconds / 120));
+  return Math.min(30, Math.max(0, Math.round(rawQuality * volumeFactor)));
+}
+
+/**
+ * Calculates overall score (0-100) combining speaking duration (up to 70 pts)
+ * and speech quality/fluency (up to 30 pts).
+ */
+export function calculateStudentOverallScore(params: {
+  seconds: number;
+  words?: number;
+  turns?: number;
+  wpm?: number;
+  fillerWordsCount?: number;
+  hasCollab?: boolean;
+  hasLead?: boolean;
+}): {
+  durationScore: number;
+  qualityScore: number;
+  overallScore: number;
+} {
+  const seconds = Math.max(0, params.seconds || 0);
+  if (seconds <= 0) {
+    return { durationScore: 0, qualityScore: 0, overallScore: 0 };
+  }
+  const durationScore = calculateDurationScore(seconds);
+  const qualityScore = calculateQualityScore({
+    seconds,
+    words: params.words ?? Math.round(seconds * 2.2),
+    turns: params.turns ?? (seconds > 0 ? Math.max(1, Math.round(seconds / 40)) : 0),
+    wpm: params.wpm ?? 130,
+    fillerWordsCount: params.fillerWordsCount ?? (seconds > 60 ? 3 : 1),
+    hasCollab: params.hasCollab ?? (seconds > 45),
+    hasLead: params.hasLead ?? (seconds > 90),
+  });
+  const overallScore = Math.min(100, Math.max(0, Math.round(durationScore + qualityScore)));
+  return { durationScore, qualityScore, overallScore };
+}
+
+/**
+ * Distributes total score (0-100) across the 7 academic rubrics
+ * Max points: English 20, Fluency 20, Clarity 15, Confidence 15, Content 15, Collaboration 10, Leadership 5
+ * Sum of rubric scores strictly equals overallScore.
+ */
+export function distributeRubricScores(
+  overallScore: number,
+  relativeStrengths?: {
+    english?: number;
+    fluency?: number;
+    clarity?: number;
+    confidence?: number;
+    contentQuality?: number;
+    collaboration?: number;
+    leadership?: number;
+  }
+): {
+  english: number;
+  fluency: number;
+  clarity: number;
+  confidence: number;
+  contentQuality: number;
+  collaboration: number;
+  leadership: number;
+} {
+  const target = Math.min(100, Math.max(0, Math.round(overallScore)));
+  if (target === 0) {
+    return { english: 0, fluency: 0, clarity: 0, confidence: 0, contentQuality: 0, collaboration: 0, leadership: 0 };
+  }
+
+  const caps = {
+    english: 20,
+    fluency: 20,
+    clarity: 15,
+    confidence: 15,
+    contentQuality: 15,
+    collaboration: 10,
+    leadership: 5,
+  };
+
+  const weights = {
+    english: relativeStrengths?.english ?? 20,
+    fluency: relativeStrengths?.fluency ?? 20,
+    clarity: relativeStrengths?.clarity ?? 15,
+    confidence: relativeStrengths?.confidence ?? 15,
+    contentQuality: relativeStrengths?.contentQuality ?? 15,
+    collaboration: relativeStrengths?.collaboration ?? 10,
+    leadership: relativeStrengths?.leadership ?? 5,
+  };
+
+  const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) || 100;
+  const allocated: Record<string, number> = {};
+  let currentSum = 0;
+
+  (Object.keys(caps) as (keyof typeof caps)[]).forEach((key) => {
+    const rawVal = Math.round((weights[key] / totalWeight) * target);
+    const clamped = Math.min(caps[key], Math.max(0, rawVal));
+    allocated[key] = clamped;
+    currentSum += clamped;
+  });
+
+  let diff = target - currentSum;
+  const keysByCapacity = (Object.keys(caps) as (keyof typeof caps)[]).sort((a, b) => caps[b] - caps[a]);
+
+  while (diff !== 0) {
+    let changed = false;
+    for (const k of keysByCapacity) {
+      if (diff > 0 && allocated[k] < caps[k]) {
+        allocated[k] += 1;
+        diff -= 1;
+        changed = true;
+        if (diff === 0) break;
+      } else if (diff < 0 && allocated[k] > 0) {
+        allocated[k] -= 1;
+        diff += 1;
+        changed = true;
+        if (diff === 0) break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  return {
+    english: allocated.english,
+    fluency: allocated.fluency,
+    clarity: allocated.clarity,
+    confidence: allocated.confidence,
+    contentQuality: allocated.contentQuality,
+    collaboration: allocated.collaboration,
+    leadership: allocated.leadership,
+  };
+}
+
 export function computeOverallScore(skills: {
   english: number;        // out of 20
   fluency: number;        // out of 20
@@ -99,8 +309,6 @@ export function computeOverallScore(skills: {
   collaboration: number;  // out of 10
   leadership: number;     // out of 5
 }): number {
-  // Score formula: English (20%) + Fluency (20%) + Clarity (15%) + Confidence (15%) + Content (15%) + Collaboration (10%) + Leadership (5%)
-  // Sum = 20 + 20 + 15 + 15 + 15 + 10 + 5 = 100 max
   const total =
     skills.english +
     skills.fluency +
@@ -119,31 +327,57 @@ export function generateStudentReport(
   baseReport?: StudentAssessmentReport
 ): StudentAssessmentReport {
   const base = baseReport || SAMPLE_REPORT_RAHUL;
-  const turns = student.speakingTurns || 4;
-  const durationSec = student.speakingDurationSeconds || 180;
+  const turns = typeof student.speakingTurns === 'number' ? student.speakingTurns : 0;
+  const durationSec = typeof student.speakingDurationSeconds === 'number' ? student.speakingDurationSeconds : 0;
+  const words = Math.max(0, Math.round(durationSec * 2.2));
+  const wpm = durationSec > 0 ? (baseReport?.wpm || (durationSec >= 60 ? 135 : 110)) : 0;
+  const fillerCount = baseReport?.fillerWordsCount ?? (durationSec > 90 ? 3 : durationSec > 20 ? 1 : 0);
 
-  const english = Math.min(20, Math.max(14, Math.round(16 + (turns % 3))));
-  const fluency = Math.min(20, Math.max(13, Math.round(15 + ((durationSec / 45) % 4))));
-  const clarity = Math.min(15, Math.max(10, Math.round(12 + ((student.questionsAnswered || 2) % 3))));
-  const confidence = Math.min(15, Math.max(11, Math.round(13 + ((student.questionsInitiated || 1) % 3))));
-  const content = Math.min(15, Math.max(10, Math.round(12 + ((turns * 2) % 3))));
-  const collaboration = Math.min(10, Math.max(7, Math.round(8 - (student.interruptionCount || 0))));
-  const leadership = Math.min(5, Math.max(3, Math.round(4 + ((student.questionsInitiated || 0) > 0 ? 1 : 0))));
-
-  const overall = computeOverallScore({
-    english,
-    fluency,
-    clarity,
-    confidence,
-    contentQuality: content,
-    collaboration,
-    leadership,
+  const { overallScore } = calculateStudentOverallScore({
+    seconds: durationSec,
+    words,
+    turns,
+    wpm,
+    fillerWordsCount: fillerCount,
+    hasCollab: turns >= 2,
+    hasLead: turns >= 3 || (student.questionsInitiated || 0) > 0,
   });
+
+  const rubricScores = distributeRubricScores(overallScore);
+
+  let aiSummary = '';
+  if (durationSec <= 0) {
+    aiSummary = `${student.name} did not log speaking time during this session. Active verbal participation is required to earn assessment points.`;
+  } else if (durationSec < 60) {
+    aiSummary = `${student.name} spoke briefly (${Math.floor(durationSec / 60)}m ${durationSec % 60}s) on "${topic}". Demonstrated initial perspective but needs more sustained participation across multiple turns.`;
+  } else if (durationSec < 120) {
+    aiSummary = `${student.name} engaged constructively in the group discussion on "${topic}", logging ${Math.floor(durationSec / 60)}m ${durationSec % 60}s across ${turns} turn(s) with clear articulation.`;
+  } else {
+    aiSummary = `${student.name} was a primary contributor in the group discussion on "${topic}", delivering ${Math.floor(durationSec / 60)}m ${durationSec % 60}s of sustained dialogue with strong reasoning and collaborative leadership.`;
+  }
+
+  const strengths: string[] = [];
+  if (durationSec >= 60) strengths.push(`Sustained active participation (${Math.floor(durationSec / 60)}m ${durationSec % 60}s speaking time)`);
+  if (turns >= 2) strengths.push(`Contributed across ${turns} distinct speaking turns`);
+  if (wpm >= 110 && wpm <= 165) strengths.push(`Maintained an optimal conversational speaking pace (${wpm} WPM)`);
+  if (strengths.length === 0 && durationSec > 0) strengths.push('Participated and shared viewpoints during the round');
+
+  const areasForImprovement: string[] = [];
+  if (durationSec < 60) areasForImprovement.push('Increase overall speaking duration towards the 2–3 minute benchmark');
+  if (turns < 2) areasForImprovement.push('Intervene multiple times across different phases of the discussion');
+  if (fillerCount > 3) areasForImprovement.push(`Reduce conversational filler words (${fillerCount} detected)`);
+  if (areasForImprovement.length === 0) areasForImprovement.push('Substantiate arguments with concrete empirical data and industry case studies');
+
+  const aiRecommendations: string[] = [
+    `For "${topic}", prepare 2–3 structured talking points to sustain discussion across the entire round.`,
+    'Acknowledge peer comments with active listening markers ("Building on that point...") before introducing new ideas.',
+    'Pace contributions evenly to maximize both speaking duration and collaborative turn-taking.'
+  ];
 
   return {
     ...base,
     id: `rep-${student.id}-${Date.now()}`,
-    sessionId: 'session-001',
+    sessionId: base.sessionId || 'session-001',
     studentId: student.id,
     studentName: student.name,
     college: student.college || 'Engineering Institute',
@@ -153,29 +387,33 @@ export function generateStudentReport(
     speakingTimeSeconds: durationSec,
     speakingTurns: turns,
     interruptions: student.interruptionCount || 0,
-    questionsAnswered: student.questionsAnswered || 3,
-    wpm: baseReport?.wpm || 135,
-    wpmStatus: baseReport?.wpmStatus || 'Optimal',
-    fillerWordsCount: baseReport?.fillerWordsCount ?? 2,
+    questionsAnswered: student.questionsAnswered || 0,
+    questionsInitiated: student.questionsInitiated || 0,
+    wpm,
+    wpmStatus: wpm === 0 ? 'No Speech' : wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal',
+    fillerWordsCount: fillerCount,
     fillerWordsBreakdown: baseReport?.fillerWordsBreakdown || [
-      { word: 'like', count: 1 },
-      { word: 'basically', count: 1 },
+      { word: 'like', count: Math.min(1, fillerCount) },
+      { word: 'basically', count: Math.max(0, fillerCount - 1) },
     ],
     facultyEndorsement: baseReport?.facultyEndorsement || {
       endorsed: false,
     },
     skills: {
-      english: { ...base.skills.english, score: english },
-      fluency: { ...base.skills.fluency, score: fluency },
-      clarity: { ...base.skills.clarity, score: clarity },
-      confidence: { ...base.skills.confidence, score: confidence },
-      contentQuality: { ...base.skills.contentQuality, score: content },
-      collaboration: { ...base.skills.collaboration, score: collaboration },
-      leadership: { ...base.skills.leadership, score: leadership },
+      english: { ...base.skills.english, score: rubricScores.english, feedback: durationSec > 0 ? (rubricScores.english > 12 ? 'Consistently articulate language usage.' : 'Basic English sentence formation observed.') : 'No speech recorded.' },
+      fluency: { ...base.skills.fluency, score: rubricScores.fluency, feedback: durationSec > 0 ? (rubricScores.fluency > 12 ? 'Maintained smooth conversation flow.' : 'Pacing showed hesitation or brief duration.') : 'No speech recorded.' },
+      clarity: { ...base.skills.clarity, score: rubricScores.clarity, feedback: durationSec > 0 ? (rubricScores.clarity > 9 ? 'Expressed perspective clearly.' : 'Points were brief; expand ideas further.') : 'No speech recorded.' },
+      confidence: { ...base.skills.confidence, score: rubricScores.confidence, feedback: durationSec > 0 ? (rubricScores.confidence > 9 ? 'Spoke with assertiveness and poise.' : 'Build confidence by speaking up earlier.') : 'No speech recorded.' },
+      contentQuality: { ...base.skills.contentQuality, score: rubricScores.contentQuality, feedback: durationSec > 0 ? (rubricScores.contentQuality > 9 ? 'Relevant points aligned to group topic.' : 'Content was minimal; add supporting reasons.') : 'No speech recorded.' },
+      collaboration: { ...base.skills.collaboration, score: rubricScores.collaboration, feedback: durationSec > 0 ? (rubricScores.collaboration > 6 ? 'Demonstrated team behavior and listened to peers.' : 'Engage with peer arguments directly.') : 'No speech recorded.' },
+      leadership: { ...base.skills.leadership, score: rubricScores.leadership, feedback: durationSec > 0 ? (rubricScores.leadership > 3 ? 'Helped steer constructive discussion.' : 'Take initiative in summarizing points.') : 'No speech recorded.' },
     },
-    overallScore: overall,
-    grade: calculateGrade(overall),
-    aiSummary: `${student.name} contributed actively to the group discussion on "${topic}", demonstrating constructive dialogue and structured reasoning.`,
+    overallScore,
+    grade: calculateGrade(overallScore),
+    strengths,
+    areasForImprovement,
+    aiRecommendations,
+    aiSummary,
     generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
   };
 }

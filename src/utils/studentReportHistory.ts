@@ -102,8 +102,8 @@ export function createBaselinePreviousReport(currentReport: StudentAssessmentRep
         feedback: 'Observed discussion flow without initiating mid-session summaries.',
       },
     },
-    overallScore: Math.max(55, currentReport.overallScore - 10),
-    grade: 'Good' as GradeLevel,
+    overallScore: Math.max(0, currentReport.overallScore - 10),
+    grade: (currentReport.overallScore - 10 >= 90 ? 'Excellent' : currentReport.overallScore - 10 >= 75 ? 'Very Good' : currentReport.overallScore - 10 >= 60 ? 'Good' : currentReport.overallScore - 10 >= 40 ? 'Average' : 'Needs Improvement') as GradeLevel,
     strengths: [
       'Showed strong commitment to listening respectfully to opposing perspectives',
       'Communicated consistently in English without switching languages',

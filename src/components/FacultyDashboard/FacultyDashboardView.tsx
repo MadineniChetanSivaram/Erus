@@ -30,7 +30,7 @@ import {
   Radio
 } from 'lucide-react';
 import { GDSession, Student, TranscriptEntry } from '../../types/gd';
-import { INITIAL_SESSION } from '../../data/mockGDData';
+import { INITIAL_SESSION, calculateStudentOverallScore } from '../../data/mockGDData';
 import { formatSlotDate } from '../../utils/studentBooking';
 import { downloadFacultyReport } from '../../utils/managementReports';
 import { isFacultyAssignedToSlot } from '../../utils/authApi';
@@ -123,7 +123,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     
     let calculatedScore = typeof persisted?.overallScore === 'number'
       ? persisted.overallScore
-      : (turns > 0 || speakingSecs > 0 ? Math.min(100, Math.max(40, Math.round(50 + turns * 8 + Math.min(speakingSecs, 180) / 10))) : 0);
+      : (turns > 0 || speakingSecs > 0 ? calculateStudentOverallScore({ seconds: speakingSecs, turns }).overallScore : 0);
     
     let calculatedGrade = calculatedScore > 0
       ? (calculatedScore >= 90 ? 'Excellent' : calculatedScore >= 75 ? 'Very Good' : calculatedScore >= 60 ? 'Good' : calculatedScore >= 40 ? 'Average' : 'Needs Improvement')

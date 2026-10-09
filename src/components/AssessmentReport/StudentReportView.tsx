@@ -39,7 +39,7 @@ import {
   SkillScore 
 } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
-import { SAMPLE_REPORT_RAHUL, generateStudentReport } from '../../data/mockGDData';
+import { SAMPLE_REPORT_RAHUL, generateStudentReport, distributeRubricScores } from '../../data/mockGDData';
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
@@ -50,14 +50,19 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
   const base = fallback || SAMPLE_REPORT_RAHUL;
   if (!raw) return base;
 
+  const targetScore = typeof raw.overallScore === 'number'
+    ? raw.overallScore
+    : (typeof raw.score === 'number' ? raw.score : base.overallScore);
+  const defaultDistributed = distributeRubricScores(targetScore);
+
   const defaultSkills: Record<string, SkillScore> = base.skills || {
-    english: { parameter: 'Speaking in English', weightagePercent: 20, score: 15, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'Consistently articulate language usage.' },
-    fluency: { parameter: 'Fluency', weightagePercent: 20, score: 15, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'Maintained smooth conversation flow.' },
-    clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: 'Expressed perspective clearly.' },
-    confidence: { parameter: 'Confidence', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: 'Spoke with assertiveness and poise.' },
-    contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: 12, maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: 'Relevant points aligned to group topic.' },
-    collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: 8, maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: 'Demonstrated team behavior and listened to peers.' },
-    leadership: { parameter: 'Leadership', weightagePercent: 5, score: 4, maxScore: 5, subPoints: ['Initiative'], feedback: 'Helped steer constructive discussion.' }
+    english: { parameter: 'Speaking in English', weightagePercent: 20, score: defaultDistributed.english, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'Articulate language usage.' },
+    fluency: { parameter: 'Fluency', weightagePercent: 20, score: defaultDistributed.fluency, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'Smooth conversation flow.' },
+    clarity: { parameter: 'Communication Clarity', weightagePercent: 15, score: defaultDistributed.clarity, maxScore: 15, subPoints: ['Clear ideas', 'Articulation'], feedback: 'Expressed perspective clearly.' },
+    confidence: { parameter: 'Confidence', weightagePercent: 15, score: defaultDistributed.confidence, maxScore: 15, subPoints: ['Body Language', 'Tone'], feedback: 'Spoke with assertiveness and poise.' },
+    contentQuality: { parameter: 'Content Quality', weightagePercent: 15, score: defaultDistributed.contentQuality, maxScore: 15, subPoints: ['Relevance', 'Reasoning'], feedback: 'Relevant points aligned to group topic.' },
+    collaboration: { parameter: 'Collaboration', weightagePercent: 10, score: defaultDistributed.collaboration, maxScore: 10, subPoints: ['Listening', 'Respect'], feedback: 'Demonstrated team behavior and listened to peers.' },
+    leadership: { parameter: 'Leadership', weightagePercent: 5, score: defaultDistributed.leadership, maxScore: 5, subPoints: ['Initiative'], feedback: 'Helped steer constructive discussion.' }
   };
 
   const rawSkills = raw.skills || {};
@@ -70,7 +75,7 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
     const defaultItem = defaultSkills[k] || {
       parameter: k.charAt(0).toUpperCase() + k.slice(1),
       weightagePercent: 10,
-      score: 7,
+      score: (defaultDistributed as any)[k] ?? 0,
       maxScore: 10,
       subPoints: ['Core competency', 'Demonstrated understanding'],
       feedback: 'Good performance.'
@@ -79,7 +84,7 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
     normalizedSkills[k] = {
       parameter: s.parameter || defaultItem.parameter || (k.charAt(0).toUpperCase() + k.slice(1)),
       weightagePercent: typeof s.weightagePercent === 'number' ? s.weightagePercent : defaultItem.weightagePercent,
-      score: typeof s.score === 'number' ? s.score : defaultItem.score,
+      score: typeof s.score === 'number' ? s.score : ((defaultDistributed as any)[k] ?? defaultItem.score),
       maxScore: typeof s.maxScore === 'number' ? s.maxScore : (typeof s.max === 'number' ? s.max : defaultItem.maxScore),
       subPoints: Array.isArray(s.subPoints) && s.subPoints.length > 0 ? s.subPoints : (defaultItem.subPoints || ['Structured delivery', 'Constructive engagement']),
       feedback: s.feedback || defaultItem.feedback || 'Consistent and structured contribution.'
