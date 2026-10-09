@@ -202,17 +202,20 @@ export const TOPIC_QUESTION_BANKS: Record<string, TopicQuestions> = {
     ethical: [
       "Let's examine the ethical dimension: is the consumer convenience of 10-minute delivery worth the severe physical risks imposed on gig delivery riders?",
       "How do we address anti-competitive predatory pricing by mega-platforms that deliberately drives local mom-and-pop stores out of business?",
-      "What are the ethical concerns regarding hyper-targeted dark-pattern algorithms designed to exploit impulsive consumer spending?"
+      "What are the ethical concerns regarding hyper-targeted dark-pattern algorithms designed to exploit impulsive consumer spending?",
+      "How do we balance AI-driven personalization in e-commerce against consumer privacy and the risk of algorithmic price discrimination?"
     ],
     economic: [
       "Looking at retail economics: what is the long-term impact on local employment and community wealth when spending shifts from local Kiranas to centralized dark stores?",
       "Can quick-commerce platforms achieve sustainable unit economics without continually squeezing vendor margins and delivery fees?",
-      "What are the macroeconomic risks if a duopoly of foreign-backed e-commerce conglomerates monopolizes domestic consumer retail?"
+      "What are the macroeconomic risks if a duopoly of foreign-backed e-commerce conglomerates monopolizes domestic consumer retail?",
+      "Will AI-automated warehouse logistics and predictive demand forecasting permanently widen the gap between tech conglomerates and small retail businesses?"
     ],
     humanExperience: [
       "How does the decline of neighbourhood physical markets impact interpersonal community bonds and organic social interaction?",
       "What are the psychological implications of instant-gratification shopping on consumer debt and material satisfaction?",
-      "How does the lived daily reality of a gig-economy delivery partner compare to the glossy promises of platform flexibility?"
+      "How does the lived daily reality of a gig-economy delivery partner compare to the glossy promises of platform flexibility?",
+      "How do automated customer service chatbots compare to human support when shoppers face transaction fraud or disputed refunds?"
     ],
     pedagogical: [
       "How can traditional retail associations educate small merchants to adopt digital inventory, UPI, and local collective delivery models?",
@@ -226,6 +229,7 @@ export const TOPIC_QUESTION_BANKS: Record<string, TopicQuestions> = {
     ],
     futureOutlook: [
       "Projecting into the next decade: how will autonomous delivery drones, automated dark stores, and ONDC protocols reshape the retail landscape?",
+      "Will generative AI virtual try-ons, conversational shopping agents, and automated dark stores reshape the retail workforce over the next decade?",
       "Will social commerce and live-stream shopping overtake traditional search-based e-commerce storefronts?",
       "How will environmental regulations around single-use plastic packaging and carbon footprints alter urban fulfillment networks?"
     ],
