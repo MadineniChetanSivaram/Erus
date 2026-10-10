@@ -36,6 +36,14 @@ interface UseWebRTCRoomOptions {
   onSessionStarted?: (data: any) => void;
   onSessionEnded?: (data: any) => void;
   onAiParticipantSpeech?: (data: any) => void;
+  onRoomJoined?: (data: {
+    assignedSeat?: number;
+    transcripts?: GDTranscript[];
+    status?: string;
+    topic?: string;
+    openingStarted?: boolean;
+    silenceTimerSeconds?: number;
+  }) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -62,6 +70,7 @@ export function useWebRTCRoom({
   onSessionStarted,
   onSessionEnded,
   onAiParticipantSpeech,
+  onRoomJoined,
 }: UseWebRTCRoomOptions) {
   const [connected, setConnected] = useState(false);
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
@@ -113,49 +122,15 @@ export function useWebRTCRoom({
   onSessionStartedRef.current = onSessionStarted;
   onSessionEndedRef.current = onSessionEnded;
   onAiParticipantSpeechRef.current = onAiParticipantSpeech;
+  const onRoomJoinedRef = useRef(onRoomJoined);
+  onRoomJoinedRef.current = onRoomJoined;
 
-  const playbackAudioContextRef = useRef<AudioContext | null>(null);
-  const remoteAudioNodesRef = useRef<Map<string, MediaStreamAudioSourceNode>>(new Map());
-
-  const getPlaybackAudioContext = useCallback(() => {
-    if (!playbackAudioContextRef.current || playbackAudioContextRef.current.state === 'closed') {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        playbackAudioContextRef.current = new AudioCtx();
-      }
-    }
-    return playbackAudioContextRef.current;
-  }, []);
-
-  // 1. Play incoming peer audio stream through browser speakers
+  // 1. Play incoming peer audio stream through browser speakers via HTMLAudioElement
   const attachRemoteAudio = useCallback((peerSocketId: string, stream: MediaStream) => {
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) return;
 
-    // 1. Direct Web Audio API output routing (bypasses browser HTMLAudioElement autoplay hurdles)
-    try {
-      const audioCtx = getPlaybackAudioContext();
-      if (audioCtx) {
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume().catch(() => {});
-        }
-        const prevSource = remoteAudioNodesRef.current.get(peerSocketId);
-        if (prevSource) {
-          try { prevSource.disconnect(); } catch {}
-        }
-        const pureAudioStream = new MediaStream(audioTracks);
-        const source = audioCtx.createMediaStreamSource(pureAudioStream);
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 1.0;
-        source.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        remoteAudioNodesRef.current.set(peerSocketId, source);
-      }
-    } catch (webaudioErr) {
-      console.warn('[WebAudio route notice]:', webaudioErr);
-    }
-
-    // 2. HTMLAudioElement in DOM as resilient secondary playback engine
+    // HTMLAudioElement in DOM as resilient playback engine
     let audioEl = audioElementsRef.current.get(peerSocketId);
     if (!audioEl) {
       audioEl = document.createElement('audio');
@@ -193,15 +168,10 @@ export function useWebRTCRoom({
         playAudio();
       };
     });
-  }, [getPlaybackAudioContext]);
+  }, []);
 
   // 2. Remove peer audio element & stream on disconnect
   const detachRemoteAudio = useCallback((peerSocketId: string) => {
-    const prevSource = remoteAudioNodesRef.current.get(peerSocketId);
-    if (prevSource) {
-      try { prevSource.disconnect(); } catch {}
-      remoteAudioNodesRef.current.delete(peerSocketId);
-    }
     const audioEl = audioElementsRef.current.get(peerSocketId);
     if (audioEl) {
       audioEl.pause();
@@ -415,16 +385,28 @@ export function useWebRTCRoom({
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close().catch(() => {});
+          try { audioContextRef.current.close().catch(() => {}); } catch {}
         }
-        const audioCtx = new AudioCtx();
-        audioContextRef.current = audioCtx;
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.5;
-        source.connect(analyser);
-        analyserRef.current = analyser;
+        try {
+          const audioCtx = new AudioCtx();
+          audioContextRef.current = audioCtx;
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+          }
+          audioCtx.onstatechange = () => {
+            if (audioCtx.state === 'suspended') {
+              audioCtx.resume().catch(() => {});
+            }
+          };
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.5;
+          source.connect(analyser);
+          analyserRef.current = analyser;
+        } catch (e) {
+          console.warn('[WebRTC audio analyser init warning]:', e);
+        }
 
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
@@ -493,9 +475,6 @@ export function useWebRTCRoom({
   // Global user-gesture audio unlocker for browser autoplay policies
   useEffect(() => {
     const unlockAllAudio = () => {
-      if (playbackAudioContextRef.current && playbackAudioContextRef.current.state === 'suspended') {
-        playbackAudioContextRef.current.resume().catch(() => {});
-      }
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         audioContextRef.current.resume().catch(() => {});
       }
@@ -523,8 +502,8 @@ export function useWebRTCRoom({
 
     // Connect socket (relative origin works seamlessly on both localhost and Railway)
     const socket = io(window.location.origin, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 15,
     });
     socketRef.current = socket;
 
@@ -552,13 +531,34 @@ export function useWebRTCRoom({
     });
 
     // Received initial room state
-    socket.on('gd-room-joined', async ({ assignedSeat: mySeat, peers: existingPeers, silenceTimerSeconds: initialSilence, aiParticipants: initialAiParticipants, simulationMode: initialSimulationMode }) => {
+    socket.on('gd-room-joined', async ({
+      assignedSeat: mySeat,
+      peers: existingPeers,
+      silenceTimerSeconds: initialSilence,
+      aiParticipants: initialAiParticipants,
+      simulationMode: initialSimulationMode,
+      transcripts: initialTranscripts,
+      status: roomStatus,
+      topic: roomTopic,
+      openingStarted: isOpeningStarted,
+    }: any) => {
       if (!active) return;
       setAssignedSeat(mySeat);
       setPeers(existingPeers || []);
       setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
       setSimulationMode(Boolean(initialSimulationMode));
       setSilenceTimerSeconds(initialSilence || 0);
+
+      if (onRoomJoinedRef.current) {
+        onRoomJoinedRef.current({
+          assignedSeat: mySeat,
+          transcripts: initialTranscripts,
+          status: roomStatus,
+          topic: roomTopic,
+          openingStarted: isOpeningStarted,
+          silenceTimerSeconds: initialSilence,
+        });
+      }
 
       // Initiate WebRTC offers to all peers already in the room
       if (existingPeers && existingPeers.length > 0) {

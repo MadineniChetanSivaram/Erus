@@ -5826,9 +5826,13 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
   const spokenText = entries.map((t: any) => String(t.text || '').trim()).filter(Boolean).join(' ');
   const words = spokenText ? spokenText.split(/\s+/).filter(Boolean) : [];
   const wordCount = words.length;
-  const turns = metrics.speakingTurns ?? entries.length;
-  const seconds = Math.max(0, Number(metrics.speakingDurationSeconds ?? (wordCount ? Math.round(wordCount / 130 * 60) : 0)));
-  const wpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
+  const wordsDuration = wordCount > 0 ? Math.round((wordCount / 130) * 60) : 0;
+  const rawDuration = Math.max(0, Number(metrics.speakingDurationSeconds ?? metrics.speakingTimeSeconds) || 0);
+  const seconds = Math.max(rawDuration, wordsDuration);
+  const rawTurns = Math.max(0, Number(metrics.speakingTurns) || 0);
+  const turns = Math.max(rawTurns, entries.length);
+  const rawWpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
+  const wpm = seconds > 0 ? Math.max(65, Math.min(195, rawWpm)) : 0;
   const wpmLabel = wpm === 0 ? 'No Speech' : wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal';
   const fillerKeywords = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
   const fillerMap: Record<string, number> = {};
@@ -5984,12 +5988,23 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
 }
 
 async function generateAssessmentReport(student: any, transcriptHistory: any[], topic: string, durationMinutes: number, metrics: any = {}) {
-  const entries = (transcriptHistory || []).filter((t: any) => t.speakerId === student.id && !t.isFacilitator && String(t.text || '').trim());
+  const entries = (transcriptHistory || []).filter((t: any) =>
+    !t.isFacilitator &&
+    String(t.text || '').trim() &&
+    (t.speakerId === student.id ||
+     (t.speakerName && student.name && String(t.speakerName).toLowerCase() === String(student.name).toLowerCase()) ||
+     (student.seatNumber && t.seatNumber === student.seatNumber))
+  );
   const spokenText = entries.map((t: any) => String(t.text).trim()).join(' ');
   const words = spokenText ? spokenText.split(/\s+/).filter(Boolean) : [];
   const wordCount = words.length;
-  const seconds = Math.max(0, Number(metrics.speakingDurationSeconds || (wordCount ? Math.round(wordCount / 130 * 60) : 0)));
-  const wpm = seconds > 0 ? Math.max(65, Math.min(210, Math.round(wordCount / (seconds / 60)))) : 0;
+  const wordsDuration = wordCount > 0 ? Math.round((wordCount / 130) * 60) : 0;
+  const rawDuration = Math.max(0, Number(metrics.speakingDurationSeconds ?? metrics.speakingTimeSeconds) || 0);
+  const seconds = Math.max(rawDuration, wordsDuration);
+  const rawTurns = Math.max(0, Number(metrics.speakingTurns) || 0);
+  const turns = Math.max(rawTurns, entries.length);
+  const rawWpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
+  const wpm = seconds > 0 ? Math.max(65, Math.min(195, rawWpm)) : 0;
   const fillers = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
   const fillerMap: Record<string, number> = {};
   fillers.forEach((kw) => {
@@ -6001,7 +6016,7 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
 
   if (!ai || wordCount === 0) {
     return fallbackAssessment(student, entries, topic, durationMinutes, {
-      ...metrics, speakingDurationSeconds: seconds, speakingTurns: metrics.speakingTurns ?? entries.length,
+      ...metrics, speakingDurationSeconds: seconds, speakingTurns: turns,
       sessionId: metrics.sessionId, questionsAnswered: metrics.questionsAnswered || 0, questionsInitiated: metrics.questionsInitiated || 0,
     });
   }
@@ -6089,7 +6104,7 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
   } catch (e) {
     console.warn('[Assessment AI] Gemini failed; using evidence-based fallback:', e);
     return fallbackAssessment(student, entries, topic, durationMinutes, {
-      ...metrics, speakingDurationSeconds: seconds, speakingTurns: metrics.speakingTurns ?? entries.length, sessionId: metrics.sessionId,
+      ...metrics, speakingDurationSeconds: seconds, speakingTurns: turns, sessionId: metrics.sessionId,
     });
   }
 }
@@ -6159,6 +6174,13 @@ async function persistAssessmentReport(report: any) {
         await prisma.assessmentReport.create({ data: { id: report.id, ...data } });
       }
     } catch (e: any) { console.warn('[Database] Failed to persist assessment report:', e.message); }
+  }
+
+  // In-memory persistence fallback
+  if (!(persistentState as any).reports) (persistentState as any).reports = {};
+  (persistentState as any).reports[`${report.sessionId}_${report.studentId}`] = report;
+  if (report.studentName) {
+    (persistentState as any).reports[`${report.sessionId}_${String(report.studentName).toLowerCase()}`] = report;
   }
 }
 
@@ -6293,6 +6315,22 @@ app.get('/api/student/reports', async (req, res) => {
       });
     } catch (e: any) { console.warn('[Student Reports] DB read failed:', e.message); }
   }
+
+  // In-memory fallback
+  if ((persistentState as any).reports) {
+    const memoryReports: any[] = Object.values((persistentState as any).reports);
+    const matched = memoryReports.filter((r) => {
+      const matchStudent = (!studentId || r.studentId === studentId) ||
+        (!studentName || (r.studentName && String(r.studentName).toLowerCase() === studentName.toLowerCase()));
+      const matchSession = !sessionId || r.sessionId === sessionId;
+      const matchTopic = !topic || (r.topic && String(r.topic).toLowerCase() === topic.toLowerCase());
+      return matchStudent && matchSession && matchTopic;
+    });
+    if (matched.length > 0) {
+      return res.json({ success: true, reports: matched });
+    }
+  }
+
   res.json({ success: true, reports: [] });
 });
 
@@ -6698,16 +6736,20 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
     for (const part of participants) {
       const existing = finalReports.find((r) => r.studentId === part.id || (r.studentName && r.studentName.toLowerCase() === part.name.toLowerCase()));
       if (!existing) {
+        const room = LIVE_ROOMS.get(sessionId);
+        const roomEntries = (room?.transcripts || []).filter(
+          (t: any) => !t.isFacilitator && (t.speakerId === part.id || (t.speakerName && String(t.speakerName).toLowerCase() === String(part.name).toLowerCase()) || t.seatNumber === part.seatNumber)
+        );
         const generated = fallbackAssessment(
           part,
-          [],
+          roomEntries,
           targetSlot.topic,
           targetSlot.durationMinutes || 15,
           {
             sessionId,
-            speakingDurationSeconds: 45 + Math.floor(Math.random() * 90),
-            speakingTurns: 2 + Math.floor(Math.random() * 3),
-            interruptionCount: 0,
+            speakingDurationSeconds: part.speakingDurationSeconds || 0,
+            speakingTurns: part.speakingTurns || roomEntries.length,
+            interruptionCount: part.interruptionCount || 0,
           }
         );
         const repItem = {
@@ -7901,13 +7943,19 @@ io.on('connection', (socket) => {
 
     // Seat allotment (PDF Page 14) - Faculty and Admin are observers and NEVER take a student seat!
     let seatNumber: number | undefined = undefined;
+    let prevDuration = 0;
+    let prevTurns = 0;
+    let prevInterruption = 0;
     if (!isObserver) {
       // 1. Check if this exact socket or a disconnected session is reconnecting
       const targetUserId = user?.id || socket.id;
       for (const [existingSockId, existingPeer] of room.peers.entries()) {
         const isStillConnected = io.sockets.sockets.get(existingSockId)?.connected;
-        if (existingSockId === socket.id || (!isStillConnected && existingPeer.userId === targetUserId)) {
+        if (existingSockId === socket.id || (!isStillConnected && (existingPeer.userId === targetUserId || (existingPeer.name && user?.name && existingPeer.name.toLowerCase() === user.name.toLowerCase())))) {
           seatNumber = existingPeer.seatNumber;
+          prevDuration = existingPeer.speakingDurationSeconds || 0;
+          prevTurns = existingPeer.speakingTurns || 0;
+          prevInterruption = existingPeer.interruptionCount || 0;
           room.peers.delete(existingSockId);
           if (seatNumber) room.assignedSeats.set(seatNumber, socket.id);
           break;
@@ -7943,9 +7991,9 @@ io.on('connection', (socket) => {
       isSpeaking: false,
       micActive: !isObserver,
       cameraActive: false,
-      speakingDurationSeconds: 0,
-      speakingTurns: 0,
-      interruptionCount: 0,
+      speakingDurationSeconds: prevDuration,
+      speakingTurns: prevTurns,
+      interruptionCount: prevInterruption,
       joinedAt: Date.now(),
     };
 
@@ -7965,6 +8013,7 @@ io.on('connection', (socket) => {
       silenceTimerSeconds: room.silenceTimerSeconds,
       currentSpeakerId: room.currentSpeakerId,
       status: room.status,
+      openingStarted: room.openingStarted,
     });
 
     // Notify all active peers in room so incoming WebRTC peer connection can be established
@@ -7972,7 +8021,7 @@ io.on('connection', (socket) => {
       peer,
     });
 
-    if (room.status === 'active' && !room.currentSpeakerId && !room.waitingForParticipantId) {
+    if (room.status === 'active' && !room.openingStarted && !room.currentSpeakerId && !room.waitingForParticipantId) {
       scheduleNextTurn(room);
     }
   });

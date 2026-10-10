@@ -119,6 +119,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const liveTranscriptRef = useRef<string>('');
   const speechPauseTimerRef = useRef<any>(null);
   const isListeningMicRef = useRef<boolean>(false);
+  const isRecognitionRunningRef = useRef<boolean>(false);
+  const restartRecognitionTimerRef = useRef<any>(null);
   const handleSendUserStatementRef = useRef<(textToSend?: string) => Promise<void>>(() => Promise.resolve());
   const [isListeningMic, setIsListeningMic] = useState(false);
   const [interruptionWarning, setInterruptionWarning] = useState<string | null>(null);
@@ -301,6 +303,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     currentUser,
     videoStream,
     isCameraOn,
+    onRoomJoined: (roomData) => {
+      if (roomData.status === 'active') {
+        setSession((prev) => ({
+          ...prev,
+          status: 'active',
+          topic: roomData.topic || prev.topic,
+        }));
+      }
+      if (roomData.transcripts && roomData.transcripts.length > 0) {
+        setTranscripts(roomData.transcripts);
+      }
+      if (roomData.openingStarted || (roomData.transcripts && roomData.transcripts.some((t: any) => t.isFacilitator))) {
+        hasInitiatedOpeningRef.current = true;
+      }
+    },
     onSessionStarted: () => {
       setSession((prev) => ({
         ...prev,
@@ -403,6 +420,29 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
 
+  // Continuous real-time speaking time tracker: increments participant speaking seconds live while speaking
+  useEffect(() => {
+    if (!isSessionActive) return;
+    const interval = setInterval(() => {
+      const isUserSpeaking = isListeningMicRef.current && (rtcIsSpeakingLive || audioLevel > 10);
+      if (isUserSpeaking && !isFaculty) {
+        setSession((prev) => ({
+          ...prev,
+          students: prev.students.map((s) =>
+            s.isUser
+              ? {
+                  ...s,
+                  speakingDurationSeconds: (s.speakingDurationSeconds || 0) + 1,
+                  lastSpokeAt: Date.now(),
+                }
+              : s
+          ),
+        }));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isSessionActive, rtcIsSpeakingLive, audioLevel, isFaculty]);
+
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
   const hasRealStudentPeers = rtcPeers.some((p) => p.role === 'student' && p.role !== 'faculty' && p.role !== 'college_admin');
@@ -424,6 +464,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         if (userSeatNum < 1 || userSeatNum > capacity) userSeatNum = 1;
         usedSeats.add(userSeatNum);
 
+        const prevUser = prev.students?.find((s) => s.isUser || s.id === currentUser?.id);
         seatMap.set(userSeatNum, {
           id: currentUser?.id || 'speaker-user',
           name: currentUser?.name || 'Candidate',
@@ -437,11 +478,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           isSpeaking: false,
           hasRaisedHand: false,
           cameraActive: false,
-          speakingDurationSeconds: 0,
-          speakingTurns: 0,
-          interruptionCount: 0,
-          questionsAnswered: 0,
-          questionsInitiated: 0,
+          speakingDurationSeconds: prevUser?.speakingDurationSeconds || 0,
+          speakingTurns: prevUser?.speakingTurns || 0,
+          interruptionCount: prevUser?.interruptionCount || 0,
+          questionsAnswered: prevUser?.questionsAnswered || 0,
+          questionsInitiated: prevUser?.questionsInitiated || 0,
           sentiment: 'neutral',
           isEmptySeat: false,
           isRealPeer: false,
@@ -539,6 +580,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     if (isStudentUser && targetUserSeat !== null) {
       const fixedUserSeat = Math.max(1, Math.min(capacity, targetUserSeat));
       usedSeats.add(fixedUserSeat);
+      const sessionUserStudent = session.students?.find((s) => s.isUser || s.id === currentUser?.id);
       seatMap.set(fixedUserSeat, {
         id: currentUser?.id || 'speaker-user',
         seatNumber: fixedUserSeat,
@@ -553,8 +595,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isSpeaking: isListeningMic || rtcIsSpeakingLive,
         micActive: isListeningMic || !rtcIsMicMuted,
         cameraActive: isCameraOn,
-        speakingTurns: 0,
-        speakingDurationSeconds: 0,
+        speakingTurns: sessionUserStudent?.speakingTurns || 0,
+        speakingDurationSeconds: sessionUserStudent?.speakingDurationSeconds || 0,
         videoStream: videoStream,
       });
     }
@@ -835,22 +877,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         clearTimeout(aiVoiceResumeTimerRef.current);
         aiVoiceResumeTimerRef.current = null;
       }
-      // Safety watchdog: clear AI voice pause automatically after 6 seconds max
-      // in case the browser cancels or misses the end event
-      aiVoiceResumeTimerRef.current = setTimeout(() => {
-        aiVoicePausedMicRef.current = false;
-        aiVoiceResumeTimerRef.current = null;
-      }, 6000);
+      // Safety watchdog: verify when voice has finished or stopped
+      const checkVoiceFinished = () => {
+        if (!roomVoice.isSpeaking() && !session.isFacilitatorSpeaking) {
+          aiVoicePausedMicRef.current = false;
+          aiVoiceResumeTimerRef.current = null;
+        } else {
+          aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 1000);
+        }
+      };
+      aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 2000);
     };
 
     const handleAiVoiceEnd = () => {
       if (aiVoiceResumeTimerRef.current) {
         clearTimeout(aiVoiceResumeTimerRef.current);
-      }
-      aiVoiceResumeTimerRef.current = setTimeout(() => {
-        aiVoicePausedMicRef.current = false;
         aiVoiceResumeTimerRef.current = null;
-      }, 300);
+      }
+      aiVoicePausedMicRef.current = false;
     };
 
     window.addEventListener('erus-ai-voice-start', handleAiVoiceStart);
@@ -903,119 +947,169 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   };
 
   // Speech Recognition Setup (Web Speech API)
+  // Speech Recognition Setup (Web Speech API) with robust auto-recovery and continuous watchdog
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-IN'; // Indian English support
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
 
-        recognition.onresult = (event: any) => {
-          // Instant participant priority: if AI Facilitator was speaking, immediately silence it!
-          if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking) {
-            roomVoice.stop();
+    let recognition: any = null;
+
+    const safeStart = () => {
+      if (!isListeningMicRef.current || !recognition || isRecognitionRunningRef.current) return;
+      try {
+        recognition.start();
+      } catch (err) {
+        // Recognition might be in transitional shutdown; retry after short backoff
+        if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
+        restartRecognitionTimerRef.current = setTimeout(() => {
+          if (isListeningMicRef.current && !isRecognitionRunningRef.current && recognition) {
+            try { recognition.start(); } catch {}
+          }
+        }, 150);
+      }
+    };
+
+    try {
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-IN'; // Indian English support
+      recognitionRef.current = recognition;
+
+      recognition.onstart = () => {
+        isRecognitionRunningRef.current = true;
+      };
+
+      recognition.onresult = (event: any) => {
+        // Instant participant priority: if AI Facilitator was speaking, immediately silence it!
+        if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking) {
+          roomVoice.stop();
+          aiVoicePausedMicRef.current = false;
+          setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+        } else if (aiVoicePausedMicRef.current) {
+          if (!roomVoice.isSpeaking() && !session.isFacilitatorSpeaking) {
             aiVoicePausedMicRef.current = false;
-            setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
-          } else if (aiVoicePausedMicRef.current) {
+          } else {
             return;
           }
+        }
 
-          let interimTranscript = '';
-          let finalTranscript = '';
+        let interimTranscript = '';
+        let finalTranscript = '';
 
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const piece = event.results[i][0]?.transcript || '';
-            if (event.results[i].isFinal) {
-              finalTranscript += piece;
-            } else {
-              interimTranscript += piece;
-            }
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const piece = event.results[i][0]?.transcript || '';
+          if (event.results[i].isFinal) {
+            finalTranscript += piece;
+          } else {
+            interimTranscript += piece;
           }
+        }
 
-          if (finalTranscript) {
-            liveTranscriptRef.current = (liveTranscriptRef.current + ' ' + finalTranscript).trim();
+        if (finalTranscript) {
+          liveTranscriptRef.current = (liveTranscriptRef.current + ' ' + finalTranscript).trim();
+        }
+        const currentSpoken = (liveTranscriptRef.current + ' ' + interimTranscript).trim();
+        setLiveSpeechTranscript(currentSpoken);
+
+        // Mark speaker active on floor
+        if (!isFaculty) {
+          setSession((prev) => ({
+            ...prev,
+            currentSpeakerId: prev.students.find((s) => s.isUser)?.id || 's1',
+            students: prev.students.map((s) =>
+              s.isUser ? { ...s, isSpeaking: true, micActive: true } : s
+            ),
+          }));
+        }
+
+        // Reset silence pause timer on each spoken token
+        if (speechPauseTimerRef.current) {
+          clearTimeout(speechPauseTimerRef.current);
+        }
+
+        // Natural pause detection: auto-broadcast to room after 1.8s silence
+        if (currentSpoken.length > 3) {
+          speechPauseTimerRef.current = setTimeout(() => {
+            commitLiveSpeechToRoom(currentSpoken);
+          }, 1800);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('[Speech recognition event]:', event.error);
+        if (
+          event.error === 'no-speech' ||
+          event.error === 'aborted' ||
+          event.error === 'audio-capture' ||
+          event.error === 'network'
+        ) {
+          // Benign or transient silence/network events: schedule seamless revival
+          if (isListeningMicRef.current) {
+            if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
+            restartRecognitionTimerRef.current = setTimeout(safeStart, 200);
           }
-          const currentSpoken = (liveTranscriptRef.current + ' ' + interimTranscript).trim();
-          setLiveSpeechTranscript(currentSpoken);
+          return;
+        }
 
-          // Mark speaker active on floor
+        // Only true fatal permission blocks should toggle off mic state
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setIsListeningMic(false);
+          isListeningMicRef.current = false;
+          isRecognitionRunningRef.current = false;
+          stopAudioAnalyser();
+          rtcSetMicEnabled(false);
           if (!isFaculty) {
             setSession((prev) => ({
               ...prev,
-              currentSpeakerId: prev.students.find((s) => s.isUser)?.id || 's1',
-              students: prev.students.map((s) =>
-                s.isUser ? { ...s, isSpeaking: true, micActive: true } : s
-              ),
+              students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
             }));
           }
+        }
+      };
 
-          // Reset silence pause timer on each spoken token
-          if (speechPauseTimerRef.current) {
-            clearTimeout(speechPauseTimerRef.current);
-          }
+      recognition.onend = () => {
+        isRecognitionRunningRef.current = false;
+        // If mic is supposed to remain on (user didn't mute), restart recognition with short backoff so Chromium state resets
+        if (isListeningMicRef.current) {
+          if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
+          restartRecognitionTimerRef.current = setTimeout(safeStart, 150);
+          return;
+        }
 
-          // Natural pause detection: auto-broadcast to room after 1.8s silence
-          if (currentSpoken.length > 3) {
-            speechPauseTimerRef.current = setTimeout(() => {
-              commitLiveSpeechToRoom(currentSpoken);
-            }, 1800);
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          console.warn('Speech recognition event:', event.error);
-          // Do not kill microphone on benign / transient browser events
-          if (
-            event.error === 'no-speech' ||
-            event.error === 'aborted' ||
-            event.error === 'audio-capture' ||
-            aiVoicePausedMicRef.current
-          ) {
-            return;
-          }
-          // Only true fatal permission blocks should toggle off mic state
-          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-            setIsListeningMic(false);
-            isListeningMicRef.current = false;
-            stopAudioAnalyser();
-            rtcSetMicEnabled(false);
-            if (!isFaculty) {
-              setSession((prev) => ({
-                ...prev,
-                students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
-              }));
-            }
-          }
-        };
-
-        recognition.onend = () => {
-          // If mic is supposed to remain on (user didn't mute), restart recognition like Google Meet
-          if (isListeningMicRef.current) {
-            try {
-              recognition.start();
-              return;
-            } catch {
-              // ignore
-            }
-          }
-          if (!isListeningMicRef.current) {
-            setIsListeningMic(false);
-            stopAudioAnalyser();
-            rtcSetMicEnabled(false);
-            if (!isFaculty) {
-              setSession((prev) => ({
-                ...prev,
-                students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
-              }));
-            }
-          }
-        };
-
-        recognitionRef.current = recognition;
-      }
+        setIsListeningMic(false);
+        stopAudioAnalyser();
+        rtcSetMicEnabled(false);
+        if (!isFaculty) {
+          setSession((prev) => ({
+            ...prev,
+            students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
+          }));
+        }
+      };
+    } catch (initErr) {
+      console.warn('SpeechRecognition initialization error:', initErr);
     }
+
+    // Continuous Watchdog Heartbeat: revives recognition if browser killed it silently
+    const watchdog = setInterval(() => {
+      if (isListeningMicRef.current && !isRecognitionRunningRef.current && recognition) {
+        safeStart();
+      }
+    }, 2000);
+
+    return () => {
+      clearInterval(watchdog);
+      if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
+      if (recognition) {
+        try {
+          recognition.onend = null;
+          recognition.onerror = null;
+          recognition.abort();
+        } catch {}
+      }
+    };
   }, [isFaculty, stopAudioAnalyser, rtcSetMicEnabled]);
 
   const toggleMicRecognition = async () => {
@@ -1032,6 +1126,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
       isListeningMicRef.current = false;
       aiVoicePausedMicRef.current = false;
+      isRecognitionRunningRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -1063,14 +1158,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       isListeningMicRef.current = true;
       setIsListeningMic(true);
 
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {}
+      if (recognitionRef.current && !isRecognitionRunningRef.current) {
         try {
           recognitionRef.current.start();
         } catch (e) {
-          console.warn('Speech recognition start error (WebRTC audio will still stream):', e);
+          setTimeout(() => {
+            if (isListeningMicRef.current && !isRecognitionRunningRef.current && recognitionRef.current) {
+              try { recognitionRef.current.start(); } catch {}
+            }
+          }, 150);
         }
       }
       await rtcSetMicEnabled(true);
@@ -1309,7 +1405,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               ...s,
               isSpeaking: true,
               speakingTurns: s.speakingTurns + 1,
-              speakingDurationSeconds: s.speakingDurationSeconds + Math.max(15, Math.round(text.length / 8)),
+              speakingDurationSeconds: Math.max(
+                s.speakingDurationSeconds + 1,
+                s.speakingDurationSeconds + Math.max(8, Math.round(text.split(/\s+/).filter(Boolean).length / 2.1))
+              ),
               lastSpokenAt: Date.now(),
             }
           : { ...s, isSpeaking: false }

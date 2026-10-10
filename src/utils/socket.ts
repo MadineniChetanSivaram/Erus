@@ -7,10 +7,10 @@ export const getSocket = (): Socket => {
     // In production or dev, express and vite share the same origin
     const url = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     socket = io(url, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 15,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
     });
 

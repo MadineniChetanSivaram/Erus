@@ -102,10 +102,17 @@ function GDAppContent() {
   const [availableSlots, setAvailableSlots] = useState<GDSession[]>(loadInitialSlots);
   const [session, setSession] = useState<GDSession>(() => {
     const slots = loadInitialSlots();
+    try {
+      const activeSlotId = localStorage.getItem('erus_active_slot_id');
+      if (activeSlotId) {
+        const matched = slots.find((s) => s.id === activeSlotId);
+        if (matched) return matched;
+      }
+    } catch {}
     return slots[0] || INITIAL_SESSION;
   });
-  const [transcripts, setTranscripts] = useState<TranscriptEntry[]>(INITIAL_TRANSCRIPTS);
-  const [activeReport, setActiveReport] = useState<StudentAssessmentReport>(SAMPLE_REPORT_RAHUL);
+  const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
+  const [activeReport, setActiveReport] = useState<StudentAssessmentReport | null>(null);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
   const [studentBookedSlotsByTopic, setStudentBookedSlotsByTopic] = useState<Record<string, string>>(() => {
@@ -615,6 +622,9 @@ function GDAppContent() {
     };
 
     // Update active session status and reset speaking metrics for fresh live discussion
+    try {
+      localStorage.setItem('erus_active_slot_id', activeSlot.id);
+    } catch {}
     setSession(activeSlot);
     setCurrentTab('room');
 
@@ -804,11 +814,29 @@ function GDAppContent() {
       } else {
         // Students can request their own evaluation, but cannot close the GD.
         try {
+          const userTranscripts = (transcripts || []).filter(
+            (t) =>
+              !t.isFacilitator &&
+              (t.speakerId === userStudent.id ||
+               (t.speakerName && userStudent.name && t.speakerName.toLowerCase() === userStudent.name.toLowerCase()) ||
+               t.seatNumber === userStudent.seatNumber)
+          );
+          const observedWords = userTranscripts.map((t) => t.text).join(' ').split(/\s+/).filter(Boolean).length;
+          const wordsDuration = observedWords > 0 ? Math.round((observedWords / 130) * 60) : 0;
+          const effectiveDuration = Math.max(userStudent.speakingDurationSeconds || 0, wordsDuration);
+          const effectiveTurns = Math.max(userStudent.speakingTurns || 0, userTranscripts.length);
+
+          const evaluatedStudent: Student = {
+            ...userStudent,
+            speakingDurationSeconds: effectiveDuration,
+            speakingTurns: effectiveTurns,
+          };
+
           const res = await fetch('/api/facilitator/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              student: userStudent,
+              student: evaluatedStudent,
               transcriptHistory: transcripts,
               sessionId: finishedSlotId,
               topic: session.topic,
@@ -1151,6 +1179,9 @@ function GDAppContent() {
       );
     }
 
+    try {
+      localStorage.setItem('erus_active_slot_id', activeSlot.id);
+    } catch {}
     setSession(activeSlot);
     setTranscripts([
       {

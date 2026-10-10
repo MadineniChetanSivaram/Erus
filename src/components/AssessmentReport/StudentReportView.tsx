@@ -40,7 +40,7 @@ import {
   SkillScore 
 } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
-import { SAMPLE_REPORT_RAHUL, generateStudentReport, distributeRubricScores } from '../../data/mockGDData';
+import { generateStudentReport, distributeRubricScores } from '../../data/mockGDData';
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
@@ -48,8 +48,107 @@ import { getStudentBookedSlotsByTopic } from '../../utils/studentBooking';
 import { hasStudentParticipatedInSlot, isFacultyAssignedToSlot } from '../../utils/authApi';
 import confetti from 'canvas-confetti';
 
+export function createEmptyReport(
+  student?: { id?: string; name?: string; college?: string; seatNumber?: number } | null,
+  topic: string = 'Group Discussion',
+  sessionId: string = ''
+): StudentAssessmentReport {
+  return {
+    id: `rep-${student?.id || 'pending'}-${Date.now()}`,
+    sessionId: sessionId || '',
+    studentId: student?.id || '',
+    studentName: student?.name || 'Participant',
+    college: student?.college || 'Institution',
+    topic,
+    durationMinutes: 15,
+    speakingTimeFormatted: '0 min 0 sec',
+    speakingTimeSeconds: 0,
+    speakingDurationSeconds: 0,
+    speakingTurns: 0,
+    interruptions: 0,
+    questionsAnswered: 0,
+    questionsInitiated: 0,
+    wpm: 0,
+    wpmStatus: 'No Speech',
+    fillerWordsCount: 0,
+    fillerWordsBreakdown: [],
+    facultyEndorsement: {
+      endorsed: false,
+    },
+    skills: {
+      english: {
+        parameter: 'Speaking in English',
+        weightagePercent: 20,
+        score: 0,
+        maxScore: 20,
+        subPoints: ['Use of English', 'Sentence formation', 'Grammar usage', 'Vocabulary'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      fluency: {
+        parameter: 'Fluency',
+        weightagePercent: 20,
+        score: 0,
+        maxScore: 20,
+        subPoints: ['Continuous speaking', 'Reduced hesitation', 'Reduced fillers', 'Natural flow'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      clarity: {
+        parameter: 'Communication Clarity',
+        weightagePercent: 15,
+        score: 0,
+        maxScore: 15,
+        subPoints: ['Clear ideas', 'Proper explanations', 'Understandable speech'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      confidence: {
+        parameter: 'Confidence',
+        weightagePercent: 15,
+        score: 0,
+        maxScore: 15,
+        subPoints: ['Initiating discussion', 'Responding confidently', 'Handling questions'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      contentQuality: {
+        parameter: 'Content Quality',
+        weightagePercent: 15,
+        score: 0,
+        maxScore: 15,
+        subPoints: ['Relevance', 'Logical reasoning', 'Examples', 'Supporting arguments'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      collaboration: {
+        parameter: 'Collaboration',
+        weightagePercent: 10,
+        score: 0,
+        maxScore: 10,
+        subPoints: ['Respect for others', 'Listening skills', 'Encouraging others', 'Team behavior'],
+        feedback: 'Awaiting session evaluation.',
+      },
+      leadership: {
+        parameter: 'Leadership',
+        weightagePercent: 5,
+        score: 0,
+        maxScore: 5,
+        subPoints: ['Guiding discussion', 'Summarizing points', 'Conflict management'],
+        feedback: 'Awaiting session evaluation.',
+      },
+    },
+    overallScore: 0,
+    grade: 'Needs Improvement',
+    strengths: [],
+    areasForImprovement: [],
+    aiRecommendations: [],
+    aiSummary: 'No evaluation report recorded yet for this participant. Active participation in the discussion round is required to generate metrics.',
+    generatedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+  };
+}
+
 export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): StudentAssessmentReport {
-  const base = fallback || SAMPLE_REPORT_RAHUL;
+  const base = fallback || createEmptyReport(
+    raw ? { id: raw.studentId, name: raw.studentName, college: raw.college } : null,
+    raw?.topic,
+    raw?.sessionId
+  );
   if (!raw) return base;
 
   const targetScore = typeof raw.overallScore === 'number'
@@ -332,7 +431,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       }
       return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, undefined, session?.id));
     }
-    return normalizeReport(isMatchingReport(initialReport) ? initialReport : SAMPLE_REPORT_RAHUL);
+    return normalizeReport(isMatchingReport(initialReport) ? initialReport : null, createEmptyReport(userStudent, session?.topic, session?.id));
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -1092,7 +1191,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             <div className="bg-indigo-50/70 dark:bg-slate-950/80 border border-indigo-100 dark:border-slate-800 rounded-2xl p-4 sm:p-5 text-center flex flex-col items-center justify-center min-w-[170px] shadow-xs dark:shadow-lg">
               <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Overall Score</span>
               <div className="flex items-baseline gap-1 my-1">
-                <span className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-teal-500 dark:from-indigo-400 dark:to-teal-300">
+                <span className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-teal-500 dark:from-indigo-400 dark:to-teal-300 print:text-indigo-600 print:bg-none print:opacity-100">
                   {isEditingScores ? calculatePreviewScore(editableSkills) : currentReport.overallScore}
                 </span>
                 <span className="text-sm font-bold text-slate-400 dark:text-slate-500">/ 100</span>
