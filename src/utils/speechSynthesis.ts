@@ -274,9 +274,15 @@ class RoomVoiceEngine {
         if (!this.isCurrentlySpeaking || currentIndex >= sentences.length) {
           this.isCurrentlySpeaking = false;
           this.currentUtterance = null;
+          this.activeUtterances.clear();
           if (this.watchdogInterval) {
             clearInterval(this.watchdogInterval);
             this.watchdogInterval = null;
+          }
+          if (typeof window !== 'undefined' && window.speechSynthesis) {
+            try {
+              window.speechSynthesis.cancel();
+            } catch {}
           }
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
@@ -374,6 +380,8 @@ class RoomVoiceEngine {
         window.speechSynthesis.cancel();
       }
 
+      this.isCurrentlySpeaking = true;
+
       setTimeout(() => {
         try {
           if (window.speechSynthesis.paused) {
@@ -429,13 +437,20 @@ class RoomVoiceEngine {
           (window as any).__activeUtterance = utterance;
 
           const cleanup = () => {
+            this.isCurrentlySpeaking = false;
             this.activeUtterances.delete(utterance);
             if (this.currentUtterance === utterance) {
               this.currentUtterance = null;
             }
+            this.activeUtterances.clear();
             if (this.watchdogInterval) {
               clearInterval(this.watchdogInterval);
               this.watchdogInterval = null;
+            }
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+              try {
+                window.speechSynthesis.cancel();
+              } catch {}
             }
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
@@ -473,30 +488,36 @@ class RoomVoiceEngine {
           }, 60);
         } catch (innerErr) {
           console.warn('[AI Student Voice] Speak inner error:', innerErr);
+          this.isCurrentlySpeaking = false;
           if (onEnd) onEnd();
         }
       }, 60);
     } catch (e) {
       console.warn('Student voice synthesis error:', e);
+      this.isCurrentlySpeaking = false;
       if (onEnd) onEnd();
     }
   }
 
   public isSpeaking(): boolean {
     if (typeof window === 'undefined' || !window.speechSynthesis) return false;
-    return this.isCurrentlySpeaking || window.speechSynthesis.speaking || this.currentUtterance !== null;
+    // Chromium bug: window.speechSynthesis.speaking often stays stuck at true.
+    // Accurately verify if RoomVoiceEngine has an active utterance in flight.
+    return this.isCurrentlySpeaking && (this.currentUtterance !== null || this.activeUtterances.size > 0);
   }
 
   public stop() {
     this.isCurrentlySpeaking = false;
+    this.currentUtterance = null;
+    this.activeUtterances.clear();
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      this.activeUtterances.clear();
-      this.currentUtterance = null;
-      if (this.watchdogInterval) {
-        clearInterval(this.watchdogInterval);
-        this.watchdogInterval = null;
-      }
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
       window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
     }
   }

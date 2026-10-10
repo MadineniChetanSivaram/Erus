@@ -424,7 +424,7 @@ export function useWebRTCRoom({
           // When AI Facilitator is actively speaking, ignore acoustic bleed in the local microphone.
           // Do not cut off the AI and do not emit false speaking claims while AI is speaking!
           const isAiSpeaking = roomVoice.isSpeaking();
-          const speakingNow = !isAiSpeaking && avg > 22 && !isMicMutedRef.current;
+          const speakingNow = !isAiSpeaking && avg > 14 && !isMicMutedRef.current;
           setIsSpeakingLive(speakingNow);
 
           if (speakingNow) {

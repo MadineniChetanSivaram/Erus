@@ -422,7 +422,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   useEffect(() => {
     if (!isSessionActive) return;
     const interval = setInterval(() => {
-      const isUserSpeaking = isListeningMicRef.current && (rtcIsSpeakingLive || audioLevel > 10);
+      const isUserSpeaking = isListeningMicRef.current && (rtcIsSpeakingLive || audioLevel > 8 || !!liveSpeechTranscript);
       if (isUserSpeaking && !isFaculty) {
         setSession((prev) => ({
           ...prev,
@@ -439,7 +439,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isSessionActive, rtcIsSpeakingLive, audioLevel, isFaculty]);
+  }, [isSessionActive, rtcIsSpeakingLive, audioLevel, isFaculty, liveSpeechTranscript]);
 
   // When two or more real students are connected, the server owns turn orchestration.
   // Local auto-simulation is retained only for the single-user demo mode.
@@ -877,14 +877,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
       // Safety watchdog: verify when voice has finished or stopped
       const checkVoiceFinished = () => {
-        if (!roomVoice.isSpeaking() && !session.isFacilitatorSpeaking) {
+        if (!roomVoice.isSpeaking()) {
           aiVoicePausedMicRef.current = false;
           aiVoiceResumeTimerRef.current = null;
         } else {
-          aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 1000);
+          aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 500);
         }
       };
-      aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 2000);
+      aiVoiceResumeTimerRef.current = setTimeout(checkVoiceFinished, 800);
     };
 
     const handleAiVoiceEnd = () => {
@@ -931,110 +931,134 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
-  // Speech Recognition Setup (Web Speech API)
   // Speech Recognition Setup (Web Speech API) with robust auto-recovery and continuous watchdog
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      console.warn('SpeechRecognition API not supported in this browser.');
+      return;
+    }
 
-    let recognition: any = null;
+    const startRecognitionInstance = () => {
+      if (!isListeningMicRef.current) return;
 
-    const safeStart = () => {
-      if (!isListeningMicRef.current || !recognition || isRecognitionRunningRef.current) return;
-      try {
-        recognition.start();
-      } catch (err) {
-        // Recognition might be in transitional shutdown; retry after short backoff
-        if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-        restartRecognitionTimerRef.current = setTimeout(() => {
-          if (isListeningMicRef.current && !isRecognitionRunningRef.current && recognition) {
-            try { recognition.start(); } catch {}
-          }
-        }, 150);
+      // Clean up previous instance if any
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onstart = null;
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.abort();
+        } catch {}
+        recognitionRef.current = null;
       }
-    };
 
-    try {
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-IN'; // Indian English support
-      recognitionRef.current = recognition;
+      try {
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-IN'; // Indian English support
+        recognitionRef.current = recognition;
 
-      recognition.onstart = () => {
-        isRecognitionRunningRef.current = true;
-      };
+        recognition.onstart = () => {
+          isRecognitionRunningRef.current = true;
+        };
 
-      recognition.onresult = (event: any) => {
-        // While AI Facilitator is actively speaking out loud, ignore mic pickup of speaker audio to prevent echo and self-interruption
-        if (roomVoice.isSpeaking() || session.isFacilitatorSpeaking || aiVoicePausedMicRef.current) {
-          return;
-        }
-
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const piece = event.results[i][0]?.transcript || '';
-          if (event.results[i].isFinal) {
-            finalTranscript += piece;
-          } else {
-            interimTranscript += piece;
+        recognition.onresult = (event: any) => {
+          // While AI voice is actively playing audio through speakers, ignore mic pickup to avoid echo
+          if (roomVoice.isSpeaking()) {
+            return;
           }
-        }
+          aiVoicePausedMicRef.current = false;
 
-        if (finalTranscript) {
-          liveTranscriptRef.current = (liveTranscriptRef.current + ' ' + finalTranscript).trim();
-        }
-        const currentSpoken = (liveTranscriptRef.current + ' ' + interimTranscript).trim();
-        setLiveSpeechTranscript(currentSpoken);
+          let interimTranscript = '';
+          let finalTranscript = '';
 
-        // Mark speaker active on floor
-        if (!isFaculty) {
-          setSession((prev) => ({
-            ...prev,
-            currentSpeakerId: prev.students.find((s) => s.isUser)?.id || 's1',
-            students: prev.students.map((s) =>
-              s.isUser ? { ...s, isSpeaking: true, micActive: true } : s
-            ),
-          }));
-        }
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const piece = event.results[i][0]?.transcript || '';
+            if (event.results[i].isFinal) {
+              finalTranscript += piece;
+            } else {
+              interimTranscript += piece;
+            }
+          }
 
-        // Reset silence pause timer on each spoken token
-        if (speechPauseTimerRef.current) {
-          clearTimeout(speechPauseTimerRef.current);
-        }
+          if (finalTranscript) {
+            liveTranscriptRef.current = (liveTranscriptRef.current + ' ' + finalTranscript).trim();
+          }
+          const currentSpoken = (liveTranscriptRef.current + ' ' + interimTranscript).trim();
+          setLiveSpeechTranscript(currentSpoken);
 
-        // Natural pause detection: auto-broadcast to room after 1.8s silence
-        if (currentSpoken.length > 3) {
-          speechPauseTimerRef.current = setTimeout(() => {
-            commitLiveSpeechToRoom(currentSpoken);
-          }, 1800);
-        }
-      };
+          // Mark speaker active on floor
+          if (!isFaculty) {
+            setSession((prev) => ({
+              ...prev,
+              currentSpeakerId: prev.students.find((s) => s.isUser)?.id || 's1',
+              students: prev.students.map((s) =>
+                s.isUser ? { ...s, isSpeaking: true, micActive: true } : s
+              ),
+            }));
+          }
 
-      recognition.onerror = (event: any) => {
-        console.warn('[Speech recognition event]:', event.error);
-        if (
-          event.error === 'no-speech' ||
-          event.error === 'aborted' ||
-          event.error === 'audio-capture' ||
-          event.error === 'network'
-        ) {
-          // Benign or transient silence/network events: schedule seamless revival
+          // Reset silence pause timer on each spoken token
+          if (speechPauseTimerRef.current) {
+            clearTimeout(speechPauseTimerRef.current);
+          }
+
+          // Natural pause detection: auto-broadcast to room after 1.8s silence
+          if (currentSpoken.length > 3) {
+            speechPauseTimerRef.current = setTimeout(() => {
+              commitLiveSpeechToRoom(currentSpoken);
+            }, 1800);
+          }
+        };
+
+        recognition.onerror = (event: any) => {
+          console.warn('[Speech recognition event]:', event.error);
+          isRecognitionRunningRef.current = false;
+
+          if (
+            event.error === 'no-speech' ||
+            event.error === 'aborted' ||
+            event.error === 'audio-capture' ||
+            event.error === 'network'
+          ) {
+            // Benign or transient silence/network events: restart recognition cleanly
+            if (isListeningMicRef.current) {
+              if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
+              restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 250);
+            }
+            return;
+          }
+
+          // Fatal permission blocks
+          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            setIsListeningMic(false);
+            isListeningMicRef.current = false;
+            isRecognitionRunningRef.current = false;
+            stopAudioAnalyser();
+            rtcSetMicEnabled(false);
+            if (!isFaculty) {
+              setSession((prev) => ({
+                ...prev,
+                students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
+              }));
+            }
+          }
+        };
+
+        recognition.onend = () => {
+          isRecognitionRunningRef.current = false;
+          // If mic is supposed to remain on (user didn't mute), revive with fresh instance
           if (isListeningMicRef.current) {
             if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-            restartRecognitionTimerRef.current = setTimeout(safeStart, 200);
+            restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 150);
+            return;
           }
-          return;
-        }
 
-        // Only true fatal permission blocks should toggle off mic state
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           setIsListeningMic(false);
-          isListeningMicRef.current = false;
-          isRecognitionRunningRef.current = false;
           stopAudioAnalyser();
           rtcSetMicEnabled(false);
           if (!isFaculty) {
@@ -1043,48 +1067,42 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
             }));
           }
-        }
-      };
+        };
 
-      recognition.onend = () => {
+        recognition.start();
+      } catch (err) {
+        console.warn('SpeechRecognition start error:', err);
         isRecognitionRunningRef.current = false;
-        // If mic is supposed to remain on (user didn't mute), restart recognition with short backoff so Chromium state resets
         if (isListeningMicRef.current) {
           if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-          restartRecognitionTimerRef.current = setTimeout(safeStart, 150);
-          return;
+          restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 300);
         }
+      }
+    };
 
-        setIsListeningMic(false);
-        stopAudioAnalyser();
-        rtcSetMicEnabled(false);
-        if (!isFaculty) {
-          setSession((prev) => ({
-            ...prev,
-            students: prev.students.map((s) => (s.isUser ? { ...s, micActive: false } : s)),
-          }));
-        }
-      };
-    } catch (initErr) {
-      console.warn('SpeechRecognition initialization error:', initErr);
-    }
-
-    // Continuous Watchdog Heartbeat: revives recognition if browser killed it silently
+    // Watchdog Heartbeat: ensures recognition is running if mic is active
     const watchdog = setInterval(() => {
-      if (isListeningMicRef.current && !isRecognitionRunningRef.current && recognition) {
-        safeStart();
+      if (isListeningMicRef.current && !isRecognitionRunningRef.current) {
+        startRecognitionInstance();
       }
     }, 2000);
 
+    // Save helper reference so toggleMicRecognition can invoke it directly
+    (window as any).__startErusSpeechRecognition = startRecognitionInstance;
+
     return () => {
       clearInterval(watchdog);
+      delete (window as any).__startErusSpeechRecognition;
       if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-      if (recognition) {
+      if (recognitionRef.current) {
         try {
-          recognition.onend = null;
-          recognition.onerror = null;
-          recognition.abort();
+          recognitionRef.current.onstart = null;
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.abort();
         } catch {}
+        recognitionRef.current = null;
       }
     };
   }, [isFaculty, stopAudioAnalyser, rtcSetMicEnabled]);
@@ -1104,12 +1122,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       isListeningMicRef.current = false;
       aiVoicePausedMicRef.current = false;
       isRecognitionRunningRef.current = false;
+      if (restartRecognitionTimerRef.current) {
+        clearTimeout(restartRecognitionTimerRef.current);
+        restartRecognitionTimerRef.current = null;
+      }
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.onstart = null;
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.abort();
         } catch (e) {
-          console.warn('Recognition stop error:', e);
+          console.warn('Recognition abort error:', e);
         }
+        recognitionRef.current = null;
       }
       setIsListeningMic(false);
       await rtcSetMicEnabled(false);
@@ -1135,7 +1162,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       isListeningMicRef.current = true;
       setIsListeningMic(true);
 
-      if (recognitionRef.current && !isRecognitionRunningRef.current) {
+      if (typeof (window as any).__startErusSpeechRecognition === 'function') {
+        (window as any).__startErusSpeechRecognition();
+      } else if (recognitionRef.current && !isRecognitionRunningRef.current) {
         try {
           recognitionRef.current.start();
         } catch (e) {
