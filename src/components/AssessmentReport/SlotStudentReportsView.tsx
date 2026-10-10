@@ -85,9 +85,25 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
       if (r.studentName) reportMap.set(r.studentName.toLowerCase(), r);
     });
 
-    // 1. Process participants
+    // 1. Process real participants who actively took part or have reports
     participants.forEach((p, idx) => {
+      // Exclude empty desk placeholders
+      const isEmpty = Boolean(
+        p.isEmptySeat ||
+        p.college === 'Available Desk' ||
+        (typeof p.id === 'string' && p.id.endsWith('-empty')) ||
+        /^Seat\s+\d+$/i.test(p.name || '')
+      );
+      if (isEmpty) return;
+
       const rep = reportMap.get(p.id) || reportMap.get(p.name?.toLowerCase());
+      const hasSpeech = Boolean((p.speakingDurationSeconds && p.speakingDurationSeconds > 0) || (p.speakingTurns && p.speakingTurns > 0) || p.isUser);
+      
+      // If reports exist for the session, only include students with reports or confirmed speech
+      if (reports.length > 0 && !rep && !hasSpeech) {
+        return;
+      }
+
       const seat = p.seatNumber || (idx + 1);
       const overall = rep ? Number(rep.overallScore) : 75;
       const grade = rep ? (rep.grade || getGradeForScore(overall)) : getGradeForScore(overall);
@@ -113,6 +129,7 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
 
     // 2. Add reports that might not have been in participants
     reports.forEach((r, idx) => {
+      if (/^Seat\s+\d+$/i.test(r.studentName || '')) return;
       if (!list.some((item) => item.studentId === r.studentId || item.studentName.toLowerCase() === r.studentName?.toLowerCase())) {
         const overall = Number(r.overallScore) || 75;
         list.push({

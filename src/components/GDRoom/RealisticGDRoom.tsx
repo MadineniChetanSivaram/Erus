@@ -501,41 +501,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         }
       }
 
-      // 3. Fill remaining slots up to capacity with available desks
-      for (let sn = 1; sn <= capacity; sn++) {
-        if (!seatMap.has(sn)) {
-          seatMap.set(sn, {
-            id: `seat-${sn}-empty`,
-            name: `Seat ${sn}`,
-            seatNumber: sn,
-            college: 'Available Desk',
-            course: '',
-            batch: '',
-            avatar: '',
-            isUser: false,
-            micActive: false,
-            isSpeaking: false,
-            hasRaisedHand: false,
-            cameraActive: false,
-            speakingDurationSeconds: 0,
-            speakingTurns: 0,
-            interruptionCount: 0,
-            questionsAnswered: 0,
-            questionsInitiated: 0,
-            sentiment: 'neutral',
-            isEmptySeat: true,
-            isRealPeer: false,
-            isDemoAI: false,
-          });
-        }
-      }
-
-      // Deterministic array ordered 1..capacity
-      const finalSeats: Student[] = [];
-      for (let sn = 1; sn <= capacity; sn++) {
-        const s = seatMap.get(sn);
-        if (s) finalSeats.push(s);
-      }
+      // Deterministic array ordered by seatNumber containing real participants only
+      const finalSeats: Student[] = Array.from(seatMap.values())
+        .filter((s) => !s.isEmptySeat && s.college !== 'Available Desk' && !s.id?.endsWith('-empty'))
+        .sort((a, b) => a.seatNumber - b.seatNumber);
 
       const isSame =
         prev.students &&
@@ -545,8 +514,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             s.id === finalSeats[i].id &&
             s.seatNumber === finalSeats[i].seatNumber &&
             s.name === finalSeats[i].name &&
-            s.isUser === finalSeats[i].isUser &&
-            s.isEmptySeat === finalSeats[i].isEmptySeat
+            s.isUser === finalSeats[i].isUser
         );
       if (isSame) return prev;
 

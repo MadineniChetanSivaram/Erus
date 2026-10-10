@@ -84,7 +84,6 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   // Compute student rankings and scores. Normalize every incoming array so a
   // faculty account with no assigned slots/participants can never crash the UI.
   const safeSession = session || ({ ...INITIAL_SESSION, students: [] } as any);
-  const safeStudents = Array.isArray(safeSession?.students) ? safeSession.students : [];
   const safeTranscripts = Array.isArray(transcripts) ? transcripts : [];
   const safeFacultyLiveNotes = Array.isArray(safeSession?.facultyLiveNotes) ? safeSession.facultyLiveNotes : [];
   const safeAvailableSlots = useMemo(() => {
@@ -118,9 +117,77 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     return map;
   }, [persistedReports]);
 
+  // STRICT FILTER: Display ONLY students who actually participated in the GD session.
+  // Excludes empty desks, available seats, and unassigned/unoccupied seat placeholders.
+  const participatedStudents = useMemo(() => {
+    const raw = Array.isArray(safeSession?.students) ? safeSession.students : [];
+
+    // 1. Exclude empty seats, available desks, and placeholder seat IDs
+    const validStudents = raw.filter((s) => {
+      if (!s) return false;
+      if (s.isEmptySeat) return false;
+      if (s.college === 'Available Desk') return false;
+      if (typeof s.id === 'string' && (s.id.endsWith('-empty') || s.id.startsWith('seat-'))) return false;
+      if (/^Seat\s+\d+$/i.test(s.name?.trim() || '')) return false;
+      return true;
+    });
+
+    // 2. Identify students with actual participation:
+    // - has a persisted report
+    // - or has speaking duration / turns > 0
+    // - or appears in transcripts
+    // - or questions answered / initiated > 0
+    // - or is the active user participant
+    const participated = validStudents.filter((s) => {
+      const hasReport = reportByStudent.has(s.id) || persistedReports.some((r) => r.studentName && String(r.studentName).toLowerCase() === String(s.name).toLowerCase());
+      const hasSpoken = (s.speakingDurationSeconds || 0) > 0 || (s.speakingTurns || 0) > 0;
+      const inTranscript = safeTranscripts.some((t) => !t.isFacilitator && (t.speakerId === s.id || String(t.speakerName).toLowerCase() === String(s.name).toLowerCase()));
+      const hasQA = (s.questionsAnswered || 0) > 0 || (s.questionsInitiated || 0) > 0;
+      const isUser = !!s.isUser || !!s.isRealPeer;
+
+      return hasReport || hasSpoken || inTranscript || hasQA || isUser;
+    });
+
+    const result = [...participated];
+
+    // 3. Add any real students from persistedReports that weren't in safeSession.students
+    persistedReports.forEach((r) => {
+      if (!r.studentName || /^Seat\s+\d+$/i.test(r.studentName.trim()) || r.studentName === 'Available Desk' || r.college === 'Available Desk') return;
+      if (!result.some((s) => s.id === r.studentId || String(s.name).toLowerCase() === String(r.studentName).toLowerCase())) {
+        result.push({
+          id: r.studentId || `stu-${r.seatNumber || 1}`,
+          name: r.studentName,
+          seatNumber: r.seatNumber || (result.length + 1),
+          college: r.college || safeSession?.collegeCode || 'Institution',
+          course: (r as any).course || 'Engineering',
+          batch: (r as any).batch || '2024-2028',
+          avatar: (r as any).avatar || '',
+          isUser: false,
+          micActive: false,
+          isSpeaking: false,
+          hasRaisedHand: false,
+          speakingDurationSeconds: r.speakingTimeSeconds || r.speakingDurationSeconds || 0,
+          speakingTurns: r.speakingTurns || 0,
+          interruptionCount: r.interruptions || 0,
+          questionsAnswered: r.questionsAnswered || 0,
+          questionsInitiated: r.questionsInitiated || 0,
+          sentiment: 'neutral',
+          isEmptySeat: false,
+        });
+      }
+    });
+
+    if (result.length > 0) {
+      return result;
+    }
+
+    // Fallback: If session is newly scheduled/waiting and no speech recorded yet, show enrolled students only
+    return validStudents;
+  }, [safeSession.students, reportByStudent, persistedReports, safeTranscripts, safeSession?.collegeCode]);
+
   const [matrixFilter, setMatrixFilter] = useState<'all' | 'red' | 'yellow' | 'green' | 'too_silent' | 'too_dominant' | 'good_speaker'>('all');
 
-  const studentStats = safeStudents.map((s) => {
+  const studentStats = participatedStudents.map((s) => {
     const persisted = reportByStudent.get(s.id) || persistedReports.find((r) => r.studentName && String(r.studentName).toLowerCase() === String(s.name).toLowerCase());
     const speakingSecs = s.speakingDurationSeconds || 0;
     const turns = s.speakingTurns || 0;
@@ -138,7 +205,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     let behaviorLabel = 'Good Speaker';
     let behaviorAction = 'Ready for Advanced Placement Challenges';
 
-    if (speakingSecs < 60 || turns <= 1) {
+    if (calculatedScore > 0 && calculatedScore < 60 && turns <= 1) {
       behaviorType = 'too_silent';
       behaviorLabel = 'Too Silent';
       behaviorAction = 'Needs Participation Encouragement';
@@ -146,6 +213,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
       behaviorType = 'too_dominant';
       behaviorLabel = 'Too Dominant';
       behaviorAction = 'Needs Listening & Teamwork Coaching';
+    } else if (speakingSecs < 60 || turns <= 1) {
+      behaviorType = 'too_silent';
+      behaviorLabel = 'Too Silent';
+      behaviorAction = 'Needs Participation Encouragement';
     }
 
     // Teacher Intervention Flags (🔴 Immediate Practice, 🟡 Needs Improvement, 🟢 Good Progress)
@@ -159,16 +230,23 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
       flagLabel = 'Needs Improvement';
     }
 
-    // Rubric attributes for matrix
-    const relevancePercent = typeof persisted?.skills?.contentQuality?.score === 'number'
-      ? Math.round((persisted.skills.contentQuality.score / 15) * 100)
-      : (turns > 0 ? 75 : 0);
-    const fluencyScore = typeof persisted?.skills?.fluency?.score === 'number'
-      ? persisted.skills.fluency.score
-      : (turns > 0 ? Math.min(20, Math.max(10, Math.round(12 + turns * 1.5))) : 0);
-    const confidenceScore = typeof persisted?.skills?.confidence?.score === 'number'
-      ? persisted.skills.confidence.score
-      : (turns > 0 ? Math.min(15, Math.max(8, Math.round(10 + turns))) : 0);
+    // Rubric attributes for matrix with fallback parsing from rubricJson or calculatedScore
+    let rubric = persisted?.skills;
+    if (!rubric && persisted?.rubricJson) {
+      try {
+        rubric = typeof persisted.rubricJson === 'string' ? JSON.parse(persisted.rubricJson) : persisted.rubricJson;
+      } catch {}
+    }
+
+    const relevancePercent = typeof rubric?.contentQuality?.score === 'number'
+      ? Math.round((rubric.contentQuality.score / 15) * 100)
+      : (calculatedScore > 0 ? Math.round((calculatedScore / 100) * 85) : (turns > 0 ? 75 : 0));
+    const fluencyScore = typeof rubric?.fluency?.score === 'number'
+      ? rubric.fluency.score
+      : (calculatedScore > 0 ? Math.round((calculatedScore / 100) * 20) : (turns > 0 ? Math.min(20, Math.max(10, Math.round(12 + turns * 1.5))) : 0));
+    const confidenceScore = typeof rubric?.confidence?.score === 'number'
+      ? rubric.confidence.score
+      : (calculatedScore > 0 ? Math.round((calculatedScore / 100) * 15) : (turns > 0 ? Math.min(15, Math.max(8, Math.round(10 + turns))) : 0));
     const interruptions = s.interruptionCount || 0;
     const responses = s.questionsAnswered || 0;
 
@@ -196,19 +274,19 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     : (persistedReports.length > 0
       ? Math.round(persistedReports.reduce((sum, report) => sum + Number(report.overallScore || 0), 0) / persistedReports.length)
       : 0);
-  const participantBase = Number(safeSession.enrolledCount || safeStudents.length || 0);
-  const participationRate = participantBase > 0 ? Math.round((persistedReports.length / participantBase) * 100) : 0;
+  const participantBase = participatedStudents.length;
+  const participationRate = participantBase > 0 ? Math.round((scoredStudents.length / participantBase) * 100) : 0;
   const classGrade = averageScore >= 90 ? 'Excellent' : averageScore >= 75 ? 'Very Good' : averageScore >= 60 ? 'Good' : averageScore >= 40 ? 'Average' : 'Needs Improvement';
 
-  const totalStudents = safeStudents.length;
-  const completedCount = persistedReports.length;
+  const totalStudents = participatedStudents.length;
+  const completedCount = scoredStudents.length;
   const pendingCount = Math.max(0, totalStudents - completedCount);
   const classCompletionPercent = totalStudents > 0 ? Math.round((completedCount / totalStudents) * 100) : 0;
-  const avgSpeakingSecs = totalStudents > 0 ? Math.round(safeStudents.reduce((acc, s) => acc + (s.speakingDurationSeconds || 0), 0) / totalStudents) : 0;
+  const avgSpeakingSecs = totalStudents > 0 ? Math.round(participatedStudents.reduce((acc, s) => acc + (s.speakingDurationSeconds || 0), 0) / totalStudents) : 0;
   const avgSpeakingStr = `${(avgSpeakingSecs / 60).toFixed(1)}m`;
 
   // Data for Speaking Time Chart
-  const chartData = safeStudents.map((s) => ({
+  const chartData = participatedStudents.map((s) => ({
     name: s.name.split(' ')[0],
     fullName: s.name,
     seat: `Seat ${s.seatNumber}`,
@@ -736,7 +814,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <span className="text-xs text-slate-500 font-mono">5-min intervals</span>
           </div>
 
-          {safeStudents.length === 0 ? (
+          {participatedStudents.length === 0 ? (
             <div className="py-16 flex flex-col items-center justify-center text-slate-400 text-xs">
               <Clock className="w-8 h-8 mb-2 text-slate-300 dark:text-slate-600" />
               <span>Awaiting participant speech timestamps in this session.</span>
@@ -747,7 +825,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                 <div key={idx} className="bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-3">
                   <span className="font-mono font-bold text-slate-600 dark:text-slate-400 w-14">{block.minute}</span>
                   <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                  {safeStudents.map((st) => {
+                  {participatedStudents.map((st) => {
                     const isActiveInBlock = block.activeSeats.includes(st.seatNumber);
                     return (
                       <span

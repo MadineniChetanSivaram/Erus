@@ -6602,15 +6602,24 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
   // 3. Find participants / enrolled students
   let participants: any[] = [];
   if (Array.isArray(targetSlot.students) && targetSlot.students.length > 0) {
-    participants = targetSlot.students.map((st: any, idx: number) => ({
-      id: st.id || `stu-${idx + 1}`,
-      name: st.name || `Candidate ${idx + 1}`,
-      studentId: st.studentId || `STU-${1000 + idx}`,
-      seatNumber: st.seatNumber || (idx + 1),
-      course: st.course || 'Engineering',
-      batch: st.batch || '2024-2028',
-      college: st.college || targetSlot.collegeCode,
-    }));
+    participants = targetSlot.students
+      .filter((st: any) => 
+        !st.isEmptySeat && 
+        st.college !== 'Available Desk' && 
+        !(typeof st.id === 'string' && st.id.endsWith('-empty')) && 
+        !/^Seat\s+\d+$/i.test(st.name || '')
+      )
+      .map((st: any, idx: number) => ({
+        id: st.id || `stu-${idx + 1}`,
+        name: st.name || `Candidate ${idx + 1}`,
+        studentId: st.studentId || `STU-${1000 + idx}`,
+        seatNumber: st.seatNumber || (idx + 1),
+        course: st.course || 'Engineering',
+        batch: st.batch || '2024-2028',
+        college: st.college || targetSlot.collegeCode,
+        speakingDurationSeconds: st.speakingDurationSeconds || 0,
+        speakingTurns: st.speakingTurns || 0,
+      }));
   }
 
   // Also query bookings
@@ -6638,8 +6647,35 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
     } catch (e: any) {}
   }
 
-  // If no enrolled students in DB, synthesize slot participants from college roster so report is rich
-  if (participants.length === 0) {
+  // If reports already exist, only include actual participants
+  if (existingReports.length > 0) {
+    const reportStudentIds = new Set(existingReports.map((r: any) => r.studentId));
+    const reportStudentNames = new Set(existingReports.map((r: any) => (r.studentName || '').toLowerCase()));
+
+    // Make sure each student with a report is represented in participants
+    for (const r of existingReports) {
+      if (!participants.some((p) => p.id === r.studentId || (p.name && p.name.toLowerCase() === (r.studentName || '').toLowerCase()))) {
+        participants.push({
+          id: r.studentId,
+          name: r.studentName || 'Participant',
+          studentId: r.studentId,
+          seatNumber: r.seatNumber || (participants.length + 1),
+          course: 'Engineering',
+          batch: '2024-2028',
+          college: targetSlot.collegeCode,
+        });
+      }
+    }
+
+    // Filter participants strictly to evaluated students or active speakers
+    participants = participants.filter((p) =>
+      reportStudentIds.has(p.id) ||
+      reportStudentNames.has((p.name || '').toLowerCase()) ||
+      (p.speakingDurationSeconds && p.speakingDurationSeconds > 0) ||
+      (p.speakingTurns && p.speakingTurns > 0)
+    );
+  } else if (participants.length === 0) {
+    // If no enrolled students and no reports, pull top students from college roster for demo
     const collegeStudents = (persistentState.students[targetSlot.collegeCode] || []).slice(0, 8);
     if (collegeStudents.length > 0) {
       participants = collegeStudents.map((s: any, idx: number) => ({
@@ -6654,52 +6690,54 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
     }
   }
 
-  // 4. If participants exist but reports don't exist yet, synthesize/generate realistic reports
+  // 4. If existingReports exist, do not generate synthetic reports for absent students!
   const finalReports: any[] = [...existingReports];
-  for (const part of participants) {
-    const existing = finalReports.find((r) => r.studentId === part.id || (r.studentName && r.studentName.toLowerCase() === part.name.toLowerCase()));
-    if (!existing) {
-      const generated = fallbackAssessment(
-        part,
-        [],
-        targetSlot.topic,
-        targetSlot.durationMinutes || 15,
-        {
+  if (existingReports.length === 0) {
+    for (const part of participants) {
+      const existing = finalReports.find((r) => r.studentId === part.id || (r.studentName && r.studentName.toLowerCase() === part.name.toLowerCase()));
+      if (!existing) {
+        const generated = fallbackAssessment(
+          part,
+          [],
+          targetSlot.topic,
+          targetSlot.durationMinutes || 15,
+          {
+            sessionId,
+            speakingDurationSeconds: 45 + Math.floor(Math.random() * 90),
+            speakingTurns: 2 + Math.floor(Math.random() * 3),
+            interruptionCount: 0,
+          }
+        );
+        const repItem = {
+          id: `rep-${part.id}-${sessionId}`,
           sessionId,
-          speakingDurationSeconds: 45 + Math.floor(Math.random() * 90),
-          speakingTurns: 2 + Math.floor(Math.random() * 3),
-          interruptionCount: 0,
-        }
-      );
-      const repItem = {
-        id: `rep-${part.id}-${sessionId}`,
-        sessionId,
-        studentId: part.id,
-        studentName: part.name,
-        seatNumber: part.seatNumber,
-        overallScore: generated.overallScore,
-        grade: generated.grade || gradeForScore(generated.overallScore),
-        skills: generated.skills,
-        speakingDurationSeconds: generated.speakingTimeSeconds,
-        speakingTimeSeconds: generated.speakingTimeSeconds,
-        speakingTimeFormatted: generated.speakingTimeFormatted,
-        speakingTurns: generated.speakingTurns,
-        wpm: generated.wpm,
-        wpmStatus: generated.wpmStatus,
-        fillerWordsCount: generated.fillerWordsCount,
-        fillerWordsBreakdown: generated.fillerWordsBreakdown,
-        interruptions: generated.interruptions,
-        questionsAnswered: generated.questionsAnswered,
-        questionsInitiated: generated.questionsInitiated,
-        feedback: generated.aiSummary,
-        aiSummary: generated.aiSummary,
-        strengths: generated.strengths,
-        areasForImprovement: generated.areasForImprovement,
-        aiRecommendations: generated.aiRecommendations,
-        createdAt: new Date().toISOString(),
-      };
-      persistAssessmentReport(repItem).catch(() => null);
-      finalReports.push(repItem);
+          studentId: part.id,
+          studentName: part.name,
+          seatNumber: part.seatNumber,
+          overallScore: generated.overallScore,
+          grade: generated.grade || gradeForScore(generated.overallScore),
+          skills: generated.skills,
+          speakingDurationSeconds: generated.speakingTimeSeconds,
+          speakingTimeSeconds: generated.speakingTimeSeconds,
+          speakingTimeFormatted: generated.speakingTimeFormatted,
+          speakingTurns: generated.speakingTurns,
+          wpm: generated.wpm,
+          wpmStatus: generated.wpmStatus,
+          fillerWordsCount: generated.fillerWordsCount,
+          fillerWordsBreakdown: generated.fillerWordsBreakdown,
+          interruptions: generated.interruptions,
+          questionsAnswered: generated.questionsAnswered,
+          questionsInitiated: generated.questionsInitiated,
+          feedback: generated.aiSummary,
+          aiSummary: generated.aiSummary,
+          strengths: generated.strengths,
+          areasForImprovement: generated.areasForImprovement,
+          aiRecommendations: generated.aiRecommendations,
+          createdAt: new Date().toISOString(),
+        };
+        persistAssessmentReport(repItem).catch(() => null);
+        finalReports.push(repItem);
+      }
     }
   }
 
