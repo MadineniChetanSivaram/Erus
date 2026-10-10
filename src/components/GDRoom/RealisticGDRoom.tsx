@@ -861,6 +861,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const studentTurnsSinceIntervention = useRef<number>(0);
   const aiVoicePausedMicRef = useRef(false);
   const aiVoiceResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const executeNextTurnRef = useRef<((completedStudentId?: string | null, questionAsked?: string) => Promise<void>) | null>(null);
+  const yieldFloorAndNotifyRef = useRef<() => void>(() => {});
+
+  // Cleanly yields speaking floor and notifies WebRTC room when candidate concludes their turn
+  const yieldFloorAndNotify = useCallback(() => {
+    const userStudent = session.students.find((s) => s.isUser) || session.students[0];
+    setSession((prev) => ({
+      ...prev,
+      currentSpeakerId: null,
+      students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
+    }));
+    setInvitedStudentPrompt(null);
+    rtcNotifySpeakingFinished();
+    if (!isSocketConnected && autoSimulatePeers && userStudent) {
+      if (executeNextTurnRef.current) {
+        executeNextTurnRef.current(userStudent.id);
+      }
+    }
+  }, [session.students, rtcNotifySpeakingFinished, isSocketConnected, autoSimulatePeers]);
+
+  yieldFloorAndNotifyRef.current = yieldFloorAndNotify;
 
   // AI voices are played through the user's speakers. While AI speaks,
   // ignore speech recognition results to prevent speaker audio feedback,
@@ -929,6 +950,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Broadcast directly to room transcript & peers
     if (handleSendUserStatementRef.current) {
       handleSendUserStatementRef.current(textToCommit);
+    }
+
+    // Refresh recognition instance so Chromium flushes its internal speech buffer
+    // and continues transcribing subsequent points without dropping words
+    if (isListeningMicRef.current && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (err) {
+        console.warn('[Speech Recognition] Reset on commit notice:', err);
+      }
     }
   };
 
@@ -1108,11 +1139,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             clearTimeout(speechPauseTimerRef.current);
           }
 
-          // Natural pause detection: auto-broadcast to room after 1.8s silence
+          // Natural pause detection: auto-broadcast to room after 2.8s silence
           if (currentSpoken.length > 3) {
             speechPauseTimerRef.current = setTimeout(() => {
               commitLiveSpeechToRoom(currentSpoken);
-            }, 1800);
+            }, 2800);
           }
         };
 
@@ -1249,6 +1280,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       stopMediaRecorderFallback();
       stopAudioAnalyser();
       await rtcSetMicEnabled(false);
+      yieldFloorAndNotifyRef.current();
       if (!isFaculty) {
         setSession((prev) => ({
           ...prev,
@@ -1307,6 +1339,22 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
     }
   };
+
+  // Helper for candidate to explicitly finish speaking and pass floor to other participants/facilitator
+  const handlePassFloor = useCallback(async () => {
+    if (speechPauseTimerRef.current) {
+      clearTimeout(speechPauseTimerRef.current);
+      speechPauseTimerRef.current = null;
+    }
+    const pendingSpeech = (liveTranscriptRef.current || liveSpeechTranscript).trim();
+    if (pendingSpeech) {
+      commitLiveSpeechToRoom(pendingSpeech);
+    }
+    yieldFloorAndNotifyRef.current();
+    if (isListeningMicRef.current) {
+      await toggleMicRecognition();
+    }
+  }, [liveSpeechTranscript]);
 
   // Trigger Facilitator speech and vocalize
   const speakFacilitator = (
@@ -1559,29 +1607,24 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       console.warn(e);
     }
 
-    const yieldFloorAndNotify = () => {
-      setSession((prev) => ({
-        ...prev,
-        currentSpeakerId: null,
-        students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
-      }));
-      setInvitedStudentPrompt(null);
-      rtcNotifySpeakingFinished();
-      if (!isSocketConnected && autoSimulatePeers) {
-        executeNextTurn(userStudent.id);
-      }
-    };
-
     // If triggered without live mic (e.g. Quick Speaking Point clicked or typed), vocalize in authentic Indian English so it is audible to everyone
     if (!isListeningMic && !isFaculty) {
       roomVoice.speakAsStudent(userStudent, text, () => {
-        yieldFloorAndNotify();
+        yieldFloorAndNotifyRef.current();
       });
     } else {
-      // With live microphone, yield floor after brief pause so AI Facilitator analyzes the thought and replies accordingly
-      setTimeout(() => {
-        yieldFloorAndNotify();
-      }, 1600);
+      // With live microphone active: candidate retains full ownership of the floor!
+      // They can speak multiple continuous points or pause to think.
+      // Floor will only be yielded when candidate mutes the mic or clicks 'Done / Pass Floor'.
+      setSession((prev) => ({
+        ...prev,
+        currentSpeakerId: userStudent.id,
+        students: prev.students.map((s) =>
+          s.id === userStudent.id
+            ? { ...s, isSpeaking: true, micActive: true }
+            : s
+        ),
+      }));
     }
   };
 
@@ -1725,6 +1768,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       startPeerSpeech(nextSpeaker, peerStatement);
     }, 1800);
   };
+  executeNextTurnRef.current = executeNextTurn;
 
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
@@ -3712,24 +3756,44 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           </p>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-[10px] text-emerald-400/80 font-mono hidden md:inline whitespace-nowrap">
-                              (Auto-commits on pause)
+                              (Auto-posts on pause)
                             </span>
                             <button
                               type="button"
                               onClick={() => commitLiveSpeechToRoom()}
                               className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow transition-all cursor-pointer flex items-center gap-1"
-                              title="Commit words to discussion now"
+                              title="Post this point and keep floor to speak more"
                             >
                               <Send className="w-3 h-3" />
-                              <span>Commit</span>
+                              <span>Post Point</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handlePassFloor}
+                              className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold shadow transition-all cursor-pointer flex items-center gap-1"
+                              title="Finish speaking and pass the floor to other participants"
+                            >
+                              <ArrowRight className="w-3 h-3" />
+                              <span>Done / Pass Floor</span>
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-400 italic flex items-center gap-2">
-                          <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                          <span>Speak into your microphone — your voice converts to text live. Pausing or clicking Commit posts your points.</span>
-                        </p>
+                        <div className="w-full flex items-center justify-between gap-2">
+                          <p className="text-xs text-slate-300 italic flex items-center gap-2">
+                            <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                            <span>Floor is yours — speak continuously. Points auto-post as you pause. Click "Done / Pass Floor" when finished.</span>
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handlePassFloor}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600/90 hover:bg-amber-500 text-white text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                            title="Finish speaking and pass the floor to other participants"
+                          >
+                            <ArrowRight className="w-3 h-3" />
+                            <span>Done Speaking</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

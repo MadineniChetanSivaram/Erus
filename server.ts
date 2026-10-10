@@ -7644,7 +7644,7 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
   }
   if (room.status !== 'active') return;
   if (room.currentSpeakerId || room.currentSpeakerSocketId) return;
-  const isAnyPeerSpeaking = Array.from(room.peers.values()).some((p) => p.isSpeaking);
+  const isAnyPeerSpeaking = Array.from(room.peers.values()).some((p) => p.role === 'student' && (p.isSpeaking || p.micActive));
   if (isAnyPeerSpeaking) return;
 
   const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
@@ -8351,21 +8351,26 @@ io.on('connection', (socket) => {
         floorVersion: room.floorVersion,
       });
     } else if (room.currentSpeakerSocketId === socket.id) {
-      if (room.speechYieldTimer) {
-        clearTimeout(room.speechYieldTimer);
-        room.speechYieldTimer = undefined;
+      // If mic is still active on the participant, do NOT prematurely steal the floor on a natural breathing pause!
+      if (peer.micActive) {
+        // Floor remains with the candidate while unmuted; keep currentSpeakerId intact.
+      } else {
+        if (room.speechYieldTimer) {
+          clearTimeout(room.speechYieldTimer);
+          room.speechYieldTimer = undefined;
+        }
+        // Current speaker finished speaking or muted mic
+        room.currentSpeakerId = null;
+        room.currentSpeakerSocketId = null;
+        room.waitingForParticipantId = undefined;
+        room.floorVersion += 1;
+        io.to(`room-${safeSlotId}`).emit('floor-state', {
+          speakerId: null,
+          speakerSocketId: null,
+          floorVersion: room.floorVersion,
+        });
+        scheduleNextTurn(room, peer.userId);
       }
-      // Current speaker finished speaking
-      room.currentSpeakerId = null;
-      room.currentSpeakerSocketId = null;
-      room.waitingForParticipantId = undefined;
-      room.floorVersion += 1;
-      io.to(`room-${safeSlotId}`).emit('floor-state', {
-        speakerId: null,
-        speakerSocketId: null,
-        floorVersion: room.floorVersion,
-      });
-      scheduleNextTurn(room, peer.userId);
     }
 
     io.to(`room-${safeSlotId}`).emit('peer-speaking-updated', {
@@ -8453,9 +8458,13 @@ io.on('connection', (socket) => {
       room.speechYieldTimer = undefined;
     }
 
-    // Automatically yield floor after 2.2 seconds of statement inactivity so AI facilitator analyzes and replies
+    // Automatically yield floor only after extended inactivity (8.5s) if participant stopped speaking without explicitly muting
     room.speechYieldTimer = setTimeout(() => {
       room.speechYieldTimer = undefined;
+      if (peer.micActive && room.peers.has(socket.id)) {
+        // Candidate still has microphone unmuted in room; do not snatch floor from them
+        return;
+      }
       if (room.currentSpeakerId === peer.userId || room.currentSpeakerSocketId === socket.id) {
         room.currentSpeakerId = null;
         room.currentSpeakerSocketId = null;
@@ -8468,7 +8477,7 @@ io.on('connection', (socket) => {
         });
         scheduleNextTurn(room, peer.userId);
       }
-    }, 2200);
+    }, 8500);
   });
 
   // 5. Peer Disconnect Cleanup

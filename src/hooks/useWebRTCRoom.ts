@@ -450,7 +450,7 @@ export function useWebRTCRoom({
                   volumeLevel: 0,
                 });
                 speakingStateTimeoutRef.current = null;
-              }, 1800);
+              }, 2500);
             }
           }
 
@@ -967,11 +967,11 @@ export function useWebRTCRoom({
       socketRef.current.emit('peer-speaking-state', {
         slotId,
         isSpeaking: false,
-        micActive: !isMicMuted,
+        micActive: false,
         volumeLevel: 0,
       });
     }
-  }, [slotId, isMicMuted]);
+  }, [slotId]);
 
   // Conclude / finish the GD session across all connected clients
   const finishSession = useCallback(() => {
