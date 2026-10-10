@@ -342,6 +342,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
 
     onFacilitatorIntervention: (intervention) => {
+      hasInitiatedOpeningRef.current = true;
       setTranscripts((prev) => {
         if (prev.some((t) => t.id === intervention.transcript.id || (t.isFacilitator && t.text.trim() === intervention.text.trim()))) return prev;
         return [...prev, intervention.transcript];
@@ -1208,6 +1209,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Reset live buffers
     liveTranscriptRef.current = '';
     setLiveSpeechTranscript('');
+    setInvitedStudentPrompt(null);
 
     const mins = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
     const secs = (elapsedSeconds % 60).toString().padStart(2, '0');
@@ -1335,8 +1337,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         currentSpeakerId: null,
         students: prev.students.map((s) => ({ ...s, isSpeaking: false })),
       }));
+      setInvitedStudentPrompt(null);
       rtcNotifySpeakingFinished();
-      if (autoSimulatePeers) {
+      if (!isSocketConnected && autoSimulatePeers) {
         executeNextTurn(userStudent.id);
       }
     };
@@ -1416,6 +1419,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // or to the next person in sequence with lowest turn count
   const executeNextTurn = async (completedStudentId?: string | null, questionAsked?: string) => {
     if (!isSessionActive) return;
+    if (isSocketConnected) return; // Server orchestrates turns over WebRTC
     if (hasRealStudentPeers) return;
     if (isTransitioningTurnRef.current) return;
     isTransitioningTurnRef.current = true;
@@ -1497,6 +1501,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If no one speaks initially, AI Facilitator calls upon a student referencing their previous presentation
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
+    if (isSocketConnected) return; // Central server coordinates authoritative welcome and opening
     if (hasInitiatedOpeningRef.current) return;
     const hasFacilitatorSpoken = transcripts.some((t) => t.isFacilitator);
     if (hasFacilitatorSpoken) {
@@ -1546,6 +1551,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
   const handleFacilitatorTargetedProbe = () => {
     if (rtcSimulationMode) return;
+    if (isSocketConnected) return; // Central server controls silence probes
     if (!isSessionActive || hasRealStudentPeers || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
     if (Date.now() - lastFacilitatorInterventionTimeRef.current < 12000) return;
 
@@ -1577,7 +1583,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
   useEffect(() => {
     if (rtcSimulationMode) return;
-    if (isSocketConnected && hasRealStudentPeers) return; // Central server controls silence watchdog only if real student peers are present
+    if (isSocketConnected) return; // Central server controls silence watchdog
     if (!isSessionActive || currentLayout === 'classroom') return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1613,17 +1619,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // Reset initiation flag and trigger opening speaker when session becomes active (only in round-table / speaker layouts)
   useEffect(() => {
     if (session.status === 'active' && currentLayout !== 'classroom') {
+      if (isSocketConnected) {
+        // When connected via WebRTC socket, central server controls opening welcome and turns
+        return;
+      }
       const timer = setTimeout(() => {
         if (!hasInitiatedOpeningRef.current && transcripts.filter((t) => t.isFacilitator).length === 0) {
           handleInitiateOpeningSpeaker(true);
         }
-      }, 500);
+      }, 800);
       return () => clearTimeout(timer);
     } else {
       hasInitiatedOpeningRef.current = false;
       setInvitedStudentPrompt(null);
     }
-  }, [session.status, session.id, currentLayout]);
+  }, [session.status, session.id, currentLayout, isSocketConnected]);
 
   // ============================================================================
   // ERUS AI INSTRUCTOR – CLASSROOM PRESENTATION EXECUTION CONTROLLER

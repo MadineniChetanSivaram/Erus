@@ -6918,6 +6918,7 @@ interface LiveGDRoomState {
   facilitatorHandoffCount: number;
   facilitatorHandoffStreak: number;
   speechYieldTimer?: NodeJS.Timeout;
+  askedQuestions: Set<string>;
 }
 
 const LIVE_ROOMS = new Map<string, LiveGDRoomState>();
@@ -6971,6 +6972,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       openingStarted: false,
       facilitatorHandoffCount: 0,
       facilitatorHandoffStreak: 0,
+      askedQuestions: new Set<string>(),
     };
 
     // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
@@ -7068,12 +7070,12 @@ function classifyParticipantUtterance(text: string): UtteranceClassification {
     return { category: 'filler', cleanedThought: '' };
   }
 
-  // Check 4: Very short utterance with <= 3 words that match greeting or filler sets
+  // Check 4: Very short utterance with <= 3 words: ONLY classify as greeting/filler if ALL words match!
   if (words.length <= 3) {
-    if (words.some((w) => greetingWords.has(w))) {
+    if (words.every((w) => greetingWords.has(w) || ['to', 'all', 'sir', 'maam', 'everyone', 'team', 'guys'].includes(w))) {
       return { category: 'greeting', cleanedThought: '' };
     }
-    if (words.some((w) => fillerTokens.has(w))) {
+    if (words.every((w) => fillerTokens.has(w))) {
       return { category: 'filler', cleanedThought: '' };
     }
   }
@@ -7147,7 +7149,8 @@ function analyzeThoughtHeuristically(
   speakerSeat: string,
   spokenText: string,
   targetName?: string,
-  targetSeat?: string
+  targetSeat?: string,
+  askedQuestions?: Set<string>
 ): string {
   const firstName = speakerName.split(' ')[0];
   const targetFirstName = targetName ? targetName.split(' ')[0] : '';
@@ -7164,37 +7167,45 @@ function analyzeThoughtHeuristically(
   const snippet = cleaned.length > 55 ? cleaned.slice(0, 55).replace(/\s+\S*$/, '') + '...' : cleaned;
   const domains = detectTopicDomains(topic);
 
+  const hasBeenAsked = (qSub: string) => {
+    if (!askedQuestions) return false;
+    for (const asked of askedQuestions) {
+      if (asked.toLowerCase().includes(qSub.toLowerCase())) return true;
+    }
+    return false;
+  };
+
   let coreAnalysis = '';
   let probingFollowup = '';
   let peerTransition = '';
 
   // 1. E-COMMERCE & RETAIL (and E-commerce + AI intersection)
   if (domains.includes('ecommerce_retail')) {
-    if (/\b(recommend|recommendation|personaliz|algorithm|algorithms|suggest|curat|target|preference|feed|search|brows)\b/i.test(lower)) {
+    if (/\b(recommend|recommendation|personaliz|algorithm|algorithms|suggest|curat|target|preference|feed|search|brows)\b/i.test(lower) && !hasBeenAsked('impulsive consumer spending')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you highlighted how AI algorithms and personalization engines steer consumer choices in ${topic}.`;
       probingFollowup = `How can platforms prevent these recommendation algorithms from exploiting impulsive consumer spending habits and infringing upon user data privacy?`;
       peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s view on personalization algorithms in ${topic}, or do you see concerns with consumer privacy?`;
-    } else if (/\b(deliver(y|ies)|quick|instant|speed|rider|riders|logistics|warehouse|dark store|fleet|fulfill|package)\b/i.test(lower)) {
+    } else if (/\b(deliver(y|ies)|quick|instant|speed|rider|riders|logistics|warehouse|dark store|fleet|fulfill|package)\b/i.test(lower) && !hasBeenAsked('gig-worker safety')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you focused on rapid delivery fulfillment, dark stores, and logistics pressure in ${topic}.`;
       probingFollowup = `Does the hyper-optimization of instant delivery routes compromise gig-worker safety and place unsustainable pressure on local fulfillment infrastructure?`;
       peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s argument regarding delivery speed versus worker safety in ${topic}?`;
-    } else if (/\b(price|pricing|dynamic|surge|cost|discount|margin|profit|expensive|cheap|afford|revenue|cash|money)\b/i.test(lower)) {
+    } else if (/\b(price|pricing|dynamic|surge|cost|discount|margin|profit|expensive|cheap|afford|revenue|cash|money)\b/i.test(lower) && !hasBeenAsked('algorithmic price surges')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out dynamic automated pricing algorithms and commercial cost pressures in ${topic}.`;
       probingFollowup = `How can regulatory bodies prevent algorithmic price surges that exploit urgent consumer demand during peak purchasing periods?`;
       peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s economic assessment of pricing models in ${topic}?`;
-    } else if (/\b(kirana|local|small business|merchant|store|shopkeeper|monopol(y|ies)|retailer|vendor|offline|duopoly)\b/i.test(lower)) {
+    } else if (/\b(kirana|local|small business|merchant|store|shopkeeper|monopol(y|ies)|retailer|vendor|offline|duopoly)\b/i.test(lower) && !hasBeenAsked('traditional Kirana stores')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you addressed the competitive threat that centralized tech-driven platforms place on traditional Kirana stores and local merchants in ${topic}.`;
       probingFollowup = `What open digital networks (like ONDC) or policy safeguards can empower grassroots retailers to compete fairly against platform conglomerates?`;
       peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, do you believe neighbourhood retailers can survive this tech disruption in ${topic}?`;
-    } else if (/\b(fake|review|counterfeit|trust|return|refund|scam|fraud|quality|bot|chat|chatbot|support)\b/i.test(lower)) {
+    } else if (/\b(fake|review|counterfeit|trust|return|refund|scam|fraud|quality|bot|chat|chatbot|support)\b/i.test(lower) && !hasBeenAsked('counterfeit detection')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you raised crucial concerns regarding automated customer service, fake reviews, and counterfeit detection in ${topic}.`;
       probingFollowup = `When automated chatbots fail to resolve genuine customer disputes, where must human escalation and corporate liability be legally mandated?`;
       peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how does ${firstName}'s point on customer trust and automated dispute resolution resonate with your perspective?`;
-    } else if (/\b(job|jobs|worker|workers|employ|labor|layoff|replac|automat|reskill|staff)\b/i.test(lower)) {
+    } else if (/\b(job|jobs|worker|workers|employ|labor|layoff|replac|automat|reskill|staff)\b/i.test(lower) && !hasBeenAsked('reskilling obligations')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, you examined the displacement of retail roles and warehouse workforce caused by automation in ${topic}.`;
       probingFollowup = `As automated robotics replace manual warehouse sorting and order picking, what structured reskilling obligations should platforms have toward displaced workers?`;
       peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment disruption in ${topic}?`;
-    } else if (/\b(data|privacy|track|surveillance|security|hack|breach|protect|dark pattern)\b/i.test(lower)) {
+    } else if (/\b(data|privacy|track|surveillance|security|hack|breach|protect|dark pattern)\b/i.test(lower) && !hasBeenAsked('data harvesting')) {
       coreAnalysis = `${firstName} from ${speakerSeat}, your argument focuses on extensive consumer data harvesting, purchase tracking, and privacy risks in ${topic}.`;
       probingFollowup = `How can regulatory frameworks curb predatory dark patterns and covert tracking without undermining personalized checkout convenience?`;
       peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how would you assess ${firstName}'s concerns regarding user data privacy in ${topic}?`;
@@ -7205,32 +7216,69 @@ function analyzeThoughtHeuristically(
     }
   }
 
-  // 2. TECHNOLOGY & AI (when not primarily e-commerce)
+  // 2. TECHNOLOGY & AI (including Robotics and Autonomous systems)
   else if (domains.includes('technology_ai')) {
-    if (/\b(human|oversight|control|autonom(y|ous)|black box|decid|decision|depend)\b/i.test(lower)) {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you emphasized the critical balance between automated algorithmic speed and indispensable human oversight in ${topic}.`;
-      probingFollowup = `In high-stakes decisions where autonomous models err, how do we assign legal and moral responsibility between developers, corporations, and end users?`;
-      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s view on human oversight in ${topic}, or should autonomous systems be granted more discretion?`;
-    } else if (/\b(privacy|data|security|hack|cyber|surveillance|leak|breach|protect)\b/i.test(lower)) {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you focused on data vulnerability, pervasive surveillance, and digital security risks in ${topic}.`;
-      probingFollowup = `How can organizations maintain end-to-end data integrity without introducing prohibitive friction for everyday users?`;
-      peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how would you assess ${firstName}'s arguments regarding cybersecurity and data rights in ${topic}?`;
-    } else if (/\b(job|jobs|worker|employ|career|layoff|labor|reskill|displace|replace)\b/i.test(lower)) {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you examined the rapid obsolescence of routine cognitive tasks and workforce displacement in ${topic}.`;
-      probingFollowup = `What institutional reforms should industries and universities mandate to prevent widespread structural unemployment among young graduates?`;
-      peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment and workforce reskilling in ${topic}?`;
-    } else if (/\b(ethic|bias|fair|moral|discrim|truth|hallucinat|fake|deepfake)\b/i.test(lower)) {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential inquiry into algorithmic bias, synthetic media, and ethical integrity in ${topic}.`;
-      probingFollowup = `When training datasets inherently mirror historical societal prejudices, how can developers genuinely guarantee algorithmic impartiality?`;
-      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you share ${firstName}'s ethical concerns, or do you believe technical benchmarks can resolve bias?`;
-    } else if (/\b(cost|expensive|budget|chip|compute|energy|datacenter|server|power)\b/i.test(lower)) {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out the staggering computational costs, energy consumption, and infrastructure barriers in ${topic}.`;
-      probingFollowup = `Will the massive capital expenditure required for high-end AI infrastructure concentrate market power in a handful of global tech monopolies?`;
-      peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s concerns regarding technological access and infrastructure concentration?`;
-    } else {
-      coreAnalysis = `${firstName} from ${speakerSeat}, you emphasized that ${snippet || 'systemic accountability is essential'} in our discussion on ${topic}.`;
-      probingFollowup = `As technological capabilities rapidly advance in ${topic}, what regulatory framework or safety guardrail is most urgently needed?`;
-      peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, how do you evaluate ${firstName}'s argument regarding ${topic}?`;
+    // Check for Robotics & Physical Autonomous Hardware first
+    if (/\b(robot|robotics|hardware|sensor|actuator|physical|humanoid|drone|autonomous vehicle)\b/i.test(lower)) {
+      if (!hasBeenAsked('fail-safe protocols')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you brought up physical deployment, real-time control, and sensor reliability in ${topic}.`;
+        probingFollowup = `When autonomous robots operate alongside humans in unconstrained physical environments, what fail-safe protocols must guarantee immediate safety?`;
+        peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, what is your take on physical safety standards and sensor reliability in ${topic}?`;
+      } else if (!hasBeenAsked('legal liability')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you addressed autonomous machine actions and error margins in ${topic}.`;
+        probingFollowup = `If an autonomous robot malfunctions and causes property damage or injury, where does legal liability rest between software programmer, manufacturer, and owner?`;
+        peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate legal liability when autonomous systems fail in ${topic}?`;
+      }
+    }
+
+    if (!probingFollowup) {
+      if (/\b(human|oversight|control|autonom(y|ous)|black box|decid|decision|depend)\b/i.test(lower) && !hasBeenAsked('moral responsibility between developers')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you emphasized the critical balance between automated algorithmic speed and indispensable human oversight in ${topic}.`;
+        probingFollowup = `In high-stakes decisions where autonomous models err, how do we assign legal and moral responsibility between developers, corporations, and end users?`;
+        peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you agree with ${firstName}'s view on human oversight in ${topic}, or should autonomous systems be granted more discretion?`;
+      } else if (/\b(privacy|data|security|hack|cyber|surveillance|leak|breach|protect)\b/i.test(lower) && !hasBeenAsked('data integrity without')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you focused on data vulnerability, pervasive surveillance, and digital security risks in ${topic}.`;
+        probingFollowup = `How can organizations maintain end-to-end data integrity without introducing prohibitive friction for everyday users?`;
+        peerTransition = `Let us bring in ${targetName} from ${targetSeat}. ${targetFirstName}, how would you assess ${firstName}'s arguments regarding cybersecurity and data rights in ${topic}?`;
+      } else if (/\b(job|jobs|worker|employ|career|layoff|labor|reskill|displace|replace)\b/i.test(lower) && !hasBeenAsked('structural unemployment')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you examined the rapid obsolescence of routine cognitive tasks and workforce displacement in ${topic}.`;
+        probingFollowup = `What institutional reforms should industries and universities mandate to prevent widespread structural unemployment among young graduates?`;
+        peerTransition = `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate ${firstName}'s perspective on employment and workforce reskilling in ${topic}?`;
+      } else if (/\b(ethic|bias|fair|moral|discrim|truth|hallucinat|fake|deepfake)\b/i.test(lower) && !hasBeenAsked('algorithmic impartiality')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you raised an essential inquiry into algorithmic bias, synthetic media, and ethical integrity in ${topic}.`;
+        probingFollowup = `When training datasets inherently mirror historical societal prejudices, how can developers genuinely guarantee algorithmic impartiality?`;
+        peerTransition = `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, do you share ${firstName}'s ethical concerns, or do you believe technical benchmarks can resolve bias?`;
+      } else if (/\b(cost|expensive|budget|chip|compute|energy|datacenter|server|power)\b/i.test(lower) && !hasBeenAsked('market power in a handful')) {
+        coreAnalysis = `${firstName} from ${speakerSeat}, you pointed out the staggering computational costs, energy consumption, and infrastructure barriers in ${topic}.`;
+        probingFollowup = `Will the massive capital expenditure required for high-end AI infrastructure concentrate market power in a handful of global tech monopolies?`;
+        peerTransition = `Let us invite ${targetName} from ${targetSeat}. ${targetFirstName}, what is your take on ${firstName}'s concerns regarding technological access and infrastructure concentration?`;
+      } else {
+        // Progressive, non-repeating fallbacks
+        const progressiveOptions = [
+          {
+            tag: 'scalability',
+            probe: `What operational bottleneck currently poses the greatest hurdle to deploying this reliably at scale in "${topic}"?`,
+            core: `${firstName} from ${speakerSeat}, you pointed to practical execution and deployment challenges in ${topic}.`,
+            trans: `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, where do you see the primary operational bottleneck in ${topic}?`,
+          },
+          {
+            tag: 'regulatory',
+            probe: `As capabilities rapidly accelerate in ${topic}, what regulatory framework or safety guardrail is most urgently needed?`,
+            core: `${firstName} from ${speakerSeat}, you emphasized systemic accountability in our discussion on ${topic}.`,
+            trans: `Let us hear from ${targetName} from ${targetSeat}. ${targetFirstName}, how do you evaluate the need for regulatory guardrails in ${topic}?`,
+          },
+          {
+            tag: 'economic_roi',
+            probe: `How can organizations justify the high adoption and maintenance expenditure against tangible real-world ROI in ${topic}?`,
+            core: `${firstName} from ${speakerSeat}, your argument touches on cost-benefit trade-offs in ${topic}.`,
+            trans: `Turning to ${targetName} from ${targetSeat}: ${targetFirstName}, what is your assessment of the return on investment in ${topic}?`,
+          },
+        ];
+        const nextOpt = progressiveOptions.find((opt) => !hasBeenAsked(opt.tag) && !hasBeenAsked(opt.probe)) || progressiveOptions[0];
+        coreAnalysis = nextOpt.core;
+        probingFollowup = nextOpt.probe;
+        peerTransition = nextOpt.trans;
+      }
     }
   }
 
@@ -7500,14 +7548,28 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
       } else {
         invitation = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${targetReal.name} from ${seatStr}. ${firstName}, please share your opening thoughts on this topic.`;
       }
-    } else if (utteranceClassification.category === 'mic_check') {
-      invitation = isSameSpeaker
-        ? `Hello ${speakerFirstName} from ${speakerSeat}, your audio is loud and clear. Please go ahead and share your opening thoughts or perspective on "${room.topic}".`
-        : `Your audio is clear, ${speakerFirstName} from ${speakerSeat}. Please present your argument on "${room.topic}", or let us pass the floor to ${targetReal.name} from ${seatStr}.`;
-    } else if (utteranceClassification.category === 'greeting') {
-      invitation = isSameSpeaker
-        ? `Hello ${speakerFirstName} from ${speakerSeat}. You have the floor—please go ahead and put forth your views on "${room.topic}".`
-        : `Hello ${speakerFirstName} from ${speakerSeat}. When you are ready, please present your perspective on "${room.topic}". Otherwise, let us hear opening thoughts from ${targetReal.name} from ${seatStr}.`;
+    } else if (utteranceClassification.category === 'greeting' || utteranceClassification.category === 'mic_check') {
+      const studentTurnCount = speakerPeer?.speakingTurns || 0;
+      if (studentTurnCount > 1 && utteranceClassification.category === 'greeting') {
+        // If the candidate already spoke earlier, don't keep repeating the opening prompt on greetings
+        invitation = analyzeThoughtHeuristically(
+          room.topic,
+          speakerName,
+          speakerSeat,
+          utteranceClassification.cleanedThought || spokenThought,
+          isSameSpeaker ? undefined : targetReal.name,
+          isSameSpeaker ? undefined : seatStr,
+          room.askedQuestions
+        );
+      } else {
+        invitation = isSameSpeaker
+          ? (utteranceClassification.category === 'mic_check'
+              ? `Hello ${speakerFirstName} from ${speakerSeat}, your audio is loud and clear. Please go ahead and share your opening thoughts or perspective on "${room.topic}".`
+              : `Hello ${speakerFirstName} from ${speakerSeat}. You have the floor—please go ahead and put forth your views on "${room.topic}".`)
+          : (utteranceClassification.category === 'mic_check'
+              ? `Your audio is clear, ${speakerFirstName} from ${speakerSeat}. Please present your argument on "${room.topic}", or let us pass the floor to ${targetReal.name} from ${seatStr}.`
+              : `Hello ${speakerFirstName} from ${speakerSeat}. When you are ready, please present your perspective on "${room.topic}". Otherwise, let us hear opening thoughts from ${targetReal.name} from ${seatStr}.`);
+      }
     } else if (utteranceClassification.category === 'filler') {
       if (isSameSpeaker) {
         if (roomDomain === 'cinema_media') {
@@ -7540,20 +7602,26 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
         speakerSeat,
         utteranceClassification.cleanedThought,
         isSameSpeaker ? undefined : targetReal.name,
-        isSameSpeaker ? undefined : seatStr
+        isSameSpeaker ? undefined : seatStr,
+        room.askedQuestions
       );
 
       if (ai) {
         try {
+          const priorQuestionsList = Array.from(room.askedQuestions || []).slice(-4).map((q) => `- ${q}`).join('\n');
           const promptInstruction = isSameSpeaker
             ? `You are an incisive, highly articulate Indian collegiate Group Discussion moderator evaluating "${room.topic}".
 Participant ${speakerName} from ${speakerSeat} just stated:
 "${utteranceClassification.cleanedThought}"
 
+QUESTIONS PREVIOUSLY ASKED IN THIS ROOM:
+${priorQuestionsList || '(none)'}
+
 CRITICAL RULES:
 - ABSOLUTELY NEVER say "Good point", "That is a good point", "You made a valid point", "Valuable perspective", or any flattering praise.
 - Analyze the candidate's exact argument directly in 1 sentence (e.g., "${speakerFirstName} from ${speakerSeat}, you argued that [concise summary of candidate's specific premise].").
 - Follow immediately with 1 sharp analytical counter-question or practical challenge testing their logic (e.g., asking how to overcome cost constraints, regulatory hurdles, or unintended risks).
+- CRITICAL: DO NOT REPEAT ANY OF THE PREVIOUSLY ASKED QUESTIONS OR THEMES. ASK ABOUT A COMPLETELY NEW, UNTOUCHED ASPECT OF "${room.topic}".
 - Address ${speakerFirstName} from ${speakerSeat}.
 - Maximum 36 words total. Plain text only. Natural spoken moderator cadence.`
             : `You are an incisive, highly articulate Indian collegiate Group Discussion moderator evaluating "${room.topic}".
@@ -7562,14 +7630,18 @@ Participant ${speakerName} from ${speakerSeat} just stated:
 
 The next speaker to take the floor is ${targetReal.name} from ${seatStr}.
 
+QUESTIONS PREVIOUSLY ASKED IN THIS ROOM:
+${priorQuestionsList || '(none)'}
+
 CRITICAL RULES:
 - ABSOLUTELY NEVER say "Good point", "That is a good point", "You made a valid point", "Valuable perspective", or any flattering praise.
 - Summarize ${speakerFirstName}'s specific argument in 1 crisp sentence (e.g., "${speakerFirstName} from ${speakerSeat}, you pointed out that [concise summary of candidate's specific premise].").
 - Bridge directly to ${targetReal.name} from ${seatStr} in 1 sentence, asking ${firstName} to evaluate, counter, or build upon ${speakerFirstName}'s specific thesis.
+- CRITICAL: DO NOT REPEAT ANY OF THE PREVIOUSLY ASKED QUESTIONS OR THEMES. ASK ABOUT A COMPLETELY NEW, UNTOUCHED ASPECT OF "${room.topic}".
 - Address both ${speakerFirstName} from ${speakerSeat} and ${targetReal.name} from ${seatStr}.
 - Maximum 40 words total. Plain text only. Natural spoken moderator cadence.`;
 
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4500));
           const aiPromise = ai.models.generateContent({
             model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
             contents: promptInstruction,
@@ -7591,6 +7663,11 @@ CRITICAL RULES:
           // Clean fallback to built-in semantic engine without interrupting discussion
         }
       }
+    }
+
+    if (invitation) {
+      if (!room.askedQuestions) room.askedQuestions = new Set<string>();
+      room.askedQuestions.add(invitation);
     }
 
     // Human-First Guard: Abort if any participant started speaking while preparing response
@@ -7727,11 +7804,20 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   };
 
   const pool = domainDeadlockQuestions[deadlockDomain] || domainDeadlockQuestions.general;
-  let deadlockQuestion = pool[(room.deadlockCount - 1) % pool.length];
+  if (!room.askedQuestions) room.askedQuestions = new Set<string>();
+  const unaskedPool = pool.filter((q) => {
+    for (const asked of room.askedQuestions!) {
+      if (asked.includes(q) || q.includes(asked)) return false;
+    }
+    return true;
+  });
+  const candidatesPool = unaskedPool.length > 0 ? unaskedPool : pool;
+  let deadlockQuestion = candidatesPool[(room.deadlockCount - 1) % candidatesPool.length];
 
   if (ai) {
     try {
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+      const priorQuestionsList = Array.from(room.askedQuestions || []).slice(-4).map((q) => `- ${q}`).join('\n');
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
       const aiPromise = ai.models.generateContent({
         model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
         contents: `You are the live moderator of an Indian collegiate Group Discussion.
@@ -7742,9 +7828,13 @@ This is silence intervention number ${room.deadlockCount}.
 Recent discussion:
 ${recentHistory || '(no recent student speech)'}
 
+QUESTIONS PREVIOUSLY ASKED IN THIS ROOM:
+${priorQuestionsList || '(none)'}
+
 Write ONE short, natural moderator question under 25 words.
 Call exactly ${candidateName} ${seatStr} by name and seat number to give them their turn.
 Ask a clear question on "${room.topic}".
+CRITICAL: DO NOT REPEAT ANY OF THE PREVIOUS QUESTIONS OR THEMES.
 Do not mention AI.`,
       });
       const response: any = await Promise.race([aiPromise, timeoutPromise]);
@@ -7753,6 +7843,10 @@ Do not mention AI.`,
     } catch (err) {
       // Clean fallback without interrupting discussion
     }
+  }
+
+  if (deadlockQuestion) {
+    room.askedQuestions.add(deadlockQuestion);
   }
 
   // Strict Human Priority: Abort if anyone began speaking while generating deadlock question

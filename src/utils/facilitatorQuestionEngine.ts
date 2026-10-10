@@ -675,54 +675,44 @@ export function generateInitiationPrompt(student: Student, sessionTopic: string)
 
   const domainPrompts: Record<TopicDomain, string[]> = {
     cinema_media: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, cinema is a powerful medium shaping public attitudes, regional cultures, and youth aspirations. Could you kick off our discussion on "${sessionTopic}" with your opening thoughts?`,
-      `As the floor is currently quiet, I would like to call upon ${student.name} at ${seatStr}. ${firstName}, examining "${sessionTopic}" from both cultural storytelling and commercial entertainment perspectives, how would you set the stage for today's discussion?`,
-      `Let us get the discussion underway. ${student.name} from ${seatStr}, how do you evaluate the cultural reach and social influence of "${sessionTopic}" across different sections of society? Would you share your opening perspective?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Cinema holds immense cultural and social influence across our communities. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's discussion on "${sessionTopic}". The floor is now officially open. Examining storytelling, cultural reach, and commercial realities, let us invite ${student.name} from ${seatStr}. ${firstName}, could you set the stage with your opening thoughts?`,
     ],
     healthcare_medicine: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, healthcare accessibility and clinical innovation are vital to societal well-being. Could you kick off today's discussion on "${sessionTopic}" with your opening thoughts?`,
-      `As the floor is currently quiet, I would like to call upon ${student.name} at ${seatStr}. ${firstName}, balancing patient care, public health infrastructure, and affordability in "${sessionTopic}", what are your opening perspectives?`,
-      `Let us get our discussion underway with ${student.name} from ${seatStr}. ${firstName}, what core challenges or reforms in "${sessionTopic}" should the group evaluate first?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Healthcare accessibility and clinical quality affect every citizen. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to our session on "${sessionTopic}". The floor is now open. Balancing patient welfare, public infrastructure, and medical innovation, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your initial perspectives.`,
     ],
     ecommerce_retail: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, digital commerce and instant delivery have radically shifted consumer habits and local supply chains. Could you kick off today's discussion on "${sessionTopic}"?`,
-      `As the floor is quiet, let us call upon ${student.name} at ${seatStr}. ${firstName}, evaluating the balance between consumer convenience and traditional retail sustainability in "${sessionTopic}", what is your opening perspective?`,
-      `Let us get our discussion underway. ${student.name} from ${seatStr}, how do you evaluate the economic and social ramifications of "${sessionTopic}" on local businesses and consumers?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Digital commerce and rapid fulfillment are reshaping consumer habits and local retail ecosystems. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to our discussion on "${sessionTopic}". The floor is now open. Evaluating consumer convenience, local merchant sustainability, and platform economics, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts.`,
     ],
     clean_energy_ev: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, transitioning to green infrastructure involves technological breakthroughs, grid investments, and economic trade-offs. What are your opening thoughts on "${sessionTopic}"?`,
-      `As the floor is currently quiet, let us call upon ${student.name} at ${seatStr}. ${firstName}, looking at practical ground realities and long-term sustainability, could you start off our debate on "${sessionTopic}"?`,
-      `Let us begin today's discussion with ${student.name} from ${seatStr}. ${firstName}, how viable is the large-scale transition in "${sessionTopic}", and where do the biggest bottlenecks lie?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Sustainable infrastructure and clean mobility are crucial for our future. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's discussion on "${sessionTopic}". The floor is now officially open. Examining technological breakthroughs, grid investments, and environmental realities, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening perspective.`,
     ],
     finance_crypto: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, financial systems must balance rapid technological innovation with regulatory trust and consumer security. Could you initiate our discussion on "${sessionTopic}"?`,
-      `As the floor is currently quiet, let us hear from ${student.name} at ${seatStr}. ${firstName}, how do you assess the risks, opportunities, and public adoption surrounding "${sessionTopic}"?`,
-      `Let us get the discussion underway. ${student.name} from ${seatStr}, what are your opening thoughts on how "${sessionTopic}" affects economic inclusion and systemic stability?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Digital financial systems must balance rapid innovation with security and stability. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's session on "${sessionTopic}". The floor is now open. Looking at economic inclusion, regulatory frameworks, and market risks, let us invite ${student.name} from ${seatStr}. ${firstName}, please initiate our discussion.`,
     ],
     workplace_career: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, workplace dynamics, productivity demands, and career expectations are undergoing profound shifts. Could you start us off with your views on "${sessionTopic}"?`,
-      `As the floor is quiet, let us call upon ${student.name} at ${seatStr}. ${firstName}, considering employee well-being, organizational culture, and professional growth in "${sessionTopic}", what is your opening perspective?`,
-      `Let us initiate today's discussion with ${student.name} from ${seatStr}. ${firstName}, how do you evaluate the trade-offs between flexibility, accountability, and career advancement in "${sessionTopic}"?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Modern workplace dynamics, flexibility, and professional growth are undergoing historic shifts. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to our session on "${sessionTopic}". The floor is now open. Evaluating employee well-being, organisational culture, and career progression, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening perspective.`,
     ],
     education_learning: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, education is the cornerstone of societal progression and skill development. Could you kick off today's discussion on "${sessionTopic}"?`,
-      `As the floor is quiet, let us call upon ${student.name} at ${seatStr}. ${firstName}, looking at modern pedagogical needs, student well-being, and curriculum relevance in "${sessionTopic}", what are your initial thoughts?`,
-      `Let us get our discussion underway. ${student.name} from ${seatStr}, how should institutions balance traditional academic rigor with emerging practical skills in "${sessionTopic}"?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Education and skill development form the bedrock of societal progression. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's discussion on "${sessionTopic}". The floor is now open. Balancing traditional academic rigor with emerging practical competencies, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your initial perspective.`,
     ],
     technology_ai: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, rapid technological advancements present both immense opportunities and complex ethical challenges. Could you initiate our discussion on "${sessionTopic}"?`,
-      `As the floor is quiet, let us hear from ${student.name} at ${seatStr}. ${firstName}, looking at scalability, human oversight, and practical deployment in "${sessionTopic}", what is your opening take?`,
-      `Let us begin our discussion with ${student.name} from ${seatStr}. ${firstName}, where do you see the primary benefits and potential pitfalls of "${sessionTopic}"?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Technological innovation brings immense potential alongside critical ethical and operational considerations. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to our discussion on "${sessionTopic}". The floor is now officially open. Examining scalability, human oversight, and practical deployment, let us invite ${student.name} from ${seatStr}. ${firstName}, could you share your opening perspective?`,
     ],
     social_governance: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, effective governance demands balancing public welfare, civic rights, and administrative execution. Could you start our discussion on "${sessionTopic}"?`,
-      `As the floor is quiet, let us call upon ${student.name} at ${seatStr}. ${firstName}, what is your primary assessment of the social impact, public trust, and institutional challenges in "${sessionTopic}"?`,
-      `Let us get the discussion underway with ${student.name} from ${seatStr}. ${firstName}, how should society approach policy reform and civic accountability in "${sessionTopic}"?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. Effective public governance demands balancing civic welfare and administrative execution. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's session on "${sessionTopic}". The floor is now open. Looking at policy implementation, institutional trust, and citizen rights, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening perspective.`,
     ],
     general: [
-      `Since no one has opened the floor yet, let us invite ${student.name} from ${seatStr}. ${firstName}, could you kick off today's discussion on "${sessionTopic}" by outlining the primary stakeholders and key challenges involved?`,
-      `As the floor is currently quiet, I would like to call upon ${student.name} at ${seatStr}. ${firstName}, what are your opening perspectives on "${sessionTopic}", particularly regarding its practical feasibility and broader societal impact?`,
-      `Let us get the discussion underway. ${student.name} (${seatStr}), would you like to set the stage and share your opening thoughts on "${sessionTopic}"?`,
+      `Welcome participants to today's group discussion on "${sessionTopic}". The discussion has now officially commenced. To begin, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening thoughts on "${sessionTopic}".`,
+      `Welcome to today's discussion on "${sessionTopic}". The floor is now officially open. To set the stage and initiate our deliberation, let us invite ${student.name} from ${seatStr}. ${firstName}, please share your opening perspective.`,
     ],
   };
 
