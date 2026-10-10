@@ -213,6 +213,7 @@ let persistentState = {
   users: [...DEFAULT_USERS],
   studentBookings: {} as Record<string, string>,
   studentTopicBookings: {} as Record<string, Record<string, string>>,
+  recordings: {} as Record<string, { recordingUrl: string; durationSeconds: number; fileSizeBytes: number; recordedAt: string }>,
   systemSettings: {
     dailyUserLimit: 100,
     maxConcurrentUsers: 50,
@@ -361,6 +362,9 @@ function loadPersistentState() {
         }
         if (data.studentTopicBookings && typeof data.studentTopicBookings === 'object') {
           persistentState.studentTopicBookings = data.studentTopicBookings;
+        }
+        if (data.recordings && typeof data.recordings === 'object') {
+          persistentState.recordings = { ...data.recordings };
         }
         if (data.systemSettings && typeof data.systemSettings === 'object') {
           persistentState.systemSettings = {
@@ -2772,10 +2776,10 @@ app.get('/api/college/slots', async (req, res) => {
           assignedFacultyDept: s.assignedFacultyDept || '',
           collegeCode: code,
           students: s.students || [],
-          recordingUrl: (s as any).recordingUrl || existing.recordingUrl || '',
-          recordingDurationSeconds: (s as any).recordingDurationSeconds || existing.recordingDurationSeconds || 0,
-          recordingFileSize: (s as any).recordingFileSize || existing.recordingFileSize || 0,
-          recordedAt: (s as any).recordedAt ? new Date((s as any).recordedAt).toISOString() : (existing.recordedAt || ''),
+          recordingUrl: persistentState.recordings?.[s.id]?.recordingUrl || (s as any).recordingUrl || existing.recordingUrl || '',
+          recordingDurationSeconds: persistentState.recordings?.[s.id]?.durationSeconds || (s as any).recordingDurationSeconds || existing.recordingDurationSeconds || 0,
+          recordingFileSize: persistentState.recordings?.[s.id]?.fileSizeBytes || (s as any).recordingFileSize || existing.recordingFileSize || 0,
+          recordedAt: (s as any).recordedAt ? new Date((s as any).recordedAt).toISOString() : (persistentState.recordings?.[s.id]?.recordedAt || existing.recordedAt || ''),
           createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
         });
       }
@@ -2811,10 +2815,10 @@ app.get('/api/college/slots', async (req, res) => {
           assignedFacultyId: s.assignedFacultyId || '',
           assignedFacultyName: s.assignedFacultyName || '',
           collegeCode: code,
-          recordingUrl: (s as any).recordingUrl || existing.recordingUrl || '',
-          recordingDurationSeconds: (s as any).recordingDuration || existing.recordingDurationSeconds || 0,
-          recordingFileSize: (s as any).recordingFileSize || existing.recordingFileSize || 0,
-          recordedAt: (s as any).recordedAt ? (s as any).recordedAt.toISOString() : (existing.recordedAt || ''),
+          recordingUrl: persistentState.recordings?.[s.id]?.recordingUrl || (s as any).recordingUrl || existing.recordingUrl || '',
+          recordingDurationSeconds: persistentState.recordings?.[s.id]?.durationSeconds || (s as any).recordingDuration || existing.recordingDurationSeconds || 0,
+          recordingFileSize: persistentState.recordings?.[s.id]?.fileSizeBytes || (s as any).recordingFileSize || existing.recordingFileSize || 0,
+          recordedAt: (s as any).recordedAt ? (s as any).recordedAt.toISOString() : (persistentState.recordings?.[s.id]?.recordedAt || existing.recordedAt || ''),
           createdAt: s.createdAt.toISOString(),
         });
       }
@@ -3666,23 +3670,31 @@ app.post(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], as
     const recordingUrl = `/uploads/recordings/${filename}`;
     const recordedAt = new Date().toISOString();
 
-    // 1. Update in-memory persistentState
-    let targetSlot: any = null;
+    // 1. Update persistentState.recordings (slot-level fast lookup)
+    if (!persistentState.recordings) {
+      persistentState.recordings = {};
+    }
+    persistentState.recordings[slotId] = {
+      recordingUrl,
+      durationSeconds,
+      fileSizeBytes,
+      recordedAt,
+    };
+
+    // 2. Update all matching slot entries across all college rosters
+    let slotFound = false;
     for (const list of Object.values(persistentState.slots)) {
-      const found = list.find((s) => s.id === slotId);
-      if (found) {
-        targetSlot = found;
-        break;
+      for (const s of list) {
+        if (s.id === slotId) {
+          s.recordingUrl = recordingUrl;
+          s.recordingDurationSeconds = durationSeconds;
+          s.recordingFileSize = fileSizeBytes;
+          s.recordedAt = recordedAt;
+          slotFound = true;
+        }
       }
     }
-
-    if (targetSlot) {
-      targetSlot.recordingUrl = recordingUrl;
-      targetSlot.recordingDurationSeconds = durationSeconds;
-      targetSlot.recordingFileSize = fileSizeBytes;
-      targetSlot.recordedAt = recordedAt;
-      savePersistentState();
-    }
+    savePersistentState();
 
     // 2. Persist to MongoDB
     if (isMongoConnected()) {
@@ -3752,7 +3764,20 @@ app.get(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], asy
   const slotId = req.params.id;
   if (!slotId) return res.status(400).json({ success: false, error: 'slotId is required' });
 
-  // 1. Check in persistentState
+  // 1. Check in persistentState.recordings map
+  if (persistentState.recordings && persistentState.recordings[slotId]) {
+    const rec = persistentState.recordings[slotId];
+    return res.json({
+      success: true,
+      slotId,
+      recordingUrl: rec.recordingUrl,
+      durationSeconds: rec.durationSeconds || 0,
+      fileSizeBytes: rec.fileSizeBytes || 0,
+      recordedAt: rec.recordedAt || null,
+    });
+  }
+
+  // 2. Check in persistentState slots
   for (const list of Object.values(persistentState.slots)) {
     const found = list.find((s) => s.id === slotId);
     if (found && found.recordingUrl) {
@@ -3767,7 +3792,7 @@ app.get(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], asy
     }
   }
 
-  // 2. Check MongoDB
+  // 3. Check MongoDB
   if (isMongoConnected()) {
     try {
       const dbSlot = await GDSessionModel.findOne({ id: slotId });
@@ -3784,7 +3809,7 @@ app.get(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], asy
     } catch {}
   }
 
-  // 3. Check Prisma
+  // 4. Check Prisma
   if (isDbConnected && prisma) {
     try {
       const pSlot = await prisma.gDSession.findUnique({ where: { id: slotId } });
@@ -3799,6 +3824,36 @@ app.get(['/api/sessions/:id/recording', '/api/college/slots/:id/recording'], asy
         });
       }
     } catch {}
+  }
+
+  // 5. Check disk for any recording file matching this slotId
+  try {
+    if (fs.existsSync(RECORDINGS_DIR)) {
+      const safeSlotId = slotId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const files = fs.readdirSync(RECORDINGS_DIR);
+      const matched = files.filter((f) => f.includes(safeSlotId) || f.includes(slotId));
+      if (matched.length > 0) {
+        // Pick the most recent matching file
+        matched.sort((a, b) => {
+          const statA = fs.statSync(path.join(RECORDINGS_DIR, a));
+          const statB = fs.statSync(path.join(RECORDINGS_DIR, b));
+          return statB.mtimeMs - statA.mtimeMs;
+        });
+        const bestFile = matched[0];
+        const bestStat = fs.statSync(path.join(RECORDINGS_DIR, bestFile));
+        const recUrl = `/uploads/recordings/${bestFile}`;
+        return res.json({
+          success: true,
+          slotId,
+          recordingUrl: recUrl,
+          durationSeconds: 0,
+          fileSizeBytes: bestStat.size,
+          recordedAt: bestStat.mtime.toISOString(),
+        });
+      }
+    }
+  } catch (diskErr: any) {
+    console.warn('[GD Recording] Disk check error:', diskErr.message);
   }
 
   return res.status(404).json({ success: false, error: 'No recording found for this session slot' });
@@ -6543,6 +6598,28 @@ app.get(['/api/college/slots/:id/reports', '/api/admin/sessions/:id/reports'], a
       assignedFacultyName: 'Faculty Evaluator',
       students: [],
     };
+  }
+
+  // Authoritatively populate recordingUrl from persistentState.recordings or disk if missing
+  if (!targetSlot.recordingUrl) {
+    if (persistentState.recordings && persistentState.recordings[sessionId]?.recordingUrl) {
+      targetSlot.recordingUrl = persistentState.recordings[sessionId].recordingUrl;
+      targetSlot.recordingDurationSeconds = persistentState.recordings[sessionId].durationSeconds || 0;
+      targetSlot.recordingFileSize = persistentState.recordings[sessionId].fileSizeBytes || 0;
+      targetSlot.recordedAt = persistentState.recordings[sessionId].recordedAt || '';
+    } else {
+      try {
+        if (fs.existsSync(RECORDINGS_DIR)) {
+          const safeSlotId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const files = fs.readdirSync(RECORDINGS_DIR);
+          const matched = files.filter((f) => f.includes(safeSlotId) || f.includes(sessionId));
+          if (matched.length > 0) {
+            matched.sort((a, b) => fs.statSync(path.join(RECORDINGS_DIR, b)).mtimeMs - fs.statSync(path.join(RECORDINGS_DIR, a)).mtimeMs);
+            targetSlot.recordingUrl = `/uploads/recordings/${matched[0]}`;
+          }
+        }
+      } catch {}
+    }
   }
 
   // 2. Fetch existing assessment reports from MongoDB & PostgreSQL

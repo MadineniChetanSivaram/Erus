@@ -485,14 +485,35 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           try {
             const slotRes = await fetch(`/api/college/slots/${encodeURIComponent(session.id)}/reports`);
             const slotData = await slotRes.json();
-            if (slotData.success && Array.isArray(slotData.reports)) {
-              persisted = slotData.reports.find(
-                (r: any) =>
-                  (!session.topic || r.topic === session.topic) &&
-                  (r.studentId === currentUser.id ||
-                  r.studentId === (currentUser as any).studentId ||
-                  (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase()))
-              );
+            if (slotData.success) {
+              if (slotData.slot?.recordingUrl) {
+                if (session) session.recordingUrl = slotData.slot.recordingUrl;
+                try { localStorage.setItem(`erus_recording_${session.id}`, slotData.slot.recordingUrl); } catch {}
+                setCurrentReport((prev) => ({ ...prev, recordingUrl: slotData.slot.recordingUrl }));
+              }
+              if (Array.isArray(slotData.reports)) {
+                persisted = slotData.reports.find(
+                  (r: any) =>
+                    (!session.topic || r.topic === session.topic) &&
+                    (r.studentId === currentUser.id ||
+                    r.studentId === (currentUser as any).studentId ||
+                    (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase()))
+                );
+              }
+            }
+          } catch {}
+        }
+
+        // Also proactively check session recording endpoint if recordingUrl is still empty
+        const targetSlotId = session?.id || currentReport?.sessionId;
+        if (targetSlotId && !session?.recordingUrl && !currentReport?.recordingUrl) {
+          try {
+            const recRes = await fetch(`/api/sessions/${encodeURIComponent(targetSlotId)}/recording`);
+            const recData = await recRes.json();
+            if (recData.success && recData.recordingUrl) {
+              if (session) session.recordingUrl = recData.recordingUrl;
+              try { localStorage.setItem(`erus_recording_${targetSlotId}`, recData.recordingUrl); } catch {}
+              setCurrentReport((prev) => ({ ...prev, recordingUrl: recData.recordingUrl }));
             }
           } catch {}
         }
@@ -1086,20 +1107,20 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
             <button
               onClick={async () => {
-                let recUrl = session?.recordingUrl || currentReport?.recordingUrl;
-                if (!recUrl) {
-                  const targetId = session?.id || currentReport?.sessionId;
-                  if (targetId) {
-                    try {
-                      const res = await fetch(`/api/sessions/${encodeURIComponent(targetId)}/recording`);
-                      const d = await res.json();
-                      if (d.success && d.recordingUrl) {
-                        recUrl = d.recordingUrl;
-                        if (session) session.recordingUrl = d.recordingUrl;
-                        setCurrentReport((prev) => ({ ...prev, recordingUrl: d.recordingUrl }));
-                      }
-                    } catch {}
-                  }
+                const targetId = session?.id || currentReport?.sessionId;
+                const cachedUrl = targetId && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${targetId}`) : null;
+                let recUrl = session?.recordingUrl || currentReport?.recordingUrl || cachedUrl;
+                if (!recUrl && targetId) {
+                  try {
+                    const res = await fetch(`/api/sessions/${encodeURIComponent(targetId)}/recording`);
+                    const d = await res.json();
+                    if (d.success && d.recordingUrl) {
+                      recUrl = d.recordingUrl;
+                      if (session) session.recordingUrl = d.recordingUrl;
+                      try { localStorage.setItem(`erus_recording_${targetId}`, d.recordingUrl); } catch {}
+                      setCurrentReport((prev) => ({ ...prev, recordingUrl: d.recordingUrl }));
+                    }
+                  } catch {}
                 }
                 setVideoError(false);
                 setShowVideoModal(true);
@@ -1638,7 +1659,12 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             </div>
 
             {(() => {
-              const activeVideoUrl = (session?.recordingUrl && session.recordingUrl.trim()) || (currentReport?.recordingUrl && currentReport.recordingUrl.trim()) || '';
+              const targetId = session?.id || currentReport?.sessionId || '';
+              const cachedUrl = targetId ? (typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${targetId}`) : null) : null;
+              const activeVideoUrl = (session?.recordingUrl && session.recordingUrl.trim()) ||
+                (currentReport?.recordingUrl && currentReport.recordingUrl.trim()) ||
+                (cachedUrl && cachedUrl.trim()) ||
+                '';
               return activeVideoUrl && !videoError ? (
                 <>
                   <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">

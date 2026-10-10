@@ -236,6 +236,12 @@ function GDAppContent() {
             const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
             const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
 
+            const cachedRecUrl = typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${s.id}`) : null;
+            const finalRecUrl = s.recordingUrl || cachedRecUrl || '';
+            if (finalRecUrl && typeof localStorage !== 'undefined') {
+              try { localStorage.setItem(`erus_recording_${s.id}`, finalRecUrl); } catch {}
+            }
+
             return {
               ...INITIAL_SESSION,
               id: s.id,
@@ -263,7 +269,7 @@ function GDAppContent() {
             assignedFacultyEmail: s.assignedFacultyEmail || '',
             assignedFacultyDept: s.assignedFacultyDept || '',
             facultyLiveNotes: s.facultyLiveNotes || [],
-            recordingUrl: s.recordingUrl || '',
+            recordingUrl: finalRecUrl,
             recordingDurationSeconds: s.recordingDurationSeconds || 0,
             recordingFileSize: s.recordingFileSize || 0,
             recordedAt: s.recordedAt || '',
@@ -349,6 +355,7 @@ function GDAppContent() {
     };
     const handleRecordingSaved = (data: any) => {
       if (data?.slotId && data?.recordingUrl) {
+        try { localStorage.setItem(`erus_recording_${data.slotId}`, data.recordingUrl); } catch {}
         setAvailableSlots((prev) =>
           prev.map((s) => (s.id === data.slotId ? { ...s, recordingUrl: data.recordingUrl, recordingDurationSeconds: data.durationSeconds } : s))
         );

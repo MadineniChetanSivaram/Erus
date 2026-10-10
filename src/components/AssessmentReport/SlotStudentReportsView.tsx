@@ -269,15 +269,21 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
             <div className="flex items-center gap-2 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 p-1 rounded-xl shadow-2xs flex-wrap">
               <button
                 onClick={async () => {
+                  const cachedUrl = slotId && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${slotId}`) : null;
+                  if (!slot?.recordingUrl && cachedUrl) {
+                    setSlot((prev: any) => ({ ...prev, recordingUrl: cachedUrl }));
+                  }
                   if (!slot?.recordingUrl && slotId) {
                     try {
                       const res = await fetch(`/api/sessions/${encodeURIComponent(slotId)}/recording`);
                       const d = await res.json();
                       if (d.success && d.recordingUrl) {
+                        try { localStorage.setItem(`erus_recording_${slotId}`, d.recordingUrl); } catch {}
                         setSlot((prev: any) => ({ ...prev, recordingUrl: d.recordingUrl }));
                       }
                     } catch {}
                   }
+                  setVideoError(false);
                   setShowVideoModal(true);
                 }}
                 className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
@@ -788,39 +794,42 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
               </button>
             </div>
 
-            {slot?.recordingUrl && !videoError ? (
-              <>
-                <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
-                  <video
-                    controls
-                    autoPlay
-                    playsInline
-                    src={slot.recordingUrl}
-                    onError={() => setVideoError(true)}
-                    className="w-full h-full object-contain"
-                  >
-                    Your browser does not support the video tag.
-                  </video>
-                </div>
+            {(() => {
+              const cachedUrl = slotId && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${slotId}`) : null;
+              const activeVideoUrl = (slot?.recordingUrl && slot.recordingUrl.trim()) || (cachedUrl && cachedUrl.trim()) || '';
+              return activeVideoUrl && !videoError ? (
+                <>
+                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+                    <video
+                      controls
+                      autoPlay
+                      playsInline
+                      src={activeVideoUrl}
+                      onError={() => setVideoError(true)}
+                      className="w-full h-full object-contain"
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
 
-                <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
-                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Recorded GD Session (Video Grid &amp; Audio)</span>
-                  </span>
-                  <a
-                    href={slot.recordingUrl}
-                    download={`GD-${slotId}-Video.webm`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Video</span>
-                  </a>
-                </div>
-              </>
-            ) : (
+                  <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Recorded GD Session (Video Grid &amp; Audio)</span>
+                    </span>
+                    <a
+                      href={activeVideoUrl}
+                      download={`GD-${slotId}-Video.webm`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Video</span>
+                    </a>
+                  </div>
+                </>
+              ) : (
               <div className="text-center py-12 px-6 max-w-md mx-auto">
                 <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
                   <Video className="w-8 h-8" />
@@ -849,7 +858,8 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
                   </div>
                 )}
               </div>
-            )}
+            );
+          })()}
           </div>
         </div>
       )}

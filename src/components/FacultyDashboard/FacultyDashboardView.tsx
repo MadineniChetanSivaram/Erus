@@ -386,17 +386,20 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-1.5 rounded-xl shadow-2xs flex-wrap">
               <button
                 onClick={async () => {
-                  let recUrl = safeSession.recordingUrl;
+                  const cachedUrl = safeSession?.id && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${safeSession.id}`) : null;
+                  let recUrl = safeSession.recordingUrl || cachedUrl;
                   if (!recUrl) {
                     try {
                       const res = await fetch(`/api/sessions/${encodeURIComponent(safeSession.id)}/recording`);
                       const d = await res.json();
                       if (d.success && d.recordingUrl) {
                         recUrl = d.recordingUrl;
+                        try { localStorage.setItem(`erus_recording_${safeSession.id}`, d.recordingUrl); } catch {}
                       }
                     } catch {}
                   }
                   setActiveVideoSlot({ ...safeSession, recordingUrl: recUrl });
+                  setVideoError(false);
                   setShowVideoModal(true);
                 }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs cursor-pointer"
@@ -1356,7 +1359,12 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </div>
 
             {(() => {
-              const activeVideoUrl = (activeVideoSlot?.recordingUrl && activeVideoSlot.recordingUrl.trim()) || (safeSession?.recordingUrl && safeSession.recordingUrl.trim()) || '';
+              const targetId = activeVideoSlot?.id || safeSession?.id || '';
+              const cachedUrl = targetId && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${targetId}`) : null;
+              const activeVideoUrl = (activeVideoSlot?.recordingUrl && activeVideoSlot.recordingUrl.trim()) ||
+                (safeSession?.recordingUrl && safeSession.recordingUrl.trim()) ||
+                (cachedUrl && cachedUrl.trim()) ||
+                '';
               return activeVideoUrl && !videoError ? (
                 <>
                   <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
