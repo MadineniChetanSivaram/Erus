@@ -56,13 +56,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
   // Filter topics by search query
   const filteredTopics = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = typeof searchQuery === 'string' ? searchQuery.trim().toLowerCase() : '';
     if (!query) return topicsMap;
     return topicsMap.filter(
       (t) =>
-        t.topic.toLowerCase().includes(query) ||
-        t.description.toLowerCase().includes(query) ||
-        t.allottedFaculty.toLowerCase().includes(query)
+        (t.topic || '').toLowerCase().includes(query) ||
+        (t.description || '').toLowerCase().includes(query) ||
+        (t.allottedFaculty || '').toLowerCase().includes(query)
     );
   }, [topicsMap, searchQuery]);
 

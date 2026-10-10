@@ -1697,10 +1697,15 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             {(() => {
               const targetId = session?.id || currentReport?.sessionId || '';
               const cachedUrl = targetId ? (typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${targetId}`) : null) : null;
-              const activeVideoUrl = (session?.recordingUrl && session.recordingUrl.trim()) ||
-                (currentReport?.recordingUrl && currentReport.recordingUrl.trim()) ||
-                (cachedUrl && cachedUrl.trim()) ||
-                '';
+              const getCleanStr = (v: any): string => {
+                if (typeof v === 'string') return v.trim();
+                if (v && typeof v.recordingUrl === 'string') return v.recordingUrl.trim();
+                if (v && typeof v.url === 'string') return v.url.trim();
+                return '';
+              };
+              const activeVideoUrl = getCleanStr(session?.recordingUrl) ||
+                getCleanStr(currentReport?.recordingUrl) ||
+                getCleanStr(cachedUrl);
               return activeVideoUrl && !videoError ? (
                 <>
                   <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">

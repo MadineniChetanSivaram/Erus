@@ -808,7 +808,13 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
 
             {(() => {
               const cachedUrl = slotId && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${slotId}`) : null;
-              const activeVideoUrl = (slot?.recordingUrl && slot.recordingUrl.trim()) || (cachedUrl && cachedUrl.trim()) || '';
+              const getCleanStr = (v: any): string => {
+                if (typeof v === 'string') return v.trim();
+                if (v && typeof v.recordingUrl === 'string') return v.recordingUrl.trim();
+                if (v && typeof v.url === 'string') return v.url.trim();
+                return '';
+              };
+              const activeVideoUrl = getCleanStr(slot?.recordingUrl) || getCleanStr(cachedUrl);
               return activeVideoUrl && !videoError ? (
                 <>
                   <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">

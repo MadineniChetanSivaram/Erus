@@ -683,7 +683,9 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
   if (Array.isArray(effectiveHistory)) {
     const hasReport = effectiveHistory.some((r) => {
       const matchId = r.sessionId === slot.id || r.id === slot.id || (r as any).slotId === slot.id;
-      const matchTopic = slot.topic && r.topic && r.topic.trim().toLowerCase() === slot.topic.trim().toLowerCase();
+      const sTopic = typeof slot.topic === 'string' ? slot.topic.trim().toLowerCase() : '';
+      const rTopic = typeof r?.topic === 'string' ? r.topic.trim().toLowerCase() : '';
+      const matchTopic = Boolean(sTopic && rTopic && sTopic === rTopic);
       return matchId || matchTopic;
     });
     if (hasReport) return true;

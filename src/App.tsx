@@ -254,12 +254,13 @@ function GDAppContent() {
           const mappedSlots: GDSession[] = filteredRaw.map((s: any, sIdx: number): GDSession => {
             const rawName = String(s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
             const cleanName = rawName || `Slot ${sIdx + 1}`;
-            const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
-            const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
+            const isTopicAllotted = typeof s.topic === 'string' && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
+            const cleanTopic = isTopicAllotted && typeof s.topic === 'string' ? s.topic.trim() : '';
 
             const cachedRecUrl = typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${s.id}`) : null;
-            const validCachedRecUrl = cachedRecUrl && !cachedRecUrl.startsWith('blob:') ? cachedRecUrl : '';
-            const finalRecUrl = (s.recordingUrl && !s.recordingUrl.startsWith('blob:')) ? s.recordingUrl : validCachedRecUrl;
+            const validCachedRecUrl = (typeof cachedRecUrl === 'string' && !cachedRecUrl.startsWith('blob:')) ? cachedRecUrl : '';
+            const recUrlStr = typeof s.recordingUrl === 'string' ? s.recordingUrl : (s.recordingUrl?.recordingUrl || s.recordingUrl?.url || '');
+            const finalRecUrl = (recUrlStr && !recUrlStr.startsWith('blob:')) ? recUrlStr : validCachedRecUrl;
             if (finalRecUrl && !finalRecUrl.startsWith('blob:') && typeof localStorage !== 'undefined') {
               try { localStorage.setItem(`erus_recording_${s.id}`, finalRecUrl); } catch {}
             }
@@ -469,8 +470,8 @@ function GDAppContent() {
         const mappedSlots: GDSession[] = activeBackendSlots.map((s: any, sIdx: number): GDSession => {
           const rawName = String(s.slotName || '').replace(/\s*\(\d{1,2}:\d{2}\s*(?:AM|PM)\s*-\s*\d{1,2}:\d{2}\s*(?:AM|PM)\)/gi, '').trim();
           const cleanName = rawName || `Slot ${sIdx + 1}`;
-          const isTopicAllotted = s.topic && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
-          const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
+          const isTopicAllotted = typeof s.topic === 'string' && s.topic.trim() !== '' && !/^slot\s+\d+/i.test(s.topic) && s.topic !== s.slotName && s.topic !== cleanName && !s.description?.includes('Waiting for College Admin to allot');
+          const cleanTopic = isTopicAllotted && typeof s.topic === 'string' ? s.topic.trim() : '';
 
           return {
             ...INITIAL_SESSION,
@@ -1051,7 +1052,11 @@ function GDAppContent() {
       let foundReport: any = uHistory.find((r) =>
         (r.sessionId === cleanSlotId || (r as any).slotId === cleanSlotId || r.id === cleanSlotId) &&
         (!targetSlot.topic || r.topic === targetSlot.topic)
-      ) || uHistory.find((r) => targetSlot.topic && r.topic && r.topic.trim().toLowerCase() === targetSlot.topic.trim().toLowerCase());
+      ) || uHistory.find((r) => {
+        const sTopic = typeof targetSlot.topic === 'string' ? targetSlot.topic.trim().toLowerCase() : '';
+        const rTopic = typeof r?.topic === 'string' ? r.topic.trim().toLowerCase() : '';
+        return Boolean(sTopic && rTopic && sTopic === rTopic);
+      });
 
       // Fetch from /api/college/slots/:id/reports
       try {

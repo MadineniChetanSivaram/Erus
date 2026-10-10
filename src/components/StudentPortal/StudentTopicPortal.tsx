@@ -27,7 +27,7 @@ import {
 import { GDSession, Student } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
 import { checkCanReviveSlot, formatSlotDate } from '../../utils/studentBooking';
-import { isStudentAssignedToSlot, isSlotAssignedToFaculty } from '../../utils/authApi';
+import { isStudentAssignedToSlot, isSlotAssignedToFaculty, hasStudentParticipatedInSlot } from '../../utils/authApi';
 
 interface StudentTopicPortalProps {
   availableSlots: GDSession[];
@@ -146,8 +146,8 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
   // Filter topics by search query
   const filteredTopics = useMemo(() => {
-    if (!searchQuery.trim()) return topicsData;
-    const q = searchQuery.toLowerCase();
+    const q = typeof searchQuery === 'string' ? searchQuery.trim().toLowerCase() : '';
+    if (!q) return topicsData;
     return topicsData.filter(
       (t) =>
         (t.topic || '').toLowerCase().includes(q) ||
@@ -228,6 +228,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
           <div className="grid grid-cols-1 gap-3.5">
             {allBookedSlots.map((bSlot) => {
+              const isBCompleted = bSlot.status === 'completed' || hasStudentParticipatedInSlot(bSlot, currentUser);
               const canReviveInfo = checkCanReviveSlot(bSlot);
               const isLockedDueToTime = !canReviveInfo.canRevive;
 
@@ -244,13 +245,13 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs uppercase font-extrabold tracking-wider text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-700">
-                            Confirmed Topic Slot
+                            {isBCompleted ? 'Completed Discussion Slot' : 'Confirmed Topic Slot'}
                           </span>
                           <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
                             {bSlot.slotName}
                           </span>
                         </div>
-                        <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:white">
                           {bSlot.topic}
                         </h3>
                         <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300 flex-wrap pt-0.5">
@@ -274,7 +275,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
                     {/* Action Buttons: Enter GD Room & Revive/Release Slot */}
                     <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-                      {bSlot.status === 'completed' ? (
+                      {isBCompleted ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -302,27 +303,29 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                         </button>
                       )}
 
-                      {/* Revive Slot Button with 1-Hour Guard */}
-                      {isLockedDueToTime ? (
-                        <button
-                          type="button"
-                          disabled
-                          title="Slot starts within 1 hour. Cancellation or slot changes are disabled as per institutional evaluation policy."
-                          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-not-allowed opacity-75"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Revive Locked (&lt;1h to Start)</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setReviveModalSlot(bSlot)}
-                          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
-                          title="Revive your booking to release this seat and choose another discussion slot on this topic (available up to 1 hour before session starts)"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 group-hover:-rotate-45 transition-transform" />
-                          <span>Revive / Change Slot</span>
-                        </button>
+                      {/* Revive Slot Button with 1-Hour Guard (only if not completed) */}
+                      {!isBCompleted && (
+                        isLockedDueToTime ? (
+                          <button
+                            type="button"
+                            disabled
+                            title="Slot starts within 1 hour. Cancellation or slot changes are disabled as per institutional evaluation policy."
+                            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-not-allowed opacity-75"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Revive Locked (&lt;1h to Start)</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setReviveModalSlot(bSlot)}
+                            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all cursor-pointer group"
+                            title="Revive your booking to release this seat and choose another discussion slot on this topic (available up to 1 hour before session starts)"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 group-hover:-rotate-45 transition-transform" />
+                            <span>Revive / Change Slot</span>
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
@@ -505,6 +508,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                   const seatsLeft = Math.max(0, maxCap - enrolled);
                   const occupancyPercent = Math.min(100, Math.round((enrolled / maxCap) * 100));
 
+                  const isSlotCompleted = slot.status === 'completed' || hasStudentParticipatedInSlot(slot, currentUser);
                   const canReviveInfo = checkCanReviveSlot(slot);
                   const isReviveLockedByTime = !canReviveInfo.canRevive;
 
@@ -539,7 +543,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
                             </span>
                           </span>
 
-                          {slot.status === 'completed' ? (
+                          {isSlotCompleted ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 font-bold text-[10px] border border-purple-200 dark:border-purple-800">
                               <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                               <span>Completed</span>
@@ -632,7 +636,7 @@ export const StudentTopicPortal: React.FC<StudentTopicPortalProps> = ({
 
                       {/* Bottom Actions */}
                       <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
-                        {slot.status === 'completed' ? (
+                        {isSlotCompleted ? (
                           <div className="w-full flex items-center gap-2 flex-wrap">
                             <button
                               type="button"
