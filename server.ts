@@ -6187,6 +6187,7 @@ app.get('/api/student/reports', async (req, res) => {
   const studentId = String(req.query.studentId || '').trim();
   const studentName = String(req.query.studentName || '').trim();
   const sessionId = String(req.query.sessionId || '').trim();
+  const topic = String(req.query.topic || '').trim();
   if (!studentId && !studentName) return res.status(400).json({ success: false, error: 'studentId or studentName is required' });
 
   // Query MongoDB Sub-Table: assessment_reports
@@ -6206,6 +6207,7 @@ app.get('/api/student/reports', async (req, res) => {
       }
       const filter: any = orConditions.length > 1 ? { $or: orConditions } : (orConditions[0] || {});
       if (sessionId) filter.sessionId = sessionId;
+      if (topic) filter.topic = new RegExp(`^${topic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
       const mongoReports = await AssessmentReportModel.find(filter).sort({ createdAt: -1 });
       if (mongoReports.length > 0) {

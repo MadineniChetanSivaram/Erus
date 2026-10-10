@@ -310,19 +310,29 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>(effectiveInitialStudentId);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  // Helper: check if a report matches the current session ID and topic
+  const isMatchingReport = (rep?: StudentAssessmentReport | null): boolean => {
+    if (!rep) return false;
+    const sameSession = session?.id ? rep.sessionId === session.id : true;
+    const sameTopic = session?.topic ? rep.topic === session.topic : true;
+    return sameSession && sameTopic;
+  };
 
   // Initialize report personalized for the active student if they are a student
   const [currentReport, setCurrentReport] = useState<StudentAssessmentReport>(() => {
     if (isStudent) {
       if (
         initialReport &&
+        isMatchingReport(initialReport) &&
         (initialReport.studentId === userStudent.id || initialReport.studentName === currentUser?.name)
       ) {
         return normalizeReport(initialReport);
       }
-      return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
+      return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, undefined, session?.id));
     }
-    return normalizeReport(initialReport || SAMPLE_REPORT_RAHUL);
+    return normalizeReport(isMatchingReport(initialReport) ? initialReport : SAMPLE_REPORT_RAHUL);
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -356,7 +366,7 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
     } catch (e) {}
   }, []);
 
-  // After completion, load the persisted report instead of treating generated mock data as authoritative.
+  // After completion, load the persisted report strictly matching active session and topic
   useEffect(() => {
     if (!isStudent || session.status !== 'completed' || !currentUser?.id) return;
     let cancelled = false;
@@ -364,9 +374,13 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       try {
         const studentQuery = encodeURIComponent(currentUser.id);
         const nameQuery = encodeURIComponent(currentUser.name || '');
-        const res = await fetch(`/api/student/reports?studentId=${studentQuery}&studentName=${nameQuery}&sessionId=${encodeURIComponent(session?.id || '')}`);
+        const sessionQuery = encodeURIComponent(session?.id || '');
+        const topicQuery = encodeURIComponent(session?.topic || '');
+        const res = await fetch(`/api/student/reports?studentId=${studentQuery}&studentName=${nameQuery}&sessionId=${sessionQuery}&topic=${topicQuery}`);
         const data = await res.json();
-        let persisted = Array.isArray(data.reports) && data.reports.length > 0 ? data.reports[0] : null;
+        let persisted = Array.isArray(data.reports) && data.reports.length > 0
+          ? data.reports.find((r: any) => (!session.topic || r.topic === session.topic) && (!session.id || r.sessionId === session.id))
+          : null;
 
         if (!persisted && session?.id) {
           try {
@@ -375,9 +389,10 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
             if (slotData.success && Array.isArray(slotData.reports)) {
               persisted = slotData.reports.find(
                 (r: any) =>
-                  r.studentId === currentUser.id ||
+                  (!session.topic || r.topic === session.topic) &&
+                  (r.studentId === currentUser.id ||
                   r.studentId === (currentUser as any).studentId ||
-                  (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase())
+                  (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase()))
               );
             }
           } catch {}
@@ -391,20 +406,24 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [isStudent, currentUser?.id, currentUser?.name, session?.id, session?.status]);
+  }, [isStudent, currentUser?.id, currentUser?.name, session?.id, session?.topic, session?.status]);
 
-  // Ensure report stays synchronized with active session and student
+  // Ensure report stays synchronized with active session and student without cross-topic leakage
   useEffect(() => {
     if (isStudent && userStudent) {
       setSelectedStudentId(userStudent.id);
-      if (initialReport && (initialReport.sessionId === session?.id || initialReport.studentName?.toLowerCase() === (currentUser?.name || userStudent.name)?.toLowerCase())) {
+      if (
+        initialReport &&
+        isMatchingReport(initialReport) &&
+        (initialReport.studentId === userStudent.id || initialReport.studentName?.toLowerCase() === (currentUser?.name || userStudent.name)?.toLowerCase())
+      ) {
         setCurrentReport(normalizeReport(initialReport));
       } else {
         setCurrentReport((prev) => {
-          if (prev && prev.sessionId === session?.id && (prev.speakingTurns > 0 || prev.speakingTimeSeconds > 0)) {
+          if (prev && isMatchingReport(prev) && (prev.speakingTurns > 0 || prev.speakingTimeSeconds > 0)) {
             return prev;
           }
-          return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, initialReport));
+          return normalizeReport(generateStudentReport(userStudent, session?.topic || 'Group Discussion', session?.durationMinutes || 15, undefined, session?.id));
         });
       }
     } else if (targetStudentId && targetStudentId !== selectedStudentId) {
@@ -968,18 +987,22 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
           <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
             <button
               onClick={async () => {
-                if (!session?.recordingUrl && !currentReport?.recordingUrl) {
+                let recUrl = session?.recordingUrl || currentReport?.recordingUrl;
+                if (!recUrl) {
                   const targetId = session?.id || currentReport?.sessionId;
                   if (targetId) {
                     try {
                       const res = await fetch(`/api/sessions/${encodeURIComponent(targetId)}/recording`);
                       const d = await res.json();
-                      if (d.success && d.recordingUrl && currentReport) {
-                        currentReport.recordingUrl = d.recordingUrl;
+                      if (d.success && d.recordingUrl) {
+                        recUrl = d.recordingUrl;
+                        if (session) session.recordingUrl = d.recordingUrl;
+                        setCurrentReport((prev) => ({ ...prev, recordingUrl: d.recordingUrl }));
                       }
                     } catch {}
                   }
                 }
+                setVideoError(false);
                 setShowVideoModal(true);
               }}
               className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
@@ -1515,47 +1538,71 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
               </button>
             </div>
 
-            {session?.recordingUrl || currentReport?.recordingUrl ? (
-              <>
-                <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
-                  <video
-                    controls
-                    autoPlay
-                    src={session?.recordingUrl || currentReport?.recordingUrl}
-                    className="w-full h-full object-contain"
-                  >
-                    Your browser does not support the video tag.
-                  </video>
-                </div>
+            {(() => {
+              const activeVideoUrl = (session?.recordingUrl && session.recordingUrl.trim()) || (currentReport?.recordingUrl && currentReport.recordingUrl.trim()) || '';
+              return activeVideoUrl && !videoError ? (
+                <>
+                  <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+                    <video
+                      controls
+                      autoPlay
+                      playsInline
+                      src={activeVideoUrl}
+                      onError={() => setVideoError(true)}
+                      className="w-full h-full object-contain"
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
 
-                <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
-                  <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Recorded Discussion Session</span>
-                  </span>
-                  <a
-                    href={session?.recordingUrl || currentReport?.recordingUrl}
-                    download={`GD-Video-${session?.id || 'session'}.webm`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Video</span>
-                  </a>
+                  <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Recorded Discussion Session</span>
+                    </span>
+                    <a
+                      href={activeVideoUrl}
+                      download={`GD-Video-${session?.id || 'session'}.webm`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Video</span>
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-12 px-6 max-w-md mx-auto">
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
+                    <Video className="w-8 h-8" />
+                  </div>
+                  <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {videoError
+                      ? 'The recorded video stream for this session could not be loaded or is in an unsupported codec format. You can download the raw recording file directly or check back shortly.'
+                      : 'This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.'}
+                  </p>
+                  {activeVideoUrl && videoError && (
+                    <div className="mt-4 flex justify-center gap-2">
+                      <button
+                        onClick={() => setVideoError(false)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+                      >
+                        Retry Playback
+                      </button>
+                      <a
+                        href={activeVideoUrl}
+                        download={`GD-Video-${session?.id || 'session'}.webm`}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                      >
+                        Download Recording
+                      </a>
+                    </div>
+                  )}
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-12 px-6 max-w-md mx-auto">
-                <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mx-auto mb-4">
-                  <Video className="w-8 h-8" />
-                </div>
-                <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.
-                </p>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

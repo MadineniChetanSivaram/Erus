@@ -307,8 +307,7 @@ export function useGDRecorder({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Run at 20 FPS (every 50ms)
-    videoRenderIntervalRef.current = setInterval(() => {
+    const renderFrame = () => {
       const width = canvas.width;
       const height = canvas.height;
       const tiles = participantTilesRef.current.filter((t) => !t.id.includes('empty'));
@@ -513,7 +512,13 @@ export function useGDRecorder({
         }
         ctx.restore();
       });
-    }, 50); // 20 FPS
+    };
+
+    // Render the initial frame synchronously so the canvas has valid content immediately
+    renderFrame();
+
+    // Continue running at 20 FPS (every 50ms)
+    videoRenderIntervalRef.current = setInterval(renderFrame, 50);
   }, []);
 
   // Start recording
@@ -724,6 +729,9 @@ export function useGDRecorder({
 
       rec.addEventListener('stop', handleStop);
       try {
+        if (rec.state === 'recording') {
+          rec.requestData();
+        }
         rec.stop();
       } catch {
         resolve(null);

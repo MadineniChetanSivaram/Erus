@@ -51,6 +51,7 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
   const [gradeFilter, setGradeFilter] = useState<string>('ALL');
   const [selectedReportForModal, setSelectedReportForModal] = useState<any | null>(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoError, setVideoError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -787,13 +788,15 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
               </button>
             </div>
 
-            {slot?.recordingUrl ? (
+            {slot?.recordingUrl && !videoError ? (
               <>
                 <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
                   <video
                     controls
                     autoPlay
+                    playsInline
                     src={slot.recordingUrl}
+                    onError={() => setVideoError(true)}
                     className="w-full h-full object-contain"
                   >
                     Your browser does not support the video tag.
@@ -824,8 +827,27 @@ export const SlotStudentReportsView: React.FC<SlotStudentReportsViewProps> = ({
                 </div>
                 <h4 className="text-white font-bold text-base mb-1.5">No Screen Video Captured For This Slot</h4>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.
+                  {videoError
+                    ? 'The recorded video stream for this session could not be played or is in an unsupported format. You can download the raw recording file directly.'
+                    : 'This discussion session was concluded without active participant webcam feeds recording. Live sessions conducted with student cameras and microphones automatically record a synchronized 720p HD composite video grid with audio channels.'}
                 </p>
+                {slot?.recordingUrl && videoError && (
+                  <div className="mt-4 flex justify-center gap-2">
+                    <button
+                      onClick={() => setVideoError(false)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+                    >
+                      Retry Playback
+                    </button>
+                    <a
+                      href={slot.recordingUrl}
+                      download={`GD-${slotId}-Video.webm`}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                    >
+                      Download Recording
+                    </a>
+                  </div>
+                )}
               </div>
             )}
           </div>

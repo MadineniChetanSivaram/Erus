@@ -324,14 +324,24 @@ export function generateStudentReport(
   student: Student,
   topic: string,
   durationMinutes: number = 20,
-  baseReport?: StudentAssessmentReport
+  baseReport?: StudentAssessmentReport,
+  sessionId?: string
 ): StudentAssessmentReport {
-  const base = baseReport || SAMPLE_REPORT_RAHUL;
+  // Only inherit baseReport if it belongs to the exact same session and topic
+  const isSameSession = baseReport && (
+    (sessionId && baseReport.sessionId === sessionId) ||
+    (student.bookedSlotId && baseReport.sessionId === student.bookedSlotId)
+  );
+  const isSameTopic = baseReport && baseReport.topic === topic;
+  const base = (isSameSession && isSameTopic) ? baseReport : SAMPLE_REPORT_RAHUL;
+
   const turns = typeof student.speakingTurns === 'number' ? student.speakingTurns : 0;
   const durationSec = typeof student.speakingDurationSeconds === 'number' ? student.speakingDurationSeconds : 0;
   const words = Math.max(0, Math.round(durationSec * 2.2));
-  const wpm = durationSec > 0 ? (baseReport?.wpm || (durationSec >= 60 ? 135 : 110)) : 0;
-  const fillerCount = baseReport?.fillerWordsCount ?? (durationSec > 90 ? 3 : durationSec > 20 ? 1 : 0);
+  const wpm = durationSec > 0 ? ((isSameSession && baseReport?.wpm) || (durationSec >= 60 ? 135 : 110)) : 0;
+  const fillerCount = (isSameSession && baseReport?.fillerWordsCount !== undefined)
+    ? baseReport.fillerWordsCount
+    : (durationSec > 90 ? 3 : durationSec > 20 ? 1 : 0);
 
   const { overallScore } = calculateStudentOverallScore({
     seconds: durationSec,
@@ -347,7 +357,7 @@ export function generateStudentReport(
 
   let aiSummary = '';
   if (durationSec <= 0) {
-    aiSummary = `${student.name} did not log speaking time during this session. Active verbal participation is required to earn assessment points.`;
+    aiSummary = `${student.name} did not log speaking time during this session on "${topic}". Active verbal participation is required to earn assessment points.`;
   } else if (durationSec < 60) {
     aiSummary = `${student.name} spoke briefly (${Math.floor(durationSec / 60)}m ${durationSec % 60}s) on "${topic}". Demonstrated initial perspective but needs more sustained participation across multiple turns.`;
   } else if (durationSec < 120) {
@@ -374,10 +384,20 @@ export function generateStudentReport(
     'Pace contributions evenly to maximize both speaking duration and collaborative turn-taking.'
   ];
 
+  if (/ai|artificial intelligence|tech|automation|cyber|digital|software/i.test(topic)) {
+    aiRecommendations[0] = `For "${topic}", substantiate arguments with technological trade-offs, ethical AI boundaries, and practical industry adoption constraints.`;
+  } else if (/climate|environment|green|energy|sustainab|electric|ev/i.test(topic)) {
+    aiRecommendations[0] = `For "${topic}", reference quantifiable sustainability metrics, environmental policy precedents, and infrastructure transition feasibility.`;
+  } else if (/education|college|student|exam|academic|learn/i.test(topic)) {
+    aiRecommendations[0] = `For "${topic}", address student-centric pedagogical outcomes, equitable access across institutions, and holistic curriculum evaluation.`;
+  } else if (/work|remote|hybrid|office|job|employ/i.test(topic)) {
+    aiRecommendations[0] = `For "${topic}", weigh workforce productivity indicators against workplace culture and team collaboration dynamics.`;
+  }
+
   return {
     ...base,
-    id: `rep-${student.id}-${Date.now()}`,
-    sessionId: base.sessionId || 'session-001',
+    id: (isSameSession && isSameTopic && baseReport?.id) ? baseReport.id : `rep-${student.id}-${Date.now()}`,
+    sessionId: sessionId || student.bookedSlotId || (isSameSession ? base.sessionId : undefined) || 'session-001',
     studentId: student.id,
     studentName: student.name,
     college: student.college || 'Engineering Institute',
@@ -392,11 +412,11 @@ export function generateStudentReport(
     wpm,
     wpmStatus: wpm === 0 ? 'No Speech' : wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal',
     fillerWordsCount: fillerCount,
-    fillerWordsBreakdown: baseReport?.fillerWordsBreakdown || [
+    fillerWordsBreakdown: (isSameSession && baseReport?.fillerWordsBreakdown) || [
       { word: 'like', count: Math.min(1, fillerCount) },
       { word: 'basically', count: Math.max(0, fillerCount - 1) },
     ],
-    facultyEndorsement: baseReport?.facultyEndorsement || {
+    facultyEndorsement: (isSameSession && baseReport?.facultyEndorsement) || {
       endorsed: false,
     },
     skills: {
@@ -404,7 +424,7 @@ export function generateStudentReport(
       fluency: { ...base.skills.fluency, score: rubricScores.fluency, feedback: durationSec > 0 ? (rubricScores.fluency > 12 ? 'Maintained smooth conversation flow.' : 'Pacing showed hesitation or brief duration.') : 'No speech recorded.' },
       clarity: { ...base.skills.clarity, score: rubricScores.clarity, feedback: durationSec > 0 ? (rubricScores.clarity > 9 ? 'Expressed perspective clearly.' : 'Points were brief; expand ideas further.') : 'No speech recorded.' },
       confidence: { ...base.skills.confidence, score: rubricScores.confidence, feedback: durationSec > 0 ? (rubricScores.confidence > 9 ? 'Spoke with assertiveness and poise.' : 'Build confidence by speaking up earlier.') : 'No speech recorded.' },
-      contentQuality: { ...base.skills.contentQuality, score: rubricScores.contentQuality, feedback: durationSec > 0 ? (rubricScores.contentQuality > 9 ? 'Relevant points aligned to group topic.' : 'Content was minimal; add supporting reasons.') : 'No speech recorded.' },
+      contentQuality: { ...base.skills.contentQuality, score: rubricScores.contentQuality, feedback: durationSec > 0 ? (rubricScores.contentQuality > 9 ? `Relevant arguments aligned to "${topic}".` : `Points were brief on "${topic}"; add supporting reasons.`) : 'No speech recorded.' },
       collaboration: { ...base.skills.collaboration, score: rubricScores.collaboration, feedback: durationSec > 0 ? (rubricScores.collaboration > 6 ? 'Demonstrated team behavior and listened to peers.' : 'Engage with peer arguments directly.') : 'No speech recorded.' },
       leadership: { ...base.skills.leadership, score: rubricScores.leadership, feedback: durationSec > 0 ? (rubricScores.leadership > 3 ? 'Helped steer constructive discussion.' : 'Take initiative in summarizing points.') : 'No speech recorded.' },
     },

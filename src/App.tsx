@@ -467,9 +467,10 @@ function GDAppContent() {
             isUser: true,
             bookedSlotId: activeSlotId,
           };
-          const initialStudentReport = generateStudentReport(studentUserObj, targetBookedSlot.topic, targetBookedSlot.durationMinutes);
+          const initialStudentReport = generateStudentReport(studentUserObj, targetBookedSlot.topic, targetBookedSlot.durationMinutes, undefined, activeSlotId);
+          initialStudentReport.sessionId = activeSlotId;
+          initialStudentReport.topic = targetBookedSlot.topic;
           setActiveReport(initialStudentReport);
-          addReportToStudentHistory(initialStudentReport);
 
           setAvailableSlots((prevSlots) =>
             prevSlots.map((slot) => {
@@ -907,9 +908,9 @@ function GDAppContent() {
         ];
       }
 
-      // Check student history first
+      // Check student history first strictly matching both slotId and topic
       const uHistory = getStudentReportHistory(currentUser.studentId || currentUser.id || currentUser.name || 'student');
-      let foundReport: any = uHistory.find((r) => r.sessionId === slotId);
+      let foundReport: any = uHistory.find((r) => r.sessionId === slotId && (!targetSlot.topic || r.topic === targetSlot.topic));
 
       // Fetch from /api/college/slots/:id/reports
       try {
@@ -918,9 +919,10 @@ function GDAppContent() {
         if (data.success && Array.isArray(data.reports)) {
           const matched = data.reports.find(
             (r: any) =>
-              r.studentId === currentUser.id ||
+              (!targetSlot.topic || r.topic === targetSlot.topic) &&
+              (r.studentId === currentUser.id ||
               r.studentId === (currentUser as any).studentId ||
-              (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase())
+              (r.studentName && r.studentName.toLowerCase() === currentUser.name?.toLowerCase()))
           );
           if (matched) {
             foundReport = matched;
@@ -934,11 +936,14 @@ function GDAppContent() {
       if (!foundReport) {
         try {
           const sRes = await fetch(
-            `/api/student/reports?studentId=${encodeURIComponent(currentUser.id)}&studentName=${encodeURIComponent(currentUser.name || '')}&sessionId=${encodeURIComponent(slotId)}`
+            `/api/student/reports?studentId=${encodeURIComponent(currentUser.id)}&studentName=${encodeURIComponent(currentUser.name || '')}&sessionId=${encodeURIComponent(slotId)}&topic=${encodeURIComponent(targetSlot.topic || '')}`
           );
           const sData = await sRes.json();
           if (sData.success && Array.isArray(sData.reports) && sData.reports.length > 0) {
-            foundReport = sData.reports[0];
+            const matched = sData.reports.find((r: any) => !targetSlot.topic || r.topic === targetSlot.topic);
+            if (matched) {
+              foundReport = matched;
+            }
           }
         } catch (err) {
           console.warn('Failed to fetch student reports directly:', err);
@@ -960,7 +965,9 @@ function GDAppContent() {
         prev.map((s) => (s.id === slotId ? { ...s, status: 'completed', students: updatedTargetStudents } : s))
       );
 
-      const studentReport = foundReport || generateStudentReport(userStudent, targetSlot.topic, targetSlot.durationMinutes);
+      const studentReport = foundReport || generateStudentReport(userStudent, targetSlot.topic, targetSlot.durationMinutes, undefined, slotId);
+      studentReport.sessionId = slotId;
+      studentReport.topic = targetSlot.topic;
       setActiveReport(studentReport);
       addReportToStudentHistory(studentReport);
       setViewingStudentId(userStudent.id);
@@ -990,7 +997,9 @@ function GDAppContent() {
       } else if (facultyStudents.length > 0) {
         const firstStudent = facultyStudents[0];
         setViewingStudentId(firstStudent.id);
-        const studentReport = generateStudentReport(firstStudent, targetSlot.topic, targetSlot.durationMinutes);
+        const studentReport = generateStudentReport(firstStudent, targetSlot.topic, targetSlot.durationMinutes, undefined, slotId);
+        studentReport.sessionId = slotId;
+        studentReport.topic = targetSlot.topic;
         setActiveReport(studentReport);
       }
       setCurrentTab('report');
@@ -1363,9 +1372,10 @@ function GDAppContent() {
     setSession(updatedSlot);
 
     const studentUserObj = updatedTargetStudents.find((s) => s.isUser) || updatedTargetStudents[0];
-    const initialStudentReport = generateStudentReport(studentUserObj, targetSlot.topic, targetSlot.durationMinutes);
+    const initialStudentReport = generateStudentReport(studentUserObj, targetSlot.topic, targetSlot.durationMinutes, undefined, slotId);
+    initialStudentReport.sessionId = slotId;
+    initialStudentReport.topic = targetSlot.topic;
     setActiveReport(initialStudentReport);
-    addReportToStudentHistory(initialStudentReport);
   };
 
   // Student revives (releases/cancels) their booked slot before 1 hour of slot start
