@@ -97,20 +97,37 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
   }, [availableSlots, currentUser, facultyId]);
 
   useEffect(() => {
-    if (!facultyId || !safeSession?.id) return;
+    if (!safeSession?.id) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(safeSession.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
-        const data = await res.json();
-        if (!cancelled) setPersistedReports(Array.isArray(data.reports) ? data.reports : []);
+        let loadedReports: any[] = [];
+        if (facultyId) {
+          const res = await fetch('/api/faculty/sessions/' + encodeURIComponent(safeSession.id) + '/reports?facultyId=' + encodeURIComponent(facultyId));
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.reports) && data.reports.length > 0) {
+              loadedReports = data.reports;
+            }
+          }
+        }
+        if (loadedReports.length === 0) {
+          const slotRes = await fetch('/api/college/slots/' + encodeURIComponent(safeSession.id) + '/reports');
+          if (slotRes.ok) {
+            const slotData = await slotRes.json();
+            if (Array.isArray(slotData.reports)) {
+              loadedReports = slotData.reports;
+            }
+          }
+        }
+        if (!cancelled) setPersistedReports(loadedReports);
       } catch (e) {
         if (!cancelled) setPersistedReports([]);
         console.warn('[Faculty Reports] Could not load persisted reports:', e);
       }
     })();
     return () => { cancelled = true; };
-  }, [facultyId, session?.id, session?.status]);
+  }, [facultyId, safeSession?.id, session?.status]);
 
   const reportByStudent = useMemo(() => {
     const map = new Map<string, any>();
@@ -193,9 +210,9 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
     const speakingSecs = s.speakingDurationSeconds || 0;
     const turns = s.speakingTurns || 0;
     
-    let calculatedScore = typeof persisted?.overallScore === 'number'
+    let calculatedScore = typeof persisted?.overallScore === 'number' && persisted.overallScore > 0
       ? persisted.overallScore
-      : (turns > 0 || speakingSecs > 0 ? calculateStudentOverallScore({ seconds: speakingSecs, turns }).overallScore : 0);
+      : (turns > 0 || speakingSecs > 0 ? calculateStudentOverallScore({ seconds: speakingSecs, turns }).overallScore : (persisted?.overallScore || 0));
     
     let calculatedGrade = calculatedScore > 0
       ? (calculatedScore >= 90 ? 'Excellent' : calculatedScore >= 75 ? 'Very Good' : calculatedScore >= 60 ? 'Good' : calculatedScore >= 40 ? 'Average' : 'Needs Improvement')

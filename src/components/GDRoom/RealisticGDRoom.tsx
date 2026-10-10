@@ -417,16 +417,41 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [session.status, currentUser?.role, onFinishSession]);
 
-  // Synchronize silenceTimerSeconds from RTC hook to session state
-  useEffect(() => {
-    setSession((prev) => {
-      if (prev.silenceTimerSeconds === rtcSilenceTimer) return prev;
-      return { ...prev, silenceTimerSeconds: rtcSilenceTimer };
-    });
-  }, [rtcSilenceTimer]);
+  // Continuous local silence stopwatch fallback to ensure 15s triggers even during socket network lag
+  const [localSilenceSeconds, setLocalSilenceSeconds] = useState(0);
 
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
+
+  useEffect(() => {
+    if (!isSessionActive) {
+      setLocalSilenceSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      const isAnyActive =
+        session.isFacilitatorSpeaking ||
+        rtcIsSpeakingLive ||
+        (isListeningMicRef.current && (audioLevel > 8 || !!liveSpeechTranscript)) ||
+        session.students.some((s) => s.isSpeaking);
+
+      if (isAnyActive) {
+        setLocalSilenceSeconds(0);
+      } else {
+        setLocalSilenceSeconds((prev) => prev + 1);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isSessionActive, session.isFacilitatorSpeaking, rtcIsSpeakingLive, audioLevel, liveSpeechTranscript, session.students]);
+
+  // Synchronize silenceTimerSeconds from RTC hook and local stopwatch to session state
+  useEffect(() => {
+    setSession((prev) => {
+      const merged = Math.max(rtcSilenceTimer, localSilenceSeconds);
+      if (prev.silenceTimerSeconds === merged) return prev;
+      return { ...prev, silenceTimerSeconds: merged };
+    });
+  }, [rtcSilenceTimer, localSilenceSeconds]);
 
   // Continuous real-time speaking time tracker: increments participant speaking seconds live while speaking
   useEffect(() => {
@@ -867,6 +892,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const committedResultIndexRef = useRef<number>(-1);
   const studentTurnsSinceIntervention = useRef<number>(0);
   const aiVoicePausedMicRef = useRef(false);
   const aiVoiceResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -959,16 +985,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Broadcast directly to room transcript & peers
     if (handleSendUserStatementRef.current) {
       handleSendUserStatementRef.current(textToCommit);
-    }
-
-    // Refresh recognition instance so Chromium flushes its internal speech buffer
-    // and continues transcribing subsequent points without dropping words
-    if (isListeningMicRef.current && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (err) {
-        console.warn('[Speech Recognition] Reset on commit notice:', err);
-      }
     }
   };
 
@@ -1101,6 +1117,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognition.lang = (navLang && navLang.toLowerCase().includes('in')) ? 'en-IN' : (navLang.startsWith('en') ? navLang : 'en-IN');
         recognitionRef.current = recognition;
 
+        committedResultIndexRef.current = -1;
+
         recognition.onstart = () => {
           isRecognitionRunningRef.current = true;
         };
@@ -1117,10 +1135,12 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           let interimTranscript = '';
           let finalTranscript = '';
 
-          for (let i = event.resultIndex; i < event.results.length; i++) {
+          const startIndex = Math.max(event.resultIndex, committedResultIndexRef.current + 1);
+          for (let i = startIndex; i < event.results.length; i++) {
             const piece = event.results[i][0]?.transcript || '';
             if (event.results[i].isFinal) {
               finalTranscript += piece;
+              committedResultIndexRef.current = i;
             } else {
               interimTranscript += piece;
             }
@@ -1884,13 +1904,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
 
     // 2. Mid-discussion silence (if floor is silent for 15 seconds, request intervention or probe)
-    const currentSilence = Math.max(rtcSilenceTimer, session.silenceTimerSeconds);
+    const currentSilence = Math.max(rtcSilenceTimer, session.silenceTimerSeconds, localSilenceSeconds);
     if (currentSilence >= 15 && !session.isFacilitatorSpeaking && !rtcIsSpeakingLive && !isTransitioningTurnRef.current) {
       if (Date.now() - lastFacilitatorInterventionTimeRef.current >= 6000) {
         lastFacilitatorInterventionTimeRef.current = Date.now();
+        setLocalSilenceSeconds(0);
         if (isSocketConnected && rtcRequestAiIntervention) {
           console.log('[Silence Watchdog] Floor silent for 15s; requesting AI facilitator intervention.');
           rtcRequestAiIntervention();
+          // Fallback probe in case server response is delayed
+          setTimeout(() => {
+            if (!session.isFacilitatorSpeaking && !rtcIsSpeakingLive) {
+              console.log('[Silence Watchdog] Server response delay; falling back to local targeted probe.');
+              handleFacilitatorTargetedProbe();
+            }
+          }, 2500);
         } else {
           console.log('[Silence Watchdog] Floor silent for 15s; local targeted probe.');
           handleFacilitatorTargetedProbe();
@@ -1903,6 +1931,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     currentLayout,
     session.silenceTimerSeconds,
     rtcSilenceTimer,
+    localSilenceSeconds,
     elapsedSeconds,
     session.currentSpeakerId,
     session.isFacilitatorSpeaking,

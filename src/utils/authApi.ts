@@ -765,7 +765,12 @@ export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<an
   const code = raw === 'BMSIT2002' || raw === 'BMSI' || raw === 'BMS' || raw.includes('BMS') ? 'BMSIT' : raw;
   let backendSlots: any[] | null = null;
   try {
-    const res = await fetch(`/api/college/slots?collegeCode=${encodeURIComponent(code)}`);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 3500) : null;
+    const res = await fetch(`/api/college/slots?collegeCode=${encodeURIComponent(code)}`, {
+      signal: controller?.signal,
+    });
+    if (timeoutId) clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
       if (data.success && Array.isArray(data.slots)) {
@@ -1337,10 +1342,13 @@ export async function fetchFacultyAssignedSlots(
     if (facultyEmail) params.set('facultyEmail', facultyEmail);
     if (facultyName) params.set('facultyName', facultyName);
 
-    const res = await fetch(`/api/faculty/sessions?${params.toString()}`);
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 3500) : null;
+    const res = await fetch(`/api/faculty/sessions?${params.toString()}`, { signal: controller?.signal });
+    if (timeoutId) clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
-      if (data.success && Array.isArray(data.sessions)) {
+      if (data.success && Array.isArray(data.sessions) && data.sessions.length > 0) {
         return data.sessions.filter((s: any) =>
           isFacultyAssignedToSlot(s, { id: facultyId, facultyId, email: facultyEmail, name: facultyName, role: 'faculty' })
         );
@@ -1349,7 +1357,16 @@ export async function fetchFacultyAssignedSlots(
   } catch (e) {
     console.warn('Error fetching faculty sessions:', e);
   }
-  return [];
+
+  // Fallback: load all college slots and filter for this faculty
+  try {
+    const allSlots = await fetchCollegeSlots(code);
+    return allSlots.filter((s: any) =>
+      isFacultyAssignedToSlot(s, { id: facultyId, facultyId, email: facultyEmail, name: facultyName, role: 'faculty' })
+    );
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchStudentBookings(studentId: string) {
