@@ -231,6 +231,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     toggleCamera,
     cameraError,
     audioLevel: userMediaAudioLevel,
+    audioStream,
     startAudioAnalyser,
     stopAudioAnalyser,
   } = useUserMedia();
@@ -931,12 +932,109 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   };
 
+  // MediaRecorder Fallback & AI Speech-To-Text pipeline
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const lastWebSpeechTimeRef = useRef<number>(Date.now());
+  const isTranscribingAudioRef = useRef<boolean>(false);
+  const mediaRecorderIntervalRef = useRef<any>(null);
+
+  const startMediaRecorderFallback = (stream: MediaStream) => {
+    if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined' || !stream) return;
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/mp4';
+
+      const mr = new MediaRecorder(stream, { mimeType: mime });
+      audioChunksRef.current = [];
+
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mr.onstop = async () => {
+        if (audioChunksRef.current.length === 0) return;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+        audioChunksRef.current = [];
+
+        // If Web Speech API hasn't delivered text in the last 2 seconds and chunk has sound (>2KB)
+        const timeSinceWebSpeech = Date.now() - lastWebSpeechTimeRef.current;
+        if (timeSinceWebSpeech > 2000 && audioBlob.size > 2000 && !isTranscribingAudioRef.current) {
+          isTranscribingAudioRef.current = true;
+          try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64Audio = reader.result as string;
+              if (base64Audio) {
+                try {
+                  const res = await fetch('/api/session/transcribe-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ audioBase64: base64Audio, mimeType: mime }),
+                  });
+                  const d = await res.json();
+                  if (d.success && d.text && d.text.trim()) {
+                    commitLiveSpeechToRoom(d.text.trim());
+                  }
+                } catch (err) {
+                  console.warn('Fallback transcription fetch notice:', err);
+                } finally {
+                  isTranscribingAudioRef.current = false;
+                }
+              } else {
+                isTranscribingAudioRef.current = false;
+              }
+            };
+            reader.readAsDataURL(audioBlob);
+          } catch {
+            isTranscribingAudioRef.current = false;
+          }
+        }
+      };
+
+      mr.start();
+      mediaRecorderRef.current = mr;
+
+      if (mediaRecorderIntervalRef.current) clearInterval(mediaRecorderIntervalRef.current);
+      mediaRecorderIntervalRef.current = setInterval(() => {
+        if (isListeningMicRef.current && mr.state === 'recording') {
+          try {
+            mr.stop();
+            mr.start();
+          } catch {}
+        }
+      }, 3500);
+    } catch (e) {
+      console.warn('MediaRecorder fallback init notice:', e);
+    }
+  };
+
+  const stopMediaRecorderFallback = () => {
+    if (mediaRecorderIntervalRef.current) {
+      clearInterval(mediaRecorderIntervalRef.current);
+      mediaRecorderIntervalRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+  };
+
   // Speech Recognition Setup (Web Speech API) with robust auto-recovery and continuous watchdog
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass) {
-      console.warn('SpeechRecognition API not supported in this browser.');
+      console.warn('SpeechRecognition API not supported in this browser; MediaRecorder fallback will be active.');
       return;
     }
 
@@ -959,7 +1057,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         const recognition = new SpeechRecognitionClass();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = 'en-IN'; // Indian English support
+        const navLang = typeof navigator !== 'undefined' ? (navigator.language || 'en-IN') : 'en-IN';
+        recognition.lang = (navLang && navLang.toLowerCase().includes('in')) ? 'en-IN' : (navLang.startsWith('en') ? navLang : 'en-IN');
         recognitionRef.current = recognition;
 
         recognition.onstart = () => {
@@ -967,11 +1066,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         };
 
         recognition.onresult = (event: any) => {
-          // While AI voice is actively playing audio through speakers, ignore mic pickup to avoid echo
+          // If human participant speaks while AI voice is playing, stop AI voice so participant has the floor
           if (roomVoice.isSpeaking()) {
-            return;
+            roomVoice.stop();
+            setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
           }
           aiVoicePausedMicRef.current = false;
+          lastWebSpeechTimeRef.current = Date.now();
 
           let interimTranscript = '';
           let finalTranscript = '';
@@ -1019,16 +1120,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           console.warn('[Speech recognition event]:', event.error);
           isRecognitionRunningRef.current = false;
 
+          if (event.error === 'no-speech') {
+            // Natural silence pause between sentences: do NOT destroy the session!
+            return;
+          }
+
           if (
-            event.error === 'no-speech' ||
             event.error === 'aborted' ||
             event.error === 'audio-capture' ||
             event.error === 'network'
           ) {
-            // Benign or transient silence/network events: restart recognition cleanly
+            // Transient silence/network events: restart recognition cleanly
             if (isListeningMicRef.current) {
               if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-              restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 250);
+              restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 300);
             }
             return;
           }
@@ -1039,6 +1144,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             isListeningMicRef.current = false;
             isRecognitionRunningRef.current = false;
             stopAudioAnalyser();
+            stopMediaRecorderFallback();
             rtcSetMicEnabled(false);
             if (!isFaculty) {
               setSession((prev) => ({
@@ -1054,12 +1160,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           // If mic is supposed to remain on (user didn't mute), revive with fresh instance
           if (isListeningMicRef.current) {
             if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-            restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 150);
+            restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 200);
             return;
           }
 
           setIsListeningMic(false);
           stopAudioAnalyser();
+          stopMediaRecorderFallback();
           rtcSetMicEnabled(false);
           if (!isFaculty) {
             setSession((prev) => ({
@@ -1075,7 +1182,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isRecognitionRunningRef.current = false;
         if (isListeningMicRef.current) {
           if (restartRecognitionTimerRef.current) clearTimeout(restartRecognitionTimerRef.current);
-          restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 300);
+          restartRecognitionTimerRef.current = setTimeout(startRecognitionInstance, 350);
         }
       }
     };
@@ -1139,6 +1246,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         recognitionRef.current = null;
       }
       setIsListeningMic(false);
+      stopMediaRecorderFallback();
+      stopAudioAnalyser();
       await rtcSetMicEnabled(false);
       if (!isFaculty) {
         setSession((prev) => ({
@@ -1162,6 +1271,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       isListeningMicRef.current = true;
       setIsListeningMic(true);
 
+      // Acquire and verify microphone stream & live VU analyser
+      let activeMicStream: MediaStream | null = null;
+      try {
+        activeMicStream = await startAudioAnalyser();
+      } catch (e) {
+        console.warn('startAudioAnalyser error:', e);
+      }
+
+      await rtcSetMicEnabled(true);
+
+      // Start MediaRecorder fallback using the verified stream
+      if (activeMicStream) {
+        startMediaRecorderFallback(activeMicStream);
+      }
+
       if (typeof (window as any).__startErusSpeechRecognition === 'function') {
         (window as any).__startErusSpeechRecognition();
       } else if (recognitionRef.current && !isRecognitionRunningRef.current) {
@@ -1175,7 +1299,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           }, 150);
         }
       }
-      await rtcSetMicEnabled(true);
       if (!isFaculty) {
         setSession((prev) => ({
           ...prev,

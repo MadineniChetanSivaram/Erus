@@ -5358,6 +5358,48 @@ app.post('/api/session/speak', (req, res) => {
   });
 });
 
+// Endpoint: POST Transcribe Audio Chunk using Gemini Multimodal Audio (Speech-to-Text Fallback)
+app.post('/api/session/transcribe-audio', async (req, res) => {
+  try {
+    const { audioBase64, mimeType = 'audio/webm' } = req.body;
+    if (!audioBase64 || typeof audioBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'audioBase64 is required' });
+    }
+
+    if (!ai) {
+      return res.status(503).json({ success: false, error: 'Gemini AI speech recognition service unavailable' });
+    }
+
+    const cleanBase64 = audioBase64.includes('base64,') ? audioBase64.split('base64,')[1] : audioBase64;
+
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: 'Transcribe the spoken words in this audio clip verbatim into clean English text. Do not add summaries, commentary, timestamps, or quotes. Output ONLY the transcribed words. If the audio is silent or only contains static/noise without intelligible human speech, return an empty string "".',
+            },
+          ],
+        },
+      ],
+    });
+
+    const transcriptText = (response.text || '').trim();
+    return res.json({ success: true, text: transcriptText });
+  } catch (err: any) {
+    console.warn('[Audio Transcription] Gemini STT error:', err?.message || err);
+    return res.status(500).json({ success: false, error: err?.message || 'Transcription failed' });
+  }
+});
+
 // Endpoint: POST Simulate Peer Turn (Intelligent AI Student Response)
 app.post('/api/session/simulate-peer', async (req, res) => {
   try {

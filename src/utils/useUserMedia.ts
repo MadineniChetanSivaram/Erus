@@ -6,7 +6,8 @@ export interface UserMediaControls {
   toggleCamera: () => Promise<void>;
   cameraError: string | null;
   audioLevel: number;
-  startAudioAnalyser: () => Promise<void>;
+  audioStream: MediaStream | null;
+  startAudioAnalyser: () => Promise<MediaStream | null>;
   stopAudioAnalyser: () => void;
 }
 
@@ -15,6 +16,7 @@ export function useUserMedia(): UserMediaControls {
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
 
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -59,12 +61,13 @@ export function useUserMedia(): UserMediaControls {
   }, [isCameraOn, videoStream]);
 
   // Audio level analyser for microphone feedback
-  const startAudioAnalyser = useCallback(async () => {
+  const startAudioAnalyser = useCallback(async (): Promise<MediaStream | null> => {
     try {
-      if (audioStreamRef.current) return; // Already running
+      if (audioStreamRef.current) return audioStreamRef.current; // Already running
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
+      setAudioStream(stream);
 
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         try { audioContextRef.current.close().catch(() => {}); } catch {}
@@ -104,8 +107,10 @@ export function useUserMedia(): UserMediaControls {
       };
 
       updateVolume();
+      return stream;
     } catch (e) {
       console.warn('Mic audio analyser setup error:', e);
+      return null;
     }
   }, []);
 
@@ -118,6 +123,7 @@ export function useUserMedia(): UserMediaControls {
       audioStreamRef.current.getTracks().forEach((track) => track.stop());
       audioStreamRef.current = null;
     }
+    setAudioStream(null);
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
@@ -141,6 +147,7 @@ export function useUserMedia(): UserMediaControls {
     toggleCamera,
     cameraError,
     audioLevel,
+    audioStream,
     startAudioAnalyser,
     stopAudioAnalyser,
   };

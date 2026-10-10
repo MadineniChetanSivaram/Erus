@@ -314,13 +314,29 @@ class RoomVoiceEngine {
           this.currentUtterance = utterance;
           (window as any).__activeUtterance = utterance;
 
+          let hasAdvanced = false;
+          let chunkTimeout: any = null;
+
           const advance = () => {
+            if (hasAdvanced) return;
+            hasAdvanced = true;
+            if (chunkTimeout) {
+              clearTimeout(chunkTimeout);
+              chunkTimeout = null;
+            }
             this.activeUtterances.delete(utterance);
             if (this.currentUtterance === utterance) {
               this.currentUtterance = null;
             }
             speakNextChunk();
           };
+
+          // Guard: sentence chunk timeout prevents Chromium from getting stuck permanently
+          const estimatedDuration = Math.min(9000, Math.max(3500, sentence.split(/\s+/).length * 550));
+          chunkTimeout = setTimeout(() => {
+            console.warn('[AI Facilitator Voice] Chunk timeout reached, advancing safely:', sentence.slice(0, 30));
+            advance();
+          }, estimatedDuration);
 
           utterance.onend = () => {
             advance();
@@ -436,7 +452,16 @@ class RoomVoiceEngine {
           this.currentUtterance = utterance;
           (window as any).__activeUtterance = utterance;
 
+          let hasCleanedUp = false;
+          let safetyTimeout: any = null;
+
           const cleanup = () => {
+            if (hasCleanedUp) return;
+            hasCleanedUp = true;
+            if (safetyTimeout) {
+              clearTimeout(safetyTimeout);
+              safetyTimeout = null;
+            }
             this.isCurrentlySpeaking = false;
             this.activeUtterances.delete(utterance);
             if (this.currentUtterance === utterance) {
@@ -456,6 +481,13 @@ class RoomVoiceEngine {
               window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
             }
           };
+
+          const estimatedStudentDuration = Math.min(18000, Math.max(4000, text.split(/\s+/).length * 550));
+          safetyTimeout = setTimeout(() => {
+            console.warn('[AI Student Voice] Safety timeout reached, clearing speech state');
+            cleanup();
+            if (onEnd) onEnd();
+          }, estimatedStudentDuration);
 
           utterance.onend = () => {
             cleanup();
