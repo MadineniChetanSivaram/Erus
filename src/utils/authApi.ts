@@ -670,9 +670,6 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
   if (user.role !== 'student') return true;
   if (!slot) return false;
 
-  // Must be completed session
-  if (slot.status !== 'completed') return false;
-
   const uId = String(user.id || '').trim().toLowerCase();
   const uStudentId = String((user as any).studentId || '').trim().toLowerCase();
   const uEmail = String(user.email || '').trim().toLowerCase();
@@ -682,10 +679,18 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
   const studentKey = user.id || (user as any).studentId || user.email || user.name || 'student';
   const effectiveHistory = reportHistory || getStudentReportHistory(studentKey);
 
-  // Check if student has a recorded evaluation report for this slot
-  if (Array.isArray(effectiveHistory) && effectiveHistory.some((r) => r.sessionId === slot.id || r.id === slot.id)) {
-    return true;
+  // 1. Check if student has a recorded evaluation report for this slot or topic
+  if (Array.isArray(effectiveHistory)) {
+    const hasReport = effectiveHistory.some((r) => {
+      const matchId = r.sessionId === slot.id || r.id === slot.id || (r as any).slotId === slot.id;
+      const matchTopic = slot.topic && r.topic && r.topic.trim().toLowerCase() === slot.topic.trim().toLowerCase();
+      return matchId || matchTopic;
+    });
+    if (hasReport) return true;
   }
+
+  // If slot is completed, check participant lists and bookings
+  const isCompleted = slot.status === 'completed';
 
   // Check if student was present in slot.students
   if (Array.isArray(slot.students)) {
@@ -705,7 +710,7 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
         (uName && sName === uName)
       );
     });
-    if (stMatch) return true;
+    if (stMatch && isCompleted) return true;
   }
 
   // Check assignedStudentIds array if present
@@ -714,11 +719,11 @@ export function hasStudentParticipatedInSlot(slot: any, user: any, reportHistory
       const cleanId = String(id).trim().toLowerCase();
       return cleanId === uId || (uStudentId && cleanId === uStudentId);
     });
-    if (hasAssignedId) return true;
+    if (hasAssignedId && isCompleted) return true;
   }
 
   // Check if student had booked this slot and completed
-  if (slot.id) {
+  if (slot.id && isCompleted) {
     if (user.bookedSlotId === slot.id) return true;
     if ((user as any).bookedSlotsByTopic && Object.values((user as any).bookedSlotsByTopic).includes(slot.id)) return true;
     try {

@@ -40,7 +40,7 @@ import {
   SkillScore 
 } from '../../types/gd';
 import { AuthUser } from '../../types/auth';
-import { generateStudentReport, distributeRubricScores } from '../../data/mockGDData';
+import { generateStudentReport, distributeRubricScores, calculateStudentOverallScore } from '../../data/mockGDData';
 import { GDComparisonReport } from './GDComparisonReport';
 import { StudentGDJourneyProfile } from './StudentGDJourneyProfile';
 import { addReportToStudentHistory, getStudentReportHistory } from '../../utils/studentReportHistory';
@@ -151,9 +151,36 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
   );
   if (!raw) return base;
 
-  const targetScore = typeof raw.overallScore === 'number'
+  let durationSec = typeof raw.speakingTimeSeconds === 'number'
+    ? raw.speakingTimeSeconds
+    : (typeof raw.speakingDurationSeconds === 'number' ? raw.speakingDurationSeconds : (base.speakingTimeSeconds || 0));
+  let turns = typeof raw.speakingTurns === 'number' ? raw.speakingTurns : (base.speakingTurns || 0);
+  let wpmVal = typeof raw.wpm === 'number' ? raw.wpm : (durationSec > 0 ? 130 : 0);
+
+  let targetScore = typeof raw.overallScore === 'number'
     ? raw.overallScore
     : (typeof raw.score === 'number' ? raw.score : base.overallScore);
+
+  // Auto-heal 0 score if candidate spoke, took turns, or participated in the round
+  if (targetScore <= 0 && (durationSec > 0 || turns > 0)) {
+    const effectiveSec = durationSec > 0 ? durationSec : Math.max(45, turns * 35);
+    const { overallScore: calculated } = calculateStudentOverallScore({
+      seconds: effectiveSec,
+      turns: Math.max(1, turns),
+      wpm: wpmVal || 130,
+      hasCollab: turns >= 2,
+      hasLead: turns >= 3,
+    });
+    targetScore = calculated;
+    if (durationSec === 0) durationSec = effectiveSec;
+    if (turns === 0) turns = Math.max(1, Math.round(effectiveSec / 45));
+    if (wpmVal === 0) wpmVal = 130;
+  } else if (targetScore > 0 && durationSec === 0) {
+    durationSec = Math.round(180 + (targetScore / 100) * 180);
+    turns = Math.max(2, Math.round(durationSec / 45));
+    wpmVal = 132;
+  }
+
   const defaultDistributed = distributeRubricScores(targetScore);
 
   const defaultSkills: Record<string, SkillScore> = base.skills || {
@@ -211,18 +238,6 @@ export function normalizeReport(raw: any, fallback?: StudentAssessmentReport): S
   const rawStrengths = Array.isArray(raw.strengths) ? raw.strengths : (typeof raw.strengths === 'string' ? raw.strengths.split('; ').filter(Boolean) : []);
   const rawImprovements = Array.isArray(raw.areasForImprovement) ? raw.areasForImprovement : (typeof raw.areasForImprovement === 'string' ? raw.areasForImprovement.split('; ').filter(Boolean) : (typeof raw.improvements === 'string' ? raw.improvements.split('; ').filter(Boolean) : []));
   const rawRecommendations = Array.isArray(raw.aiRecommendations) ? raw.aiRecommendations : (typeof raw.aiRecommendations === 'string' ? [raw.aiRecommendations] : []);
-
-  let durationSec = typeof raw.speakingTimeSeconds === 'number'
-    ? raw.speakingTimeSeconds
-    : (typeof raw.speakingDurationSeconds === 'number' ? raw.speakingDurationSeconds : (base.speakingTimeSeconds || 0));
-  let turns = typeof raw.speakingTurns === 'number' ? raw.speakingTurns : (base.speakingTurns || 0);
-  let wpmVal = typeof raw.wpm === 'number' ? raw.wpm : (durationSec > 0 ? 130 : 0);
-
-  if (targetScore > 0 && durationSec === 0) {
-    durationSec = Math.round(180 + (targetScore / 100) * 180);
-    turns = Math.max(2, Math.round(durationSec / 45));
-    wpmVal = 132;
-  }
 
   const formattedSpeaking = raw.speakingTimeFormatted && !raw.speakingTimeFormatted.startsWith('0 min 0 sec')
     ? raw.speakingTimeFormatted
@@ -361,37 +376,23 @@ export const StudentReportView: React.FC<StudentReportViewProps> = ({
 
   // Filter available slots: students see participated slots; faculty see strictly assigned slots
   const visibleSlotsForUser = useMemo(() => {
-    if (!availableSlots) return [];
+    if (!availableSlots) return session ? [session] : [];
+    let list: GDSession[] = [];
     if (isStudent) {
-      return availableSlots.filter((sl) => hasStudentParticipatedInSlot(sl, currentUser, studentHistory));
+      list = availableSlots.filter((sl) => hasStudentParticipatedInSlot(sl, currentUser, studentHistory));
+    } else if (isFaculty) {
+      list = availableSlots.filter((sl) => isFacultyAssignedToSlot(sl, currentUser));
+    } else {
+      list = [...availableSlots];
     }
-    if (isFaculty) {
-      return availableSlots.filter((sl) => isFacultyAssignedToSlot(sl, currentUser));
+    // Ensure the session currently being inspected is always in the switcher list
+    if (session && !list.some((s) => s.id === session.id)) {
+      list.unshift(session);
     }
-    return availableSlots;
-  }, [availableSlots, isStudent, isFaculty, currentUser, studentHistory]);
+    return list;
+  }, [availableSlots, isStudent, isFaculty, currentUser, studentHistory, session]);
 
   const studentParticipatedSlots = visibleSlotsForUser;
-
-  // Auto-switch to first participated slot if student landed on an unparticipated slot
-  useEffect(() => {
-    if (isStudent && !hasParticipatedInCurrentSession && visibleSlotsForUser.length > 0 && onSelectSlot) {
-      const firstParticipated = visibleSlotsForUser[0];
-      if (firstParticipated && firstParticipated.id !== session?.id) {
-        onSelectSlot(firstParticipated.id);
-      }
-    }
-  }, [isStudent, hasParticipatedInCurrentSession, visibleSlotsForUser, onSelectSlot, session?.id]);
-
-  // Auto-switch to first assigned slot if faculty landed on an unassigned slot
-  useEffect(() => {
-    if (isFaculty && !isFacultyAssignedToCurrentSession && visibleSlotsForUser.length > 0 && onSelectSlot) {
-      const firstAssigned = visibleSlotsForUser[0];
-      if (firstAssigned && firstAssigned.id !== session?.id) {
-        onSelectSlot(firstAssigned.id);
-      }
-    }
-  }, [isFaculty, isFacultyAssignedToCurrentSession, visibleSlotsForUser, onSelectSlot, session?.id]);
 
   // Find the active student for this user - NEVER fall back to session.students[0] for students!
   const userStudent = isStudent

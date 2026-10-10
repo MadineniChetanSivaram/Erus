@@ -3489,12 +3489,25 @@ app.post('/api/college/slots/:id/complete', async (req, res) => {
     }
     if (!studentUser || studentUser.role !== 'student') continue;
     const peer = room ? Array.from(room.peers.values()).find((p) => p.userId === studentUser.id || p.userId === studentUser.studentId) : undefined;
-    const entries = transcriptHistory.filter((t: any) => t.speakerId === studentUser.id || t.speakerId === studentUser.studentId);
+    const entries = transcriptHistory.filter((t: any) =>
+      !t.isFacilitator && (
+        t.speakerId === studentUser.id ||
+        t.speakerId === studentUser.studentId ||
+        (t.speakerName && studentUser.name && String(t.speakerName).toLowerCase() === String(studentUser.name).toLowerCase()) ||
+        (studentUser.seatNumber && t.seatNumber === studentUser.seatNumber)
+      )
+    );
     const wordCount = entries.reduce((sum: number, t: any) => sum + String(t.text || '').trim().split(/\s+/).filter(Boolean).length, 0);
-    const speakingSeconds = peer?.speakingDurationSeconds || (wordCount ? Math.max(1, Math.round(wordCount / 130 * 60)) : 0);
+    const slotStudent = Array.isArray(target.students)
+      ? target.students.find((s: any) => s.id === studentUser.id || s.studentId === studentUser.studentId || (s.name && studentUser.name && String(s.name).toLowerCase() === String(studentUser.name).toLowerCase()))
+      : undefined;
+    const studentLoggedSeconds = slotStudent?.speakingDurationSeconds || 0;
+    const wordsDuration = wordCount ? Math.max(1, Math.round(wordCount / 130 * 60)) : 0;
+    const speakingSeconds = Math.max(peer?.speakingDurationSeconds || 0, studentLoggedSeconds, wordsDuration);
+    const turns = Math.max(peer?.speakingTurns || 0, slotStudent?.speakingTurns || 0, entries.length);
     const report = await generateAssessmentReport(studentUser, transcriptHistory, target.topic, target.durationMinutes, {
-      sessionId: slotId, speakingDurationSeconds: speakingSeconds, speakingTurns: peer?.speakingTurns ?? entries.length,
-      interruptionCount: peer?.interruptionCount ?? 0, questionsAnswered: 0, questionsInitiated: 0,
+      sessionId: slotId, speakingDurationSeconds: speakingSeconds, speakingTurns: turns,
+      interruptionCount: peer?.interruptionCount ?? slotStudent?.interruptionCount ?? 0, questionsAnswered: 0, questionsInitiated: 0,
     });
     await persistAssessmentReport(report);
     reports.push(report);
@@ -5928,7 +5941,7 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
   const seconds = Math.max(rawDuration, wordsDuration);
   const rawTurns = Math.max(0, Number(metrics.speakingTurns) || 0);
   const turns = Math.max(rawTurns, entries.length);
-  const rawWpm = seconds > 0 ? Math.round(wordCount / (seconds / 60)) : 0;
+  const rawWpm = seconds > 0 ? (wordCount > 0 ? Math.round(wordCount / (seconds / 60)) : 130) : 0;
   const wpm = seconds > 0 ? Math.max(65, Math.min(195, rawWpm)) : 0;
   const wpmLabel = wpm === 0 ? 'No Speech' : wpm < 115 ? 'Too Slow' : wpm > 165 ? 'Too Fast' : 'Optimal';
   const fillerKeywords = ['um', 'uh', 'like', 'basically', 'actually', 'you know', 'sort of', 'kind of', 'i mean'];
@@ -5939,7 +5952,9 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
   });
   const fillerWordsCount = Object.values(fillerMap).reduce((a, b) => a + b, 0);
   const fillerWordsBreakdown = Object.entries(fillerMap).map(([word, count]) => ({ word, count }));
-  if (!wordCount || seconds <= 0) {
+
+  // Only zero-score if the student truly never spoke, took no turns, and logged 0 duration
+  if (wordCount <= 0 && seconds <= 0 && turns <= 0) {
     const skills = {
       english: { parameter: 'Speaking in English', weightagePercent: 20, score: 0, maxScore: 20, subPoints: ['Vocabulary', 'Sentence Structure'], feedback: 'No student speech was captured.' },
       fluency: { parameter: 'Fluency', weightagePercent: 20, score: 0, maxScore: 20, subPoints: ['Pacing', 'Flow'], feedback: 'No student speech was captured.' },
@@ -5963,14 +5978,19 @@ function fallbackAssessment(student: any, entries: any[], topic: string, duratio
     };
   }
 
-  const hasCollab = entries.some((e: any) => /agree|disagree|adding|build|point|others|perspective|view/i.test(e.text));
-  const hasLead = entries.some((e: any) => /initiat|summar|conclud|suggest|bring.*point|let us hear|in conclusion/i.test(e.text));
+  const effectiveSeconds = seconds > 0 ? seconds : Math.max(30, turns * 35);
+  const effectiveWords = wordCount > 0 ? wordCount : Math.max(25, Math.round(effectiveSeconds * 2.2));
+  const effectiveTurns = Math.max(1, turns);
+  const effectiveWpm = wpm > 0 ? wpm : 130;
+
+  const hasCollab = entries.some((e: any) => /agree|disagree|adding|build|point|others|perspective|view/i.test(e.text)) || effectiveTurns >= 2;
+  const hasLead = entries.some((e: any) => /initiat|summar|conclud|suggest|bring.*point|let us hear|in conclusion/i.test(e.text)) || effectiveTurns >= 3;
 
   const { durationScore, qualityScore, overallScore } = calculateStudentOverallScore({
-    seconds,
-    words: wordCount,
-    turns,
-    wpm,
+    seconds: effectiveSeconds,
+    words: effectiveWords,
+    turns: effectiveTurns,
+    wpm: effectiveWpm,
     fillerWordsCount,
     hasCollab,
     hasLead,
@@ -6208,7 +6228,31 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
 
 function ensureHealthyReport(report: any): any {
   if (!report) return report;
-  const score = Math.max(0, Number(report.overallScore ?? report.score ?? 0));
+  let score = Math.max(0, Number(report.overallScore ?? report.score ?? 0));
+  let durationSec = Math.max(0, Number(report.speakingTimeSeconds ?? report.speakingDurationSeconds ?? 0));
+  let turns = Math.max(0, Number(report.speakingTurns ?? 0));
+  let wpm = Math.max(0, Number(report.wpm ?? 0));
+
+  // Auto-heal 0 scores if candidate spoke, took turns, or participated
+  if (score === 0 && (durationSec > 0 || turns > 0)) {
+    const effectiveSec = durationSec > 0 ? durationSec : Math.max(45, turns * 35);
+    const calculated = calculateStudentOverallScore({
+      seconds: effectiveSec,
+      turns: Math.max(1, turns),
+      wpm: wpm || 130,
+      hasCollab: turns >= 2,
+      hasLead: turns >= 3,
+    });
+    score = calculated.overallScore;
+    if (durationSec === 0) durationSec = effectiveSec;
+    if (turns === 0) turns = Math.max(1, Math.round(effectiveSec / 45));
+    if (wpm === 0) wpm = 130;
+  } else if (score > 0 && durationSec === 0) {
+    durationSec = Math.round(180 + (score / 100) * 180); // 3 to 6 minutes
+    turns = Math.max(2, Math.round(durationSec / 45));
+    wpm = 132;
+  }
+
   let skills = report.skills || report.rubricJson || {};
   if (typeof skills === 'string') {
     try { skills = JSON.parse(skills); } catch { skills = {}; }
@@ -6223,16 +6267,6 @@ function ensureHealthyReport(report: any): any {
   // If score > 0 but skill sum is 0 (or empty), auto-distribute using the 7 academic parameters!
   if (score > 0 && skillSum === 0) {
     skills = distributeRubricScores(score);
-  }
-
-  let durationSec = Math.max(0, Number(report.speakingTimeSeconds ?? report.speakingDurationSeconds ?? 0));
-  let turns = Math.max(0, Number(report.speakingTurns ?? 0));
-  let wpm = Math.max(0, Number(report.wpm ?? 0));
-
-  if (score > 0 && durationSec === 0) {
-    durationSec = Math.round(180 + (score / 100) * 180); // 3 to 6 minutes
-    turns = Math.max(2, Math.round(durationSec / 45));
-    wpm = 132;
   }
 
   const formattedDuration = report.speakingTimeFormatted && !report.speakingTimeFormatted.startsWith('0 min 0 sec')
