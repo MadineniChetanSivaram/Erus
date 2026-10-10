@@ -7263,11 +7263,25 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       askedQuestions: new Set<string>(),
     };
 
-    // Central 20-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
+    // Central 15-Second Silence Deadlock Watchdog (PDF Page 4, Section F)
     room.silenceInterval = setInterval(async () => {
       if (room.status !== 'active' || room.peers.size === 0) return;
 
-      if (!room.currentSpeakerId) {
+      const anyPeerSpeaking = Array.from(room.peers.values()).some((p) => p.isSpeaking);
+
+      if (!anyPeerSpeaking) {
+        // Floor is silent
+        if (room.currentSpeakerId) {
+          room.currentSpeakerId = null;
+          room.currentSpeakerSocketId = null;
+          room.floorVersion += 1;
+          io.to(`room-${slotId}`).emit('floor-state', {
+            speakerId: null,
+            speakerSocketId: null,
+            floorVersion: room.floorVersion,
+          });
+        }
+
         room.silenceTimerSeconds += 1;
 
         // Broadcast current silence countdown tick to all peers
@@ -7278,20 +7292,26 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
 
         // Silence watchdog: trigger AI moderator intervention if no one speaks for 15s
         const now = Date.now();
-        const deadlockCooldownMs = 15000;
+        const deadlockCooldownMs = 8000;
         if (
           room.silenceTimerSeconds >= 15 &&
-          !room.waitingForParticipantId &&
           (!room.lastDeadlockAt || now - room.lastDeadlockAt >= deadlockCooldownMs)
         ) {
           room.silenceTimerSeconds = 0;
           room.lastDeadlockAt = now;
           room.deadlockCount += 1;
+          room.waitingForParticipantId = undefined;
           await triggerDeadlockIntervention(room);
         }
       } else {
-        // Someone is speaking -> floor is active
+        // Someone is actively speaking -> floor is active
         room.silenceTimerSeconds = 0;
+
+        // Broadcast active floor tick
+        io.to(`room-${slotId}`).emit('silence-timer-tick', {
+          silenceTimerSeconds: 0,
+          maxSilence: 15,
+        });
         
         // Track current speaker's continuous speaking time (no mid-speech interruptions)
         if (room.currentSpeakerSocketId) {
@@ -8001,14 +8021,15 @@ CRITICAL RULES:
 }
 
 async function triggerDeadlockIntervention(room: LiveGDRoomState) {
-  if (
-    room.currentSpeakerId ||
-    room.currentSpeakerSocketId ||
-    Array.from(room.peers.values()).some((p) => p.isSpeaking)
-  ) {
+  if (Array.from(room.peers.values()).some((p) => p.isSpeaking)) {
     return;
   }
-  const realStudents = Array.from(room.peers.values()).filter((p) => p.role === 'student');
+  room.currentSpeakerId = null;
+  room.currentSpeakerSocketId = null;
+  room.waitingForParticipantId = undefined;
+
+  const candidatePeers = Array.from(room.peers.values()).filter((p) => p.role !== 'faculty' && p.role !== 'college_admin');
+  const realStudents = candidatePeers.length > 0 ? candidatePeers : Array.from(room.peers.values());
   if (realStudents.length === 0) return;
 
   const candidates = realStudents
@@ -8142,11 +8163,7 @@ Do not mention AI.`,
   }
 
   // Strict Human Priority: Abort if anyone began speaking while generating deadlock question
-  if (
-    room.currentSpeakerId ||
-    room.currentSpeakerSocketId ||
-    Array.from(room.peers.values()).some((p) => p.isSpeaking)
-  ) {
+  if (Array.from(room.peers.values()).some((p) => p.isSpeaking)) {
     return;
   }
 
@@ -8442,26 +8459,26 @@ io.on('connection', (socket) => {
         floorVersion: room.floorVersion,
       });
     } else if (room.currentSpeakerSocketId === socket.id) {
-      // If mic is still active on the participant, do NOT prematurely steal the floor on a natural breathing pause!
-      if (peer.micActive) {
-        // Floor remains with the candidate while unmuted; keep currentSpeakerId intact.
-      } else {
-        if (room.speechYieldTimer) {
-          clearTimeout(room.speechYieldTimer);
-          room.speechYieldTimer = undefined;
-        }
-        // Current speaker finished speaking or muted mic
-        room.currentSpeakerId = null;
-        room.currentSpeakerSocketId = null;
-        room.waitingForParticipantId = undefined;
-        room.floorVersion += 1;
-        io.to(`room-${safeSlotId}`).emit('floor-state', {
-          speakerId: null,
-          speakerSocketId: null,
-          floorVersion: room.floorVersion,
-        });
-        scheduleNextTurn(room, peer.userId);
+      if (room.speechYieldTimer) {
+        clearTimeout(room.speechYieldTimer);
+        room.speechYieldTimer = undefined;
       }
+      // Release floor 1.5s after speech finishes so silence watchdog can track
+      room.speechYieldTimer = setTimeout(() => {
+        room.speechYieldTimer = undefined;
+        if (!peer.isSpeaking) {
+          room.currentSpeakerId = null;
+          room.currentSpeakerSocketId = null;
+          room.waitingForParticipantId = undefined;
+          room.floorVersion += 1;
+          io.to(`room-${safeSlotId}`).emit('floor-state', {
+            speakerId: null,
+            speakerSocketId: null,
+            floorVersion: room.floorVersion,
+          });
+          scheduleNextTurn(room, peer.userId);
+        }
+      }, 1500);
     }
 
     io.to(`room-${safeSlotId}`).emit('peer-speaking-updated', {
@@ -8549,26 +8566,24 @@ io.on('connection', (socket) => {
       room.speechYieldTimer = undefined;
     }
 
-    // Automatically yield floor only after extended inactivity (8.5s) if participant stopped speaking without explicitly muting
+    // Automatically yield floor 3s after statement completion if participant stopped speaking
     room.speechYieldTimer = setTimeout(() => {
       room.speechYieldTimer = undefined;
-      if (peer.micActive && room.peers.has(socket.id)) {
-        // Candidate still has microphone unmuted in room; do not snatch floor from them
-        return;
-      }
       if (room.currentSpeakerId === peer.userId || room.currentSpeakerSocketId === socket.id) {
-        room.currentSpeakerId = null;
-        room.currentSpeakerSocketId = null;
-        room.waitingForParticipantId = undefined;
-        room.floorVersion += 1;
-        io.to(`room-${safeSlotId}`).emit('floor-state', {
-          speakerId: null,
-          speakerSocketId: null,
-          floorVersion: room.floorVersion,
-        });
-        scheduleNextTurn(room, peer.userId);
+        if (!peer.isSpeaking) {
+          room.currentSpeakerId = null;
+          room.currentSpeakerSocketId = null;
+          room.waitingForParticipantId = undefined;
+          room.floorVersion += 1;
+          io.to(`room-${safeSlotId}`).emit('floor-state', {
+            speakerId: null,
+            speakerSocketId: null,
+            floorVersion: room.floorVersion,
+          });
+          scheduleNextTurn(room, peer.userId);
+        }
       }
-    }, 8500);
+    }, 3000);
   });
 
   // 5. Peer Disconnect Cleanup

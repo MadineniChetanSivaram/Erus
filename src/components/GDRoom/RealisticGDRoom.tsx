@@ -366,9 +366,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         return [...prev, intervention.transcript];
       });
 
-      // Suppress AI facilitator ONLY if a human participant is actively holding the floor with live speech
-      const isHumanSpeakingOnFloor = session.currentSpeakerId !== null && session.currentSpeakerId !== 'facilitator';
-      if (isHumanSpeakingOnFloor) {
+      // Suppress AI facilitator ONLY if a human participant is actively speaking live right now (and not a deadlock intervention)
+      const isHumanSpeakingLive = rtcIsSpeakingLive && intervention.action !== 'deadlock_intervention';
+      if (isHumanSpeakingLive) {
         console.log('[Facilitator] Participant is actively speaking on floor. Suppressing AI voice synthesis.');
         return;
       }
@@ -376,6 +376,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       setSession((prev) => ({
         ...prev,
         silenceTimerSeconds: 0,
+        currentSpeakerId: null,
         facilitatorSpeech: intervention.text,
         isFacilitatorSpeaking: true,
       }));
@@ -415,6 +416,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       onFinishSession();
     }
   }, [session.status, currentUser?.role, onFinishSession]);
+
+  // Synchronize silenceTimerSeconds from RTC hook to session state
+  useEffect(() => {
+    setSession((prev) => {
+      if (prev.silenceTimerSeconds === rtcSilenceTimer) return prev;
+      return { ...prev, silenceTimerSeconds: rtcSilenceTimer };
+    });
+  }, [rtcSilenceTimer]);
 
   // Authoritative microphone volume level derived from active WebRTC stream
   const audioLevel = rtcLocalVolume > 0 ? rtcLocalVolume : userMediaAudioLevel;
@@ -1823,18 +1832,22 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
   const handleFacilitatorTargetedProbe = () => {
     if (rtcSimulationMode) return;
-    if (isSocketConnected) return; // Central server controls silence probes
-    if (!isSessionActive || hasRealStudentPeers || session.isFacilitatorSpeaking || session.currentSpeakerId || isTransitioningTurnRef.current) return;
-    if (Date.now() - lastFacilitatorInterventionTimeRef.current < 12000) return;
+    if (!isSessionActive || session.isFacilitatorSpeaking || rtcIsSpeakingLive || isTransitioningTurnRef.current) return;
+    if (Date.now() - lastFacilitatorInterventionTimeRef.current < 6000) return;
 
     lastFacilitatorInterventionTimeRef.current = Date.now();
 
     // Prioritize student who hasn't spoken yet, or lowest turn count
-    const targetStudent = getNextTurnSpeaker(session.students, null) || session.students[0];
+    const targetStudent = getNextTurnSpeaker(session.students, null) || session.students.find(s => !s.isEmptySeat) || session.students[0];
     if (!targetStudent) return;
 
     const latestStudentTranscript = transcripts.slice().reverse().find((t) => !t.isFacilitator);
     const targetedQuestion = generateTargetedQuestionForStudent(targetStudent, session.topic, latestStudentTranscript);
+
+    // Broadcast over socket so all connected peers receive the question
+    if (rtcBroadcastFacilitatorSpeech) {
+      rtcBroadcastFacilitatorSpeech(targetedQuestion, 'targeted_question_student');
+    }
 
     speakFacilitator(targetedQuestion, 'targeted_question_student', 'probing', () => {
       if (targetStudent.isUser) {
@@ -1852,10 +1865,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     });
   };
 
-  // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (10s mid-discussion silence)
+  // Silence Watchdog: triggers opening initiation (8s silence) or targeted question mentioning name (15s mid-discussion silence)
   useEffect(() => {
     if (rtcSimulationMode) return;
-    if (isSocketConnected) return; // Central server controls silence watchdog
     if (!isSessionActive || currentLayout === 'classroom') return;
 
     const studentTranscripts = transcripts.filter((t) => !t.isFacilitator);
@@ -1863,17 +1875,26 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // 1. Opening silence (if no one speaks within 8 seconds of commencing and facilitator has not already spoken)
     const hasAnyFacilitatorSpeech = transcripts.some((t) => t.isFacilitator);
     if (studentTranscripts.length === 0 && !hasInitiatedOpeningRef.current && !hasAnyFacilitatorSpeech) {
-      if (session.silenceTimerSeconds >= 8 || elapsedSeconds >= 8) {
-        handleInitiateOpeningSpeaker();
-        return;
+      if (rtcSilenceTimer >= 8 || session.silenceTimerSeconds >= 8 || elapsedSeconds >= 8) {
+        if (!isSocketConnected) {
+          handleInitiateOpeningSpeaker();
+          return;
+        }
       }
     }
 
-    // 2. Mid-discussion silence (if floor is silent for 10 seconds, ask question mentioning student by name)
-    if (studentTranscripts.length > 0 && !session.currentSpeakerId && !session.isFacilitatorSpeaking && !isTransitioningTurnRef.current) {
-      if (session.silenceTimerSeconds >= 10) {
-        handleFacilitatorTargetedProbe();
-        return;
+    // 2. Mid-discussion silence (if floor is silent for 15 seconds, request intervention or probe)
+    const currentSilence = Math.max(rtcSilenceTimer, session.silenceTimerSeconds);
+    if (currentSilence >= 15 && !session.isFacilitatorSpeaking && !rtcIsSpeakingLive && !isTransitioningTurnRef.current) {
+      if (Date.now() - lastFacilitatorInterventionTimeRef.current >= 6000) {
+        lastFacilitatorInterventionTimeRef.current = Date.now();
+        if (isSocketConnected && rtcRequestAiIntervention) {
+          console.log('[Silence Watchdog] Floor silent for 15s; requesting AI facilitator intervention.');
+          rtcRequestAiIntervention();
+        } else {
+          console.log('[Silence Watchdog] Floor silent for 15s; local targeted probe.');
+          handleFacilitatorTargetedProbe();
+        }
       }
     }
   }, [
@@ -1881,11 +1902,14 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     isSocketConnected,
     currentLayout,
     session.silenceTimerSeconds,
+    rtcSilenceTimer,
     elapsedSeconds,
     session.currentSpeakerId,
     session.isFacilitatorSpeaking,
+    rtcIsSpeakingLive,
     transcripts.length,
     rtcSimulationMode,
+    rtcRequestAiIntervention,
   ]);
 
   // Reset initiation flag and trigger opening speaker when session becomes active (only in round-table / speaker layouts)
