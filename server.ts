@@ -6400,7 +6400,41 @@ app.get('/api/faculty/sessions/:id/reports', async (req, res) => {
     const found = list.find((s) => s.id === sessionId);
     if (found) { slot = found; break; }
   }
-  if (!slot || slot.assignedFacultyId !== facultyId) {
+  if (!slot && isMongoConnected()) {
+    try {
+      const dbSlot = await SlotModel.findOne({ id: sessionId }).lean();
+      if (dbSlot) slot = dbSlot;
+    } catch {}
+  }
+
+  const queryLower = facultyId.toLowerCase();
+  let isAssigned = false;
+  if (slot) {
+    const sFacId = String(slot.assignedFacultyId || slot.facultyId || '').trim().toLowerCase();
+    const sFacEmail = String(slot.assignedFacultyEmail || slot.facultyEmail || '').trim().toLowerCase();
+    const sFacName = String(slot.assignedFacultyName || slot.facultyName || '').trim().toLowerCase();
+    if (sFacId === queryLower || sFacEmail === queryLower || sFacName === queryLower) {
+      isAssigned = true;
+    } else {
+      let facUser: any = persistentState.faculty.find((f) => f.id === facultyId || f.facultyId === facultyId || f.email?.toLowerCase() === queryLower);
+      if (!facUser && isMongoConnected()) {
+        try {
+          facUser = await UserModel.findOne({
+            $or: [{ id: facultyId }, { facultyId: facultyId }, { email: queryLower }]
+          }).lean();
+        } catch {}
+      }
+      if (facUser) {
+        const uId = String(facUser.id || '').toLowerCase();
+        const uFacId = String(facUser.facultyId || facUser.facultyProfile?.facultyId || '').toLowerCase();
+        const uEmail = String(facUser.email || '').toLowerCase();
+        if (sFacId && (sFacId === uId || sFacId === uFacId || sFacId === uEmail)) isAssigned = true;
+        if (sFacEmail && (sFacEmail === uEmail || sFacEmail === uId)) isAssigned = true;
+      }
+    }
+  }
+
+  if (!slot || !isAssigned) {
     return res.status(403).json({ success: false, error: 'Faculty is not assigned to this session' });
   }
 

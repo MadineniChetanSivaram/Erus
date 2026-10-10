@@ -386,9 +386,10 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 p-1.5 rounded-xl shadow-2xs flex-wrap">
               <button
                 onClick={async () => {
-                  const cachedUrl = safeSession?.id && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${safeSession.id}`) : null;
+                  const rawCached = safeSession?.id && typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${safeSession.id}`) : null;
+                  const cachedUrl = rawCached && !rawCached.startsWith('blob:') ? rawCached : null;
                   let recUrl = safeSession.recordingUrl || cachedUrl;
-                  if (!recUrl) {
+                  if (!recUrl || recUrl.startsWith('blob:')) {
                     try {
                       const res = await fetch(`/api/sessions/${encodeURIComponent(safeSession.id)}/recording`);
                       const d = await res.json();
@@ -408,10 +409,11 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
                 <Video className="w-3.5 h-3.5" />
                 <span>Watch Video</span>
               </button>
-              {safeSession.recordingUrl && (
+              {safeSession.recordingUrl && !safeSession.recordingUrl.startsWith('blob:') && (
                 <>
                   <audio
                     controls
+                    preload="none"
                     src={safeSession.recordingUrl}
                     className="h-7 w-36 sm:w-44"
                   />
@@ -778,7 +780,7 @@ export const FacultyDashboardView: React.FC<FacultyDashboardViewProps> = ({
             </div>
           ) : (
             <div className="h-64 w-full pt-2">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240} minWidth={0} minHeight={200} debounce={50}>
                 <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
                   <YAxis stroke="#94a3b8" fontSize={11} />

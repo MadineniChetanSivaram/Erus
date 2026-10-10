@@ -133,6 +133,21 @@ function GDAppContent() {
     const values = Object.values(studentBookedSlotsByTopic);
     return values.length > 0 ? values[0] : null;
   }, [studentBookedSlotsByTopic]);
+
+  const facultyAssignedSlots = useMemo(() => {
+    if (currentUser?.role === 'faculty') {
+      return availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser));
+    }
+    return availableSlots;
+  }, [availableSlots, currentUser]);
+
+  const studentParticipatedSlots = useMemo(() => {
+    if (currentUser?.role === 'student') {
+      return availableSlots.filter((s) => hasStudentParticipatedInSlot(s, currentUser));
+    }
+    return availableSlots;
+  }, [availableSlots, currentUser]);
+
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
     const slots = loadInitialSlots();
     return slots[0]?.status === 'active' ? 315 : 0;
@@ -201,10 +216,14 @@ function GDAppContent() {
 
   // Keep live faculty observation notes synchronized into availableSlots
   useEffect(() => {
-    if (session?.facultyLiveNotes && session.facultyLiveNotes.length > 0) {
-      setAvailableSlots((prev) =>
-        prev.map((s) => (s.id === session?.id ? { ...s, facultyLiveNotes: session.facultyLiveNotes } : s))
-      );
+    if (session?.id && session?.facultyLiveNotes && session.facultyLiveNotes.length > 0) {
+      setAvailableSlots((prev) => {
+        const target = prev.find((s) => s.id === session.id);
+        if (target && target.facultyLiveNotes === session.facultyLiveNotes) {
+          return prev;
+        }
+        return prev.map((s) => (s.id === session.id ? { ...s, facultyLiveNotes: session.facultyLiveNotes } : s));
+      });
     }
   }, [session?.id, session?.facultyLiveNotes]);
 
@@ -237,8 +256,9 @@ function GDAppContent() {
             const cleanTopic = isTopicAllotted ? s.topic.trim() : '';
 
             const cachedRecUrl = typeof localStorage !== 'undefined' ? localStorage.getItem(`erus_recording_${s.id}`) : null;
-            const finalRecUrl = s.recordingUrl || cachedRecUrl || '';
-            if (finalRecUrl && typeof localStorage !== 'undefined') {
+            const validCachedRecUrl = cachedRecUrl && !cachedRecUrl.startsWith('blob:') ? cachedRecUrl : '';
+            const finalRecUrl = (s.recordingUrl && !s.recordingUrl.startsWith('blob:')) ? s.recordingUrl : validCachedRecUrl;
+            if (finalRecUrl && !finalRecUrl.startsWith('blob:') && typeof localStorage !== 'undefined') {
               try { localStorage.setItem(`erus_recording_${s.id}`, finalRecUrl); } catch {}
             }
 
@@ -276,7 +296,27 @@ function GDAppContent() {
             createdAt: s.createdAt || new Date().toISOString(),
           };
         });
-          setAvailableSlots(mappedSlots);
+
+          setAvailableSlots((prev) => {
+            if (prev.length === mappedSlots.length) {
+              const isDiff = mappedSlots.some((ns, idx) => {
+                const ps = prev[idx];
+                return (
+                  ps.id !== ns.id ||
+                  ps.status !== ns.status ||
+                  ps.topic !== ns.topic ||
+                  ps.slotTiming !== ns.slotTiming ||
+                  ps.recordingUrl !== ns.recordingUrl ||
+                  ps.enrolledCount !== ns.enrolledCount ||
+                  (ps.students?.length || 0) !== (ns.students?.length || 0) ||
+                  (ps.facultyLiveNotes?.length || 0) !== (ns.facultyLiveNotes?.length || 0)
+                );
+              });
+              if (!isDiff) return prev;
+            }
+            return mappedSlots;
+          });
+
           setSession((prev) => {
             if (!prev) return mappedSlots[0] || INITIAL_SESSION;
             const fresh = mappedSlots.find((s) => s.id === prev.id);
@@ -290,6 +330,18 @@ function GDAppContent() {
             }
 
             const resolvedStatus = prev.status === 'active' && fresh.status !== 'completed' ? 'active' : fresh.status;
+
+            if (
+              prev.status === resolvedStatus &&
+              prev.topic === (fresh.topic || prev.topic) &&
+              prev.slotTiming === fresh.slotTiming &&
+              prev.recordingUrl === fresh.recordingUrl &&
+              prev.assignedFacultyName === fresh.assignedFacultyName &&
+              (prev.students?.length || 0) === (fresh.students?.length || 0) &&
+              (prev.facultyLiveNotes?.length || 0) === (fresh.facultyLiveNotes?.length || 0)
+            ) {
+              return prev;
+            }
 
             return {
               ...prev,
@@ -1539,11 +1591,7 @@ function GDAppContent() {
             onStartSession={handleStartSession}
             voiceMuted={voiceMuted}
             elapsedSeconds={elapsedSeconds}
-            availableSlots={
-              currentUser?.role === 'faculty'
-                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
-                : availableSlots
-            }
+            availableSlots={facultyAssignedSlots}
             onSelectSlot={handleSelectSlot}
             onResetSlots={handleResetSlots}
             currentUser={currentUser}
@@ -1601,10 +1649,8 @@ function GDAppContent() {
             targetStudentId={viewingStudentId}
             availableSlots={
               currentUser?.role === 'student'
-                ? availableSlots.filter((s) => hasStudentParticipatedInSlot(s, currentUser))
-                : currentUser?.role === 'faculty'
-                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
-                : availableSlots
+                ? studentParticipatedSlots
+                : facultyAssignedSlots
             }
             onSelectSlot={handleOpenAssessmentReport}
             bookedSlotId={studentBookedSlotId}
@@ -1633,11 +1679,7 @@ function GDAppContent() {
               setCurrentTab('room');
             }}
             onStartSession={handleStartSession}
-            availableSlots={
-              currentUser?.role === 'faculty'
-                ? availableSlots.filter((s) => isFacultyAssignedToSlot(s, currentUser))
-                : availableSlots
-            }
+            availableSlots={facultyAssignedSlots}
             onSelectSlot={handleSelectSlot}
             facultyId={currentUser?.role === 'faculty' ? ((currentUser as any).facultyId || currentUser.id) : undefined}
             currentUser={currentUser}

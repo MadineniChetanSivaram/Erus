@@ -229,7 +229,7 @@ export const StudentGDJourneyProfile: React.FC<StudentGDJourneyProfileProps> = (
           </div>
 
           <div className="h-72 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={200} debounce={50}>
               <RadarChart data={skillWheelData} outerRadius="75%">
                 <PolarGrid stroke="#cbd5e1" strokeDasharray="3 3" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} />
@@ -303,7 +303,7 @@ export const StudentGDJourneyProfile: React.FC<StudentGDJourneyProfileProps> = (
           </div>
 
           <div className="h-56 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={180} debounce={50}>
               <AreaChart data={progressTimelineData} margin={{ top: 10, right: 15, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="progressGrad" x1="0" y1="0" x2="0" y2="1">
