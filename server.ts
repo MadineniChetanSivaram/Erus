@@ -7520,9 +7520,13 @@ async function scheduleNextTurn(room: LiveGDRoomState, completedUserId?: string)
     .slice(lastFacilitatorIndex + 1)
     .filter((t) => !t.isFacilitator && (t.speakerId === completedUserId || t.speakerId === speakerPeer?.userId));
 
-  const spokenThought = currentTurnTranscripts.length > 0
-    ? currentTurnTranscripts.map((t) => t.text.trim()).join(' ')
-    : (recentSpeakerTranscript?.text?.trim() || '');
+  if (!isOpening && currentTurnTranscripts.length === 0) {
+    // Participant did not provide new speech transcript in this turn;
+    // do not re-analyze old statements or repeat prompts. Let discussion flow.
+    return;
+  }
+
+  const spokenThought = currentTurnTranscripts.map((t) => t.text.trim()).join(' ');
 
   const utteranceClassification = isOpening
     ? { category: 'substantive' as const, cleanedThought: '' }

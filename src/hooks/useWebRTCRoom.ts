@@ -420,15 +420,14 @@ export function useWebRTCRoom({
           const avg = sum / dataArray.length;
           setLocalVolume(Math.min(100, Math.round((avg / 128) * 100)));
 
-          // Detect speaking when volume exceeds threshold (value > 12)
-          const speakingNow = avg > 12 && !isMicMutedRef.current;
+          // Detect speaking when volume exceeds threshold
+          // When AI Facilitator is actively speaking, ignore acoustic bleed in the local microphone.
+          // Do not cut off the AI and do not emit false speaking claims while AI is speaking!
+          const isAiSpeaking = roomVoice.isSpeaking();
+          const speakingNow = !isAiSpeaking && avg > 22 && !isMicMutedRef.current;
           setIsSpeakingLive(speakingNow);
 
           if (speakingNow) {
-            // Immediate barge-in: If AI Facilitator is speaking when participant speaks, cut off AI immediately!
-            if (roomVoice.isSpeaking()) {
-              roomVoice.stop();
-            }
             if (speakingStateTimeoutRef.current) {
               clearTimeout(speakingStateTimeoutRef.current);
               speakingStateTimeoutRef.current = null;
@@ -694,9 +693,6 @@ export function useWebRTCRoom({
     // A peer updated speaking/mic/camera state
     socket.on('peer-speaking-updated', ({ socketId: peerSockId, isSpeaking, micActive, cameraActive, volumeLevel: peerVol }) => {
       if (!active) return;
-      if (isSpeaking && roomVoice.isSpeaking()) {
-        roomVoice.stop();
-      }
       setPeers((prev) =>
         prev.map((p) =>
           p.socketId === peerSockId
@@ -752,7 +748,7 @@ export function useWebRTCRoom({
     socket.on('floor-state', ({ speakerId }) => {
       if (!active) return;
       floorSpeakerIdRef.current = speakerId || null;
-      if (speakerId && roomVoice.isSpeaking()) {
+      if (speakerId && speakerId !== 'facilitator' && roomVoice.isSpeaking()) {
         roomVoice.stop();
       }
       if (!speakerId) {
@@ -880,10 +876,10 @@ export function useWebRTCRoom({
       if (socketRef.current) {
         socketRef.current.emit('peer-speaking-state', {
           slotId,
-          isSpeaking: enabled,
+          isSpeaking: false,
           micActive: enabled,
           cameraActive: Boolean(isCameraOnRef.current && videoStreamRef.current),
-          volumeLevel: enabled ? localVolume : 0,
+          volumeLevel: 0,
         });
       }
     }
