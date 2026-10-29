@@ -2620,21 +2620,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       !liveSpeechTranscript
     ) {
       if (!isSocketConnected || !hasRealStudentPeers) {
-        if (clientSilenceStageRef.current === 0 && currentSilence >= 25) {
+        if (clientSilenceStageRef.current === 0 && currentSilence >= 5) {
           clientSilenceStageRef.current = 1;
           speakFacilitator(
             'The floor is open for discussion. Please feel free to share your thoughts.',
             'silence_instruction_1',
             'moderation'
           );
-        } else if (clientSilenceStageRef.current === 1 && currentSilence >= 45) {
+        } else if (clientSilenceStageRef.current === 1 && currentSilence >= 10) {
           clientSilenceStageRef.current = 2;
           speakFacilitator(
             'The floor is open. Let us keep the momentum going—anyone who has not spoken yet, please share your perspective on this topic.',
             'silence_instruction_2',
             'moderation'
           );
-        } else if (clientSilenceStageRef.current === 2 && currentSilence >= 60 && Date.now() - lastFacilitatorInterventionTimeRef.current >= 4000) {
+        } else if (clientSilenceStageRef.current === 2 && currentSilence >= 15 && Date.now() - lastFacilitatorInterventionTimeRef.current >= 3000) {
           clientSilenceStageRef.current = 3;
           lastFacilitatorInterventionTimeRef.current = Date.now();
           handleFacilitatorTargetedProbe();
@@ -2933,9 +2933,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                    displaySilenceSeconds >= 16
+                    displaySilenceSeconds >= 10
                       ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 animate-bounce'
-                      : displaySilenceSeconds >= 8
+                      : displaySilenceSeconds >= 5
                       ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400'
                       : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400'
                   }`}>
@@ -2945,21 +2945,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-slate-900 dark:text-white">AI Facilitator Floor Monitor</span>
                       <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${
-                        displaySilenceSeconds >= 16
+                        displaySilenceSeconds >= 10
                           ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse'
-                          : displaySilenceSeconds >= 8
+                          : displaySilenceSeconds >= 5
                           ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
                           : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                       }`}>
-                        {displaySilenceSeconds > 0 ? `${displaySilenceSeconds}s / 24s` : 'Active Floor'}
+                        {displaySilenceSeconds > 0 ? `${displaySilenceSeconds}s / 15s` : 'Active Floor'}
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {displaySilenceSeconds >= 16
-                        ? `Floor quiet — AI Facilitator inviting quiet participant in ${Math.max(0, 24 - displaySilenceSeconds)}s`
-                        : displaySilenceSeconds >= 8
-                        ? 'Natural pause — floor is open for candidates to present points.'
-                        : 'Floor open — candidates can contribute naturally without interruption.'}
+                      {displaySilenceSeconds >= 10
+                        ? `Floor quiet — AI Facilitator calling student in ${Math.max(0, 15 - displaySilenceSeconds)}s`
+                        : displaySilenceSeconds >= 5
+                        ? 'Floor is open — candidates can present thoughts.'
+                        : 'Active floor — speak continuously.'}
                     </p>
                   </div>
                 </div>
@@ -2968,17 +2968,17 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                     <div 
                       className={`h-full transition-all duration-1000 ${
-                        displaySilenceSeconds >= 16 
+                        displaySilenceSeconds >= 10 
                           ? 'bg-rose-500 animate-pulse' 
-                          : displaySilenceSeconds >= 8 
+                          : displaySilenceSeconds >= 5 
                           ? 'bg-amber-500' 
                           : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${Math.min(100, (displaySilenceSeconds / 24) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (displaySilenceSeconds / 15) * 100)}%` }}
                     />
                   </div>
                   <span className="text-[11px] font-mono text-slate-500 font-semibold w-8 text-right">
-                    {Math.max(0, 24 - displaySilenceSeconds)}s
+                    {Math.max(0, 15 - displaySilenceSeconds)}s
                   </span>
                 </div>
               </div>

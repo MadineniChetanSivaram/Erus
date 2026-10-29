@@ -8095,25 +8095,25 @@ function getOrCreateLiveRoom(slotId, topic) {
       io.to(`room-${slotId}`).emit("silence-timer-tick", {
         silenceTimerSeconds: room.silenceTimerSeconds,
         silenceStage: room.silenceStage,
-        maxSilence: 24
+        maxSilence: 15
       });
-      if (room.silenceStage === 0 && room.silenceTimerSeconds >= 25) {
+      if (room.silenceStage === 0 && room.silenceTimerSeconds >= 5) {
         room.silenceStage = 1;
         const openFloorText = "The floor is open for discussion. Please feel free to share your thoughts.";
         broadcastFacilitatorSilencePrompt(room, openFloorText, "silence_instruction_1");
-      } else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 45) {
+      } else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
         room.silenceStage = 2;
         const momentumText = "The floor is open. Let us keep the momentum going\u2014anyone who has not spoken yet, please share your perspective on this topic.";
         broadcastFacilitatorSilencePrompt(room, momentumText, "silence_instruction_2");
-      } else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 65) {
+      } else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
         room.silenceStage = 3;
         room.lastDeadlockAt = Date.now();
         room.deadlockCount = (room.deadlockCount || 0) + 1;
         room.waitingForParticipantId = void 0;
         await triggerDeadlockIntervention(room);
-      } else if (room.silenceStage === 3 && room.silenceTimerSeconds >= 80) {
+      } else if (room.silenceStage === 3 && room.silenceTimerSeconds >= 30) {
         room.silenceStage = 2;
-        room.silenceTimerSeconds = 16;
+        room.silenceTimerSeconds = 10;
       }
     } else {
       room.silenceTimerSeconds = 0;
