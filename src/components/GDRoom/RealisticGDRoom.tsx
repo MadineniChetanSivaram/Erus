@@ -433,7 +433,6 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     },
 
     onFacilitatorIntervention: (intervention) => {
-      hasInitiatedOpeningRef.current = true;
       setLocalSilenceSeconds(0);
       const intText = String(intervention?.text || '').trim();
       if (!intText) return;
@@ -443,16 +442,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         return;
       }
 
-      // Suppress duplicate opening welcome: never speak welcome again if client already vocalized it
       const isOpeningAction = intervention.action === 'opening' || intervention.action === 'initiate_opening_speaker';
-      const isWelcomePrompt = intText.toLowerCase().includes('welcome participants') || intText.toLowerCase().includes('discussion has now officially commenced');
-      if (isOpeningAction || isWelcomePrompt) {
-        const hasWelcomeSpoken = transcripts.some((t) => t.isFacilitator && (t.type === 'intro' || String(t.text || '').toLowerCase().includes('welcome')));
-        if (hasInitiatedOpeningRef.current || hasWelcomeSpoken) {
-          console.log('[Facilitator] Opening welcome already delivered; ignoring duplicate server opening prompt.');
-          return;
-        }
-      }
 
       // Deduplicate audio playback: never re-vocalize identical prompt within 25 seconds unless it's a direct interruption or silence prompt
       const now = Date.now();
@@ -558,7 +548,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             silenceTimerSeconds: isSilenceInstruction ? prev.silenceTimerSeconds : 0,
           }));
           notifyFacilitatorSpeechEndedRef.current();
-        });
+        }, isOpeningAction);
       } else {
         setTimeout(() => {
           setSession((prev) => ({
@@ -2005,10 +1995,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     text: string, 
     actionType: string = 'probing_question', 
     phase?: GDFacilitatorPhase,
-    onSpeechEnd?: () => void
+    onSpeechEnd?: () => void,
+    force: boolean = false
   ) => {
     roomVoice.unlock();
-    const isEssentialDirective = phase === 'intro' || phase === 'conclusion' || actionType === 'welcome' || actionType === 'conclusion';
+    const isEssentialDirective = force || phase === 'intro' || phase === 'conclusion' || actionType === 'welcome' || actionType === 'conclusion';
 
     // Do NOT interrupt or speak over any student actively talking
     const isSomeoneSpeaking = Boolean(
@@ -2093,7 +2084,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       if (onSpeechEnd) {
         onSpeechEnd();
       }
-    });
+    }, force || isEssentialDirective);
   };
 
   // Call Server for AI Facilitation Intervention with Anti-Repetition Tracking
@@ -2496,17 +2487,17 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If no one speaks initially, AI Facilitator calls upon a student or welcomes the room
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
-    if (hasInitiatedOpeningRef.current) {
-      return;
-    }
-    const hasSpokenWelcome = transcripts.some(
-      (t) => t.isFacilitator && (t.type === 'intro' || String(t.text || '').toLowerCase().includes('welcome'))
-    );
-    if (hasSpokenWelcome) {
-      hasInitiatedOpeningRef.current = true;
-      return;
-    }
     if (!force) {
+      if (hasInitiatedOpeningRef.current) {
+        return;
+      }
+      const hasSpokenWelcome = transcripts.some(
+        (t) => t.isFacilitator && (t.type === 'intro' || String(t.text || '').toLowerCase().includes('welcome'))
+      );
+      if (hasSpokenWelcome) {
+        hasInitiatedOpeningRef.current = true;
+        return;
+      }
       const hasSpoken = transcripts.some((t) => !t.isFacilitator);
       if (hasSpoken) {
         hasInitiatedOpeningRef.current = true;
@@ -2547,7 +2538,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           startPeerSpeech(openingCandidate, openingStmt);
         }, 1200);
       }
-    });
+    }, force);
   };
 
   // If silence occurs during discussion, AI Facilitator asks a targeted question explicitly mentioning the candidate by name
@@ -3723,6 +3714,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       id="dock-start-gd-btn"
                       onClick={() => {
                         roomVoice.unlock();
+                        hasInitiatedOpeningRef.current = false;
                         setSession((prev) => ({
                           ...prev,
                           status: 'active',
@@ -3734,9 +3726,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         if (onStartSession) {
                           onStartSession(session.id);
                         }
-                        setTimeout(() => {
-                          handleInitiateOpeningSpeaker(true);
-                        }, 350);
+                        handleInitiateOpeningSpeaker(true);
                       }}
                       className={`px-4 py-2.5 rounded-full font-bold text-xs text-white shadow-lg flex items-center gap-2 cursor-pointer transition-all ml-1 sm:ml-2 ${
                         !isSessionActive
@@ -3829,6 +3819,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                           id="console-start-gd-btn"
                           onClick={() => {
                             roomVoice.unlock();
+                            hasInitiatedOpeningRef.current = false;
                             setSession((prev) => ({
                               ...prev,
                               status: 'active',
@@ -3840,9 +3831,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             if (onStartSession) {
                               onStartSession(session.id);
                             }
-                            setTimeout(() => {
-                              handleInitiateOpeningSpeaker(true);
-                            }, 350);
+                            handleInitiateOpeningSpeaker(true);
                           }}
                           className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95 ${
                             !isSessionActive

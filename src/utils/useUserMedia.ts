@@ -7,7 +7,7 @@ export interface UserMediaControls {
   cameraError: string | null;
   audioLevel: number;
   audioStream: MediaStream | null;
-  startAudioAnalyser: () => Promise<MediaStream | null>;
+  startAudioAnalyser: (existingStream?: MediaStream | null) => Promise<MediaStream | null>;
   stopAudioAnalyser: () => void;
 }
 
