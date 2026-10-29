@@ -80,19 +80,22 @@ export function useUserMedia(): UserMediaControls {
   }, [isCameraOn]);
 
   // Audio level analyser for microphone feedback
-  const startAudioAnalyser = useCallback(async (): Promise<MediaStream | null> => {
+  const startAudioAnalyser = useCallback(async (existingStream?: MediaStream | null): Promise<MediaStream | null> => {
     try {
       if (audioStreamRef.current && audioStreamRef.current.getAudioTracks().some((t) => t.readyState === 'live')) {
         return audioStreamRef.current; // Already running
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      let stream: MediaStream | null = existingStream || null;
+      if (!stream || !stream.getAudioTracks().some((t) => t.readyState === 'live')) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      }
       audioStreamRef.current = stream;
       setAudioStream(stream);
 

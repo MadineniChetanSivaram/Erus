@@ -1898,12 +1898,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     } catch (e) {}
 
     let activeMicStream: MediaStream | null = getLocalAudioStream ? getLocalAudioStream() : null;
-    if (!activeMicStream) {
-      try {
-        activeMicStream = await startAudioAnalyser();
-      } catch (e) {
-        console.warn('startAudioAnalyser error:', e);
-      }
+    try {
+      activeMicStream = await startAudioAnalyser(activeMicStream);
+    } catch (e) {
+      console.warn('startAudioAnalyser error:', e);
     }
 
     if (activeMicStream) {
@@ -3345,20 +3343,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
               // so participant video pods dominate the screen clearly.
               const containerClass = 
                 count <= 4 
-                  ? 'w-[480px] sm:w-[540px] md:w-[600px] max-w-full' 
+                  ? 'w-full sm:w-[540px] md:w-[600px] max-w-[480px] sm:max-w-none' 
                   : count <= 8 
-                  ? 'w-[540px] sm:w-[620px] md:w-[700px] max-w-full' 
+                  ? 'w-full sm:w-[620px] md:w-[700px] max-w-[540px] sm:max-w-none' 
                   : count <= 12 
-                  ? 'w-[620px] sm:w-[720px] md:w-[800px] max-w-full' 
-                  : 'w-[700px] sm:w-[800px] md:w-[880px] max-w-full';
+                  ? 'w-full sm:w-[720px] md:w-[800px] max-w-[620px] sm:max-w-none' 
+                  : 'w-full sm:w-[800px] md:w-[880px] max-w-[700px] sm:max-w-none';
 
               // Inner table inset: generous inset keeps the table circle small and compact
               const innerTableInset = 
                 count <= 4 
-                  ? 'inset-32 sm:inset-40' 
+                  ? 'inset-16 sm:inset-32 md:inset-40' 
                   : count <= 8 
-                  ? 'inset-36 sm:inset-48' 
-                  : 'inset-40 sm:inset-56';
+                  ? 'inset-20 sm:inset-36 md:inset-48' 
+                  : 'inset-24 sm:inset-40 md:inset-56';
 
               return (
                 <div className="relative z-10 my-2 flex-1 flex items-center justify-center overflow-x-auto overflow-y-hidden py-4 sm:py-6 px-2 sm:px-4 scrollbar-thin">
@@ -5254,7 +5252,7 @@ export const StudentPodCard: React.FC<{
           </>
         )}
 
-        <div className={`${isCompactGrid ? "w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-xl sm:rounded-2xl" : "w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-2xl sm:rounded-3xl"} overflow-hidden border-2 transition-all duration-300 shadow-md relative bg-slate-900 ${
+        <div className={`${isCompactGrid ? "w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-xl sm:rounded-2xl" : "w-14 h-14 sm:w-20 sm:h-20 md:w-28 md:h-28 rounded-2xl sm:rounded-3xl"} overflow-hidden border-2 transition-all duration-300 shadow-md relative bg-slate-900 ${
           isZoomedSpeaker
             ? 'border-emerald-400 dark:border-emerald-300 ring-4 ring-emerald-500/80 shadow-2xl shadow-emerald-500/50'
             : student.isEmptySeat
