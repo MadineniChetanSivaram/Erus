@@ -5854,9 +5854,6 @@ var geminiQuotaExhaustedUntil = 0;
 function checkGeminiQuota(err) {
   const msg = String(err?.message || "") + JSON.stringify(err || "");
   if (msg.includes("429") || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("GenerateRequestsPerDayPerProjectPerModel") || msg.includes("rate-limits")) {
-    isGeminiQuotaExhausted = true;
-    geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1e3;
-    console.warn("[Gemini Quota] Free tier rate limit (429) detected. Automatically switching to offline heuristic domain engine.");
     return true;
   }
   return false;
@@ -5867,13 +5864,16 @@ async function generateWithGeminiFallback(params) {
     throw new Error("Gemini quota currently exhausted (429)");
   }
   const configuredModel = process.env.GEMINI_MODEL;
-  const validConfiguredModel = configuredModel && !configuredModel.includes("2.5-flash") ? configuredModel : null;
+  const isCappedModel = configuredModel && (configuredModel.includes("2.5-flash") || configuredModel.includes("3.8-flash"));
+  const validConfiguredModel = configuredModel && !isCappedModel ? configuredModel : null;
   const models = [
     validConfiguredModel,
     "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-1.5-flash",
+    isCappedModel ? configuredModel : null
   ].filter(Boolean);
   let lastError = null;
+  let allQuotaExhausted = true;
   for (const m of models) {
     try {
       return await ai.models.generateContent({
@@ -5883,8 +5883,10 @@ async function generateWithGeminiFallback(params) {
     } catch (err) {
       lastError = err;
       if (checkGeminiQuota(err)) {
-        throw err;
+        console.warn(`[Gemini] Model ${m} quota exceeded (429), trying next available model...`);
+        continue;
       }
+      allQuotaExhausted = false;
       const msg = String(err?.message || "");
       if (msg.includes("404") || msg.includes("not found") || msg.includes("no longer available") || msg.includes("NOT_FOUND")) {
         console.warn("[Gemini] Model " + m + " returned 404 / unavailable, trying next model...");
@@ -5892,6 +5894,11 @@ async function generateWithGeminiFallback(params) {
       }
       throw err;
     }
+  }
+  if (allQuotaExhausted && lastError) {
+    isGeminiQuotaExhausted = true;
+    geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1e3;
+    console.warn("[Gemini Quota] Free tier rate limit (429) hit on all models. Automatically switching to offline heuristic domain engine.");
   }
   throw lastError;
 }
@@ -6170,8 +6177,7 @@ Language, Accent & Tone Guidelines:
 - If another participant already made the same argument, explicitly move to a different angle.
 - Length: 2 to 4 concise sentences. Sound like a real student responding to peers, not a chatbot or speech writer.`;
       try {
-        const response = await ai.models.generateContent({
-          model: "gemini-3.7-flash",
+        const response = await generateWithGeminiFallback({
           contents: prompt
         });
         peerStatement = response.text?.trim() || "";
@@ -6320,8 +6326,7 @@ Generate your response in JSON format with:
 - targetStudentName: Name of the student being addressed directly (if any)
 - isProbingQuestion: Boolean`;
       try {
-        const geminiResponse = await ai.models.generateContent({
-          model: "gemini-3.7-flash",
+        const geminiResponse = await generateWithGeminiFallback({
           contents: prompt,
           config: {
             responseMimeType: "application/json",
@@ -6448,7 +6453,6 @@ Generate your response in JSON format with:
     });
   }
 });
-var ASSESSMENT_MODEL = "gemini-3.7-flash";
 function gradeForScore(score) {
   if (score >= 90) return "Excellent";
   if (score >= 75) return "Very Good";
@@ -6817,8 +6821,7 @@ async function generateAssessmentReport(student, transcriptHistory, topic, durat
   }
   const prompt = "Evaluate one student using only observable evidence. Never invent behavior. Leadership is not automatic for speaking first. If evidence is insufficient, use a conservative score and say so.\\nStudent: " + student.name + "\\nTopic: " + topic + "\\nSpeaking seconds: " + seconds + "\\nTurns: " + (metrics.speakingTurns ?? entries.length) + "\\nInterruptions: " + (metrics.interruptionCount || 0) + "\\nWords: " + wordCount + "\\nWPM: " + wpm + "\\nFiller words: " + fillerWordsCount + "\\nTranscript:\\n" + spokenText + "\\nRubric: English 20, Fluency 20, Clarity 15, Confidence 15, Content 15, Collaboration 10, Leadership 5. Return JSON fields: englishScore, englishFeedback, fluencyScore, fluencyFeedback, clarityScore, clarityFeedback, confidenceScore, confidenceFeedback, contentScore, contentFeedback, collaborationScore, collaborationFeedback, leadershipScore, leadershipFeedback, strengths, areasForImprovement, aiRecommendations, aiSummary.";
   try {
-    const response = await ai.models.generateContent({
-      model: ASSESSMENT_MODEL,
+    const response = await generateWithGeminiFallback({
       contents: prompt,
       config: {
         responseMimeType: "application/json",

@@ -152,6 +152,7 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
     setMicEnabled: rtcSetMicEnabled,
     localAudioStream: rtcLocalAudioStream,
     startSession: rtcStartSession,
+    resumeAudioPlayback: rtcResumeAudioPlayback,
   } = useWebRTCRoom({
     slotId: session.id || session.slotId || 'slot-presentation-1',
     currentUser,
@@ -186,7 +187,17 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
     },
     onFacilitatorIntervention: (intervention) => {
       if (intervention.text) {
-        setAiSpeech(intervention.text);
+        const intText = intervention.text.trim();
+        setAiSpeech(intText);
+        if (!isRoomAudioMuted) {
+          roomVoice.unlock();
+          roomVoice.setMuted(false);
+          rtcResumeAudioPlayback();
+          setAiSpeaking(true);
+          roomVoice.speakAsFacilitator(intText, () => {
+            setAiSpeaking(false);
+          });
+        }
       }
       if (intervention.targetSeatNumber) {
         setActiveStudentIndex(intervention.targetSeatNumber - 1);
@@ -658,8 +669,31 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
     }
   }, [transcripts]);
 
+  // Proactively unlock browser audio playback and speech synthesis on initial mount and user interactions
+  useEffect(() => {
+    roomVoice.unlock();
+    roomVoice.setMuted(false);
+    rtcResumeAudioPlayback();
+
+    const resumeOnInteraction = () => {
+      roomVoice.unlock();
+      roomVoice.setMuted(false);
+      rtcResumeAudioPlayback();
+    };
+
+    window.addEventListener('click', resumeOnInteraction, { once: true });
+    window.addEventListener('keydown', resumeOnInteraction, { once: true });
+    window.addEventListener('pointerdown', resumeOnInteraction, { once: true });
+
+    return () => {
+      window.removeEventListener('click', resumeOnInteraction);
+      window.removeEventListener('keydown', resumeOnInteraction);
+      window.removeEventListener('pointerdown', resumeOnInteraction);
+    };
+  }, [rtcResumeAudioPlayback]);
+
   // Speak script via RoomVoiceEngine with Indian English tone and robust chunking
-  const speakAI = (text: string, onEnd?: () => void) => {
+  const speakAI = (text: string, onEnd?: () => void, force: boolean = false) => {
     const clean = String(text || '').trim();
     setAiSpeech(clean);
     addTranscriptEntry('ERUS AI Instructor', clean, true);
@@ -671,11 +705,14 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
       return;
     }
 
+    roomVoice.unlock();
+    roomVoice.setMuted(false);
+    rtcResumeAudioPlayback();
     setAiSpeaking(true);
     roomVoice.speakAsFacilitator(clean, () => {
       setAiSpeaking(false);
       if (onEnd) onEnd();
-    }, true);
+    }, force);
   };
 
   // Stage 2: Call specific student in serial order (Student 1 to 6)
@@ -698,13 +735,21 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
   const startOpeningSequence = () => {
     if (hasStartedOpeningRef.current) return;
     hasStartedOpeningRef.current = true;
+    roomVoice.unlock();
+    roomVoice.setMuted(false);
+    rtcResumeAudioPlayback();
     const openingScript = getPresentationOpeningScript(session.topic, presentationStudents.length);
     speakAI(openingScript, () => {
       callStudentToPresent(1);
-    });
+    }, true);
   };
 
   const handleFacultyStartPresentation = () => {
+    roomVoice.unlock();
+    roomVoice.setMuted(false);
+    setIsRoomAudioMuted(false);
+    rtcResumeAudioPlayback();
+
     setSession((prev) => ({
       ...prev,
       activityType: 'presentation',
@@ -1045,7 +1090,36 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
           </button>
 
           <button
-            onClick={() => setIsRoomAudioMuted(!isRoomAudioMuted)}
+            type="button"
+            onClick={() => {
+              roomVoice.unlock();
+              roomVoice.setMuted(false);
+              setIsRoomAudioMuted(false);
+              rtcResumeAudioPlayback();
+              speakAI(
+                `Welcome participants. The ERUS AI Presentation audio engine is active and clear. Session topic: "${session.topic}".`,
+                undefined,
+                true
+              );
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:hover:bg-violet-900/50 dark:text-violet-300 border border-violet-200 dark:border-violet-700/50 shadow-xs transition-all active:scale-95 cursor-pointer"
+            title="Click to test AI Instructor audio output and unlock browser speech"
+          >
+            <Volume2 className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+            <span className="hidden sm:inline">Test AI Voice</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const nextState = !isRoomAudioMuted;
+              setIsRoomAudioMuted(nextState);
+              roomVoice.setMuted(nextState);
+              if (!nextState) {
+                roomVoice.unlock();
+                rtcResumeAudioPlayback();
+              }
+            }}
             className={`p-2 rounded-xl border transition-colors cursor-pointer ${
               isRoomAudioMuted
                 ? 'bg-rose-50 border-rose-200 text-rose-600'

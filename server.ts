@@ -6064,40 +6064,43 @@ function checkGeminiQuota(err: any): boolean {
     msg.includes('GenerateRequestsPerDayPerProjectPerModel') ||
     msg.includes('rate-limits')
   ) {
-    isGeminiQuotaExhausted = true;
-    geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1-hour backoff
-    console.warn('[Gemini Quota] Free tier rate limit (429) detected. Automatically switching to offline heuristic domain engine.');
     return true;
   }
   return false;
 }
 
-async function generateWithGeminiFallback(params) {
+async function generateWithGeminiFallback(params: any): Promise<any> {
   if (!ai) throw new Error('Gemini AI client not initialized');
   if (isGeminiQuotaExhausted && Date.now() < geminiQuotaExhaustedUntil) {
     throw new Error('Gemini quota currently exhausted (429)');
   }
   const configuredModel = process.env.GEMINI_MODEL;
-  // If configuredModel is unset or points to deprecated 2.5-flash, omit it
-  const validConfiguredModel = (configuredModel && !configuredModel.includes('2.5-flash')) ? configuredModel : null;
+  // If configuredModel is unset or points to deprecated 2.5-flash or 3.8-flash (which has strict 20 req/day limit), deprioritize
+  const isCappedModel = configuredModel && (configuredModel.includes('2.5-flash') || configuredModel.includes('3.8-flash'));
+  const validConfiguredModel = (configuredModel && !isCappedModel) ? configuredModel : null;
   const models = [
     validConfiguredModel,
     'gemini-2.0-flash',
     'gemini-1.5-flash',
-  ].filter(Boolean);
+    isCappedModel ? configuredModel : null,
+  ].filter(Boolean) as string[];
 
-  let lastError = null;
+  let lastError: any = null;
+  let allQuotaExhausted = true;
+
   for (const m of models) {
     try {
       return await ai.models.generateContent({
         ...params,
         model: m,
       });
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
       if (checkGeminiQuota(err)) {
-        throw err;
+        console.warn(`[Gemini] Model ${m} quota exceeded (429), trying next available model...`);
+        continue;
       }
+      allQuotaExhausted = false;
       const msg = String(err?.message || '');
       if (msg.includes('404') || msg.includes('not found') || msg.includes('no longer available') || msg.includes('NOT_FOUND')) {
         console.warn('[Gemini] Model ' + m + ' returned 404 / unavailable, trying next model...');
@@ -6106,6 +6109,13 @@ async function generateWithGeminiFallback(params) {
       throw err;
     }
   }
+
+  if (allQuotaExhausted && lastError) {
+    isGeminiQuotaExhausted = true;
+    geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
+    console.warn('[Gemini Quota] Free tier rate limit (429) hit on all models. Automatically switching to offline heuristic domain engine.');
+  }
+
   throw lastError;
 }
 
@@ -6615,8 +6625,7 @@ Language, Accent & Tone Guidelines:
 - Length: 2 to 4 concise sentences. Sound like a real student responding to peers, not a chatbot or speech writer.`;
 
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+        const response = await generateWithGeminiFallback({
           contents: prompt,
         });
         peerStatement = response.text?.trim() || '';
@@ -6792,8 +6801,7 @@ Generate your response in JSON format with:
 - isProbingQuestion: Boolean`;
 
       try {
-        const geminiResponse = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
+        const geminiResponse = await generateWithGeminiFallback({
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
@@ -7393,8 +7401,7 @@ async function generateAssessmentReport(student: any, transcriptHistory: any[], 
     'Return JSON fields: englishScore, englishFeedback, fluencyScore, fluencyFeedback, clarityScore, clarityFeedback, confidenceScore, confidenceFeedback, contentScore, contentFeedback, collaborationScore, collaborationFeedback, leadershipScore, leadershipFeedback, strengths, areasForImprovement, aiRecommendations, aiSummary.';
 
   try {
-    const response = await ai.models.generateContent({
-      model: ASSESSMENT_MODEL,
+    const response = await generateWithGeminiFallback({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
