@@ -6052,15 +6052,36 @@ if (
   }
 }
 
+let isGeminiQuotaExhausted = false;
+let geminiQuotaExhaustedUntil = 0;
+
+function checkGeminiQuota(err: any): boolean {
+  const msg = String(err?.message || '') + JSON.stringify(err || '');
+  if (
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('GenerateRequestsPerDayPerProjectPerModel') ||
+    msg.includes('rate-limits')
+  ) {
+    isGeminiQuotaExhausted = true;
+    geminiQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000; // 1-hour backoff
+    console.warn('[Gemini Quota] Free tier rate limit (429) detected. Automatically switching to offline heuristic domain engine.');
+    return true;
+  }
+  return false;
+}
 
 async function generateWithGeminiFallback(params) {
   if (!ai) throw new Error('Gemini AI client not initialized');
+  if (isGeminiQuotaExhausted && Date.now() < geminiQuotaExhaustedUntil) {
+    throw new Error('Gemini quota currently exhausted (429)');
+  }
   const configuredModel = process.env.GEMINI_MODEL;
   // If configuredModel is unset or points to deprecated 2.5-flash, omit it
   const validConfiguredModel = (configuredModel && !configuredModel.includes('2.5-flash')) ? configuredModel : null;
   const models = [
     validConfiguredModel,
-    'gemini-3.8-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
   ].filter(Boolean);
@@ -6074,6 +6095,9 @@ async function generateWithGeminiFallback(params) {
       });
     } catch (err) {
       lastError = err;
+      if (checkGeminiQuota(err)) {
+        throw err;
+      }
       const msg = String(err?.message || '');
       if (msg.includes('404') || msg.includes('not found') || msg.includes('no longer available') || msg.includes('NOT_FOUND')) {
         console.warn('[Gemini] Model ' + m + ' returned 404 / unavailable, trying next model...');
@@ -6499,8 +6523,8 @@ app.post('/api/session/transcribe-audio', async (req, res) => {
       return res.status(400).json({ success: false, error: 'audioBase64 is required' });
     }
 
-    if (!ai) {
-      return res.status(503).json({ success: false, error: 'Gemini AI speech recognition service unavailable' });
+    if (!ai || (isGeminiQuotaExhausted && Date.now() < geminiQuotaExhaustedUntil)) {
+      return res.json({ success: true, text: '', fallback: true });
     }
 
     const cleanBase64 = audioBase64.includes('base64,') ? audioBase64.split('base64,')[1] : audioBase64;
@@ -6527,8 +6551,11 @@ app.post('/api/session/transcribe-audio', async (req, res) => {
     const transcriptText = (response.text || '').trim();
     return res.json({ success: true, text: transcriptText });
   } catch (err: any) {
-    console.warn('[Audio Transcription] Gemini STT error:', err?.message || err);
-    return res.status(500).json({ success: false, error: err?.message || 'Transcription failed' });
+    if (checkGeminiQuota(err)) {
+      return res.json({ success: true, text: '', fallback: true, quotaExceeded: true });
+    }
+    console.warn('[Audio Transcription] Gemini STT notice:', err?.message || err);
+    return res.json({ success: true, text: '', fallback: true });
   }
 });
 
@@ -8769,8 +8796,9 @@ function broadcastFacilitatorSilencePrompt(
   room.transcripts.push(promptTranscript);
   persistTranscriptToMongoDB(promptTranscript);
 
-  // Keep speaking until brief (2000ms) so staged silence progression at 6s and 9s is never blocked
-  room.facilitatorSpeakingUntil = Date.now() + 2000;
+  const promptWordCount = text.split(/\s+/).filter(Boolean).length;
+  // Ensure facilitator speaking window covers the entire spoken audio plus buffer so silence timer does not tick prematurely
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(7000, promptWordCount * 650 + 2500);
 
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text,
@@ -8894,20 +8922,14 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         });
 
         // Staged Turn Progression:
-        // Stage 0 -> 1: At 5s silence -> Warning 1 (Floor is open reminder)
-        if (room.silenceStage === 0 && room.silenceTimerSeconds >= 5) {
+        // Stage 0 -> 1: At 6s silence -> Warning 1 (Floor is open reminder)
+        if (room.silenceStage === 0 && room.silenceTimerSeconds >= 6) {
           room.silenceStage = 1;
-          const openFloorText = 'The floor is open for discussion. Please feel free to share your thoughts.';
+          const openFloorText = `The floor is open for discussion on "${room.topic}". Please feel free to share your thoughts.`;
           broadcastFacilitatorSilencePrompt(room, openFloorText, 'silence_instruction_1');
         }
-        // Stage 1 -> 2: At 10s silence -> Warning 2 (Encourage quieter participants)
-        else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
-          room.silenceStage = 2;
-          const momentumText = 'Anyone who has not spoken yet, please share your perspective on this topic.';
-          broadcastFacilitatorSilencePrompt(room, momentumText, 'silence_instruction_2');
-        }
-        // Stage 2 -> Targeted Question: At 15s silence -> Call candidate explicitly by name with targeted question
-        else if (room.silenceTimerSeconds >= 15) {
+        // Stage 1 -> Targeted Question: At 12s silence -> Call candidate explicitly by name with targeted question
+        else if (room.silenceTimerSeconds >= 12) {
           room.silenceStage = 0;
           room.silenceTimerSeconds = 0;
           room.lastDeadlockAt = Date.now();
@@ -10075,11 +10097,11 @@ Do not mention AI.`,
   persistTranscriptToMongoDB(interventionTranscript);
 
   const dlWordCount = (deadlockQuestion || '').split(/\s+/).filter(Boolean).length;
-  // Reset silence timer to 0 and stage to 0: after asking question, wait exactly 5 seconds before warnings
+  // Reset silence timer to 0 and stage to 0
   room.silenceTimerSeconds = 0;
   room.silenceStage = 0;
   // Generous speaking window so the complete question is spoken cleanly without cut-off
-  room.facilitatorSpeakingUntil = Date.now() + Math.max(9000, dlWordCount * 650);
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(12000, dlWordCount * 700 + 4000);
 
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text: deadlockQuestion,
@@ -10126,30 +10148,44 @@ io.on('connection', (socket) => {
       // 1. Check if this user (by userId or lowercase name) is reconnecting/refreshing
       const targetUserId = user?.id || socket.id;
       const targetName = user?.name ? user.name.trim().toLowerCase() : '';
+      const toDeleteSockets: string[] = [];
+
       for (const [existingSockId, existingPeer] of room.peers.entries()) {
         const isSame = existingSockId === socket.id ||
           (existingPeer.userId && existingPeer.userId === targetUserId) ||
           (targetName && existingPeer.name && existingPeer.name.trim().toLowerCase() === targetName);
         if (isSame) {
-          seatNumber = existingPeer.seatNumber;
-          prevDuration = existingPeer.speakingDurationSeconds || 0;
-          prevTurns = existingPeer.speakingTurns || 0;
-          prevInterruption = existingPeer.interruptionCount || 0;
-          if (existingSockId !== socket.id) {
-            room.peers.delete(existingSockId);
-            io.to(`room-${safeSlotId}`).emit('peer-left', {
-              socketId: existingSockId,
-              userId: existingPeer.userId,
-              seatNumber: existingPeer.seatNumber,
-            });
-            try {
-              const oldSock = io.sockets.sockets.get(existingSockId);
-              if (oldSock) oldSock.leave(`room-${safeSlotId}`);
-            } catch {}
+          if (!seatNumber && existingPeer.seatNumber) {
+            seatNumber = existingPeer.seatNumber;
+            prevDuration = existingPeer.speakingDurationSeconds || 0;
+            prevTurns = existingPeer.speakingTurns || 0;
+            prevInterruption = existingPeer.interruptionCount || 0;
           }
-          if (seatNumber) room.assignedSeats.set(seatNumber, socket.id);
-          break;
+          if (existingSockId !== socket.id) {
+            toDeleteSockets.push(existingSockId);
+          }
         }
+      }
+
+      for (const delId of toDeleteSockets) {
+        const delPeer = room.peers.get(delId);
+        if (delPeer) {
+          room.assignedSeats.delete(delPeer.seatNumber);
+          room.peers.delete(delId);
+          io.to(`room-${safeSlotId}`).emit('peer-left', {
+            socketId: delId,
+            userId: delPeer.userId,
+            seatNumber: delPeer.seatNumber,
+          });
+          try {
+            const oldSock = io.sockets.sockets.get(delId);
+            if (oldSock) oldSock.leave(`room-${safeSlotId}`);
+          } catch {}
+        }
+      }
+
+      if (seatNumber) {
+        room.assignedSeats.set(seatNumber, socket.id);
       }
 
       // 2. If no prior seat, assign requested seat or first free seat
@@ -10195,8 +10231,19 @@ io.on('connection', (socket) => {
       simulationMode: room.simulationMode,
     });
 
-    // Full WebRTC connectivity: transmit all peers in the room so students and faculty can establish end-to-end audio/video
-    const allRoomPeers = Array.from(room.peers.values()).filter(p => p.socketId !== socket.id);
+    // Full WebRTC connectivity: transmit deduplicated peers in the room so students and faculty can establish end-to-end audio/video
+    const seenPeerNames = new Set<string>();
+    const seenPeerIds = new Set<string>();
+    const allRoomPeers = Array.from(room.peers.values()).filter((p) => {
+      if (p.socketId === socket.id) return false;
+      const pName = (p.name || '').trim().toLowerCase();
+      const pId = (p.userId || p.socketId || '').trim().toLowerCase();
+      if (pName && seenPeerNames.has(pName)) return false;
+      if (pId && seenPeerIds.has(pId)) return false;
+      if (pName) seenPeerNames.add(pName);
+      if (pId) seenPeerIds.add(pId);
+      return true;
+    });
     socket.emit('gd-room-joined', {
       assignedSeat: seatNumber,
       peers: allRoomPeers,
@@ -10280,7 +10327,7 @@ io.on('connection', (socket) => {
     let starterQuestion = domainQuestions[0] || `what is your perspective on "${room.topic}"?`;
     starterQuestion = starterQuestion.replace(/^[^,]+,\s*/, '').trim();
 
-    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} ${seatStr}. ${candidateFirstName}, ${starterQuestion}`;
+    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The floor is now officially open for discussion. To begin, let us hear from ${candidateName} ${seatStr}. ${candidateFirstName}, ${starterQuestion}`;
 
     const openingTranscript: BackendTranscript = {
       id: `t-facilitator-opening-${Date.now()}`,
@@ -10301,7 +10348,7 @@ io.on('connection', (socket) => {
     room.askedQuestions.add(welcomePrompt);
 
     const openWordCount = welcomePrompt.split(/\s+/).filter(Boolean).length;
-    room.facilitatorSpeakingUntil = Date.now() + Math.max(6000, openWordCount * 450);
+    room.facilitatorSpeakingUntil = Date.now() + Math.max(18000, openWordCount * 700 + 4000);
     room.silenceTimerSeconds = 0;
     room.silenceStage = 0;
 

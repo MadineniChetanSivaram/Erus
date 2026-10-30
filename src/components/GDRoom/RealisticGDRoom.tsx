@@ -529,7 +529,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       if (!voiceMuted && !isRoomAudioMuted) {
         roomVoice.unlock();
         const wordCount = intervention.text.split(/\s+/).filter(Boolean).length;
-        const estSecs = Math.max(18, Math.ceil(wordCount * 1.3 + 8));
+        const estSecs = Math.max(22, Math.ceil(wordCount * 1.5 + 10));
         const safetyTimeout = setTimeout(() => {
           setSession((prev) => ({
             ...prev,
@@ -539,20 +539,27 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           notifyFacilitatorSpeechEndedRef.current();
         }, estSecs * 1000);
 
-        roomVoice.speakAsFacilitator(intervention.text, () => {
-          clearTimeout(safetyTimeout);
-          lastFacilitatorInterventionTimeRef.current = Date.now();
-          if (!isSilenceInstruction) {
-            setLocalSilenceSeconds(0);
-            clientSilenceStageRef.current = 0;
-          }
-          setSession((prev) => ({
-            ...prev,
-            isFacilitatorSpeaking: false,
-            silenceTimerSeconds: isSilenceInstruction ? prev.silenceTimerSeconds : 0,
-          }));
-          notifyFacilitatorSpeechEndedRef.current();
-        }, true);
+        // Only force-interrupt if this is an explicit opening action; routine silence/question prompts
+        // must NEVER cut off an already-playing sentence!
+        const shouldForce = Boolean(isOpeningAction);
+        roomVoice.speakAsFacilitator(
+          intervention.text,
+          () => {
+            clearTimeout(safetyTimeout);
+            lastFacilitatorInterventionTimeRef.current = Date.now();
+            if (!isSilenceInstruction) {
+              setLocalSilenceSeconds(0);
+              clientSilenceStageRef.current = 0;
+            }
+            setSession((prev) => ({
+              ...prev,
+              isFacilitatorSpeaking: false,
+              silenceTimerSeconds: isSilenceInstruction ? prev.silenceTimerSeconds : 0,
+            }));
+            notifyFacilitatorSpeechEndedRef.current();
+          },
+          shouldForce
+        );
       } else {
         setTimeout(() => {
           setSession((prev) => ({
@@ -647,10 +654,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const curSession = sessionRef.current;
 
       // Check if AI facilitator or peer voice is playing or recently finished (acoustic buffer)
-      const isAiActive = roomVoice.isSpeakingOrRecentlyFinished(500) ||
+      const isAiActive = roomVoice.isSpeakingOrRecentlyFinished(2500) ||
                          Boolean(curSession.isFacilitatorSpeaking) ||
                          Boolean((window as any).__erusIsAiSpeaking) ||
-                         (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 500);
+                         (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 2500);
 
       // Crucial: Only consider talking if recognized words are actively being uttered
       // Ambient microphone noise, fan, or breath MUST NOT reset silence!
@@ -790,13 +797,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         return true;
       });
       const uniquePeers: typeof validPeers = [];
-      const seenPeerKeys = new Set<string>();
+      const seenNames = new Set<string>();
+      const seenUserIds = new Set<string>();
+      if (isStudentUser) {
+        if (myName) seenNames.add(myName);
+        if (myId) seenUserIds.add(String(myId).toLowerCase());
+      }
       for (const p of validPeers) {
-        const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
-        if (key && !seenPeerKeys.has(key)) {
-          seenPeerKeys.add(key);
-          uniquePeers.push(p);
-        }
+        const pName = (p.name || '').trim().toLowerCase();
+        const pId = (p.userId || p.socketId || '').trim().toLowerCase();
+        if (pName && seenNames.has(pName)) continue;
+        if (pId && seenUserIds.has(pId)) continue;
+        if (pName) seenNames.add(pName);
+        if (pId) seenUserIds.add(pId);
+        uniquePeers.push(p);
       }
       uniquePeers.forEach((peer) => {
         let desiredSeat = Number(peer.seatNumber);
@@ -917,13 +931,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     });
 
     const validStudentPeers: typeof rawStudentPeers = [];
-    const seenDisplayKeys = new Set<string>();
+    const seenNames = new Set<string>();
+    const seenUserIds = new Set<string>();
+    if (isStudentUser) {
+      if (myName) seenNames.add(myName);
+      if (myId) seenUserIds.add(String(myId).toLowerCase());
+    }
     for (const p of rawStudentPeers) {
-      const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
-      if (key && !seenDisplayKeys.has(key)) {
-        seenDisplayKeys.add(key);
-        validStudentPeers.push(p);
-      }
+      const pName = (p.name || '').trim().toLowerCase();
+      const pId = (p.userId || p.socketId || '').trim().toLowerCase();
+      if (pName && seenNames.has(pName)) continue;
+      if (pId && seenUserIds.has(pId)) continue;
+      if (pName) seenNames.add(pName);
+      if (pId) seenUserIds.add(pId);
+      validStudentPeers.push(p);
     }
 
     // 3. Place each live student peer at their assigned seatNumber (or first available free seat)

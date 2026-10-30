@@ -308,9 +308,8 @@ class RoomVoiceEngine {
       this.unlock();
 
       const genId = ++this.speechGenerationId;
-      const shouldInterrupt = Boolean(force || this.isCurrentlySpeaking);
 
-      if (force || shouldInterrupt) {
+      if (force) {
         try {
           window.speechSynthesis.cancel();
         } catch {}

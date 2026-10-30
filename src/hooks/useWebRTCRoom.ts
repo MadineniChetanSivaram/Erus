@@ -713,9 +713,9 @@ export function useWebRTCRoom({
             setLocalVolume(normVol);
           }
 
-          // Detect if AI voice is currently playing
+          // Detect if AI voice is currently playing or recently finished (2500ms acoustic echo guard)
           const isAiSpeakingNow = Boolean(
-            typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 600))
+            typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 2500))
           );
 
           // Distinguish genuine vocalization (normVol >= 28 or active speech recognition) from background room noise
@@ -974,13 +974,17 @@ export function useWebRTCRoom({
       if (!active) return;
       setAssignedSeat(mySeat);
       const uniquePeers: LiveRoomPeer[] = [];
-      const seenPeerKeys = new Set<string>();
+      const seenPeerNames = new Set<string>();
+      const seenPeerIds = new Set<string>();
       for (const p of (existingPeers || [])) {
-        const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
-        if (key && !seenPeerKeys.has(key)) {
-          seenPeerKeys.add(key);
-          uniquePeers.push(p);
-        }
+        if (!p || p.role === 'faculty' || p.role === 'college_admin' || p.role === 'super_admin') continue;
+        const pName = (p.name || '').trim().toLowerCase();
+        const pId = (p.userId || p.socketId || '').trim().toLowerCase();
+        if (pName && seenPeerNames.has(pName)) continue;
+        if (pId && seenPeerIds.has(pId)) continue;
+        if (pName) seenPeerNames.add(pName);
+        if (pId) seenPeerIds.add(pId);
+        uniquePeers.push(p);
       }
       setPeers(uniquePeers);
       setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
