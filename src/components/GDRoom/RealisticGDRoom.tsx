@@ -2649,7 +2649,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       !isTransitioningTurnRef.current &&
       !liveSpeechTranscript
     ) {
-      if (!isSocketConnected || !hasRealStudentPeers) {
+      if (!isSocketConnected) {
         if (clientSilenceStageRef.current === 0 && currentSilence >= 5) {
           clientSilenceStageRef.current = 1;
           speakFacilitator(

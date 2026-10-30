@@ -8855,12 +8855,9 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         }
       }
 
-      // Check if any peer has recently uttered real speech words OR is the active speaker
+      // Check if any peer has recently uttered real speech words (only genuine speech, not ambient mic volume!)
       const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-        (p) => p.role !== 'faculty' && p.role !== 'college_admin' && (
-          (room.currentSpeakerId && room.currentSpeakerId === (p.userId || p.id)) ||
-          (p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
-        )
+        (p) => p.role !== 'faculty' && p.role !== 'college_admin' && Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
       );
 
       const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
@@ -8888,28 +8885,28 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
 
         room.silenceTimerSeconds += 1;
 
-        // Broadcast current silence countdown tick to all peers (8s intervals up to 24s max)
+        // Broadcast current silence countdown tick to all peers
         io.to(`room-${slotId}`).emit('silence-timer-tick', {
           silenceTimerSeconds: room.silenceTimerSeconds,
           silenceStage: room.silenceStage,
           maxSilence: 15,
         });
 
-        // Generous Staged Turn Arbitration (eliminates premature interruptions & audio overlaps):
-        // Stage 0 -> 1: At 8s silence -> AI reminds floor is open (Warning 1)
+        // Staged Turn Progression:
+        // Stage 0 -> 1: At 5s silence -> Warning 1 (Floor is open reminder)
         if (room.silenceStage === 0 && room.silenceTimerSeconds >= 5) {
           room.silenceStage = 1;
           const openFloorText = 'The floor is open for discussion. Please feel free to share your thoughts.';
           broadcastFacilitatorSilencePrompt(room, openFloorText, 'silence_instruction_1');
         }
-        // Stage 1 -> 2: At 16s silence (8s after Stage 1) -> AI encourages quieter participants (Warning 2)
+        // Stage 1 -> 2: At 10s silence -> Warning 2 (Encourage quieter participants)
         else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
           room.silenceStage = 2;
-          const momentumText = 'The floor is open. Anyone who has not spoken yet, please share your perspective.';
+          const momentumText = 'Anyone who has not spoken yet, please share your perspective on this topic.';
           broadcastFacilitatorSilencePrompt(room, momentumText, 'silence_instruction_2');
         }
-        // Stage 2 -> Question: At 15s silence -> AI specifically calls candidate with targeted question
-        else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
+        // Stage 2 -> Targeted Question: At 15s silence -> Call candidate explicitly by name with targeted question
+        else if (room.silenceTimerSeconds >= 15) {
           room.silenceStage = 0;
           room.silenceTimerSeconds = 0;
           room.lastDeadlockAt = Date.now();
@@ -9855,12 +9852,26 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   )[0];
 
   let candidateName = quietPeer?.name;
-  if (!candidateName || candidateName === 'participants' || candidateName === 'Student Participant' || candidateName.startsWith('Student ')) {
+  if (!candidateName || candidateName === 'participants' || candidateName === 'Participant' || candidateName === 'Student Participant' || candidateName.startsWith('Student ')) {
     if (targetSlot && Array.isArray(targetSlot.students)) {
-      const matchInSlot = targetSlot.students.find((s: any) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith('Seat ') && !String(s.name).startsWith('Student '));
+      const matchInSlot = targetSlot.students.find((s: any) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith('Seat ') && !String(s.name).startsWith('Student ') && !String(s.name).startsWith('Participant'));
       if (matchInSlot?.name) {
         candidateName = matchInSlot.name;
       }
+    }
+  }
+  if (!candidateName || candidateName === 'participants' || candidateName === 'Participant' || candidateName.startsWith('Student ')) {
+    for (const [, list] of Object.entries(persistentState.slots)) {
+      for (const slot of list) {
+        if (slot && Array.isArray(slot.students)) {
+          const matchInSlot = slot.students.find((s: any) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith('Seat ') && !String(s.name).startsWith('Student ') && !String(s.name).startsWith('Participant'));
+          if (matchInSlot?.name) {
+            candidateName = matchInSlot.name;
+            break;
+          }
+        }
+      }
+      if (candidateName && candidateName !== 'Participant' && !candidateName.startsWith('Student ')) break;
     }
   }
   if (!candidateName || candidateName === 'participants') {
@@ -10383,17 +10394,12 @@ io.on('connection', (socket) => {
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
 
-    // Only genuine speech or claimed floor resets the silence timer; ambient microphone volume must not reset silence!
+    // Raw microphone volume activity does NOT reset silence timer; only substantive transcribed speech resets silence!
     if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
-      peer.lastSpokeAt = Date.now();
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
-      room.facilitatorSpeakingUntil = 0;
       if (room.turnTimer) {
         clearTimeout(room.turnTimer);
         room.turnTimer = undefined;
       }
-      room.waitingForParticipantId = undefined;
     }
 
     // Identify all student peers currently speaking with active mics

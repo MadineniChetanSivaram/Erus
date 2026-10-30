@@ -8080,7 +8080,7 @@ function getOrCreateLiveRoom(slotId, topic) {
       }
     }
     const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-      (p) => p.role !== "faculty" && p.role !== "college_admin" && (room.currentSpeakerId && room.currentSpeakerId === (p.userId || p.id) || p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
+      (p) => p.role !== "faculty" && p.role !== "college_admin" && Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
     );
     const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
     if (isFacilitatorSpeaking) {
@@ -8114,9 +8114,9 @@ function getOrCreateLiveRoom(slotId, topic) {
         broadcastFacilitatorSilencePrompt(room, openFloorText, "silence_instruction_1");
       } else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
         room.silenceStage = 2;
-        const momentumText = "The floor is open. Anyone who has not spoken yet, please share your perspective.";
+        const momentumText = "Anyone who has not spoken yet, please share your perspective on this topic.";
         broadcastFacilitatorSilencePrompt(room, momentumText, "silence_instruction_2");
-      } else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
+      } else if (room.silenceTimerSeconds >= 15) {
         room.silenceStage = 0;
         room.silenceTimerSeconds = 0;
         room.lastDeadlockAt = Date.now();
@@ -8911,12 +8911,26 @@ async function triggerDeadlockIntervention(room) {
     (a, b) => (a.speakingTurns || 0) - (b.speakingTurns || 0) || (a.speakingDurationSeconds || 0) - (b.speakingDurationSeconds || 0) || (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0)
   )[0];
   let candidateName = quietPeer?.name;
-  if (!candidateName || candidateName === "participants" || candidateName === "Student Participant" || candidateName.startsWith("Student ")) {
+  if (!candidateName || candidateName === "participants" || candidateName === "Participant" || candidateName === "Student Participant" || candidateName.startsWith("Student ")) {
     if (targetSlot && Array.isArray(targetSlot.students)) {
-      const matchInSlot = targetSlot.students.find((s) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith("Seat ") && !String(s.name).startsWith("Student "));
+      const matchInSlot = targetSlot.students.find((s) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith("Seat ") && !String(s.name).startsWith("Student ") && !String(s.name).startsWith("Participant"));
       if (matchInSlot?.name) {
         candidateName = matchInSlot.name;
       }
+    }
+  }
+  if (!candidateName || candidateName === "participants" || candidateName === "Participant" || candidateName.startsWith("Student ")) {
+    for (const [, list] of Object.entries(persistentState.slots)) {
+      for (const slot of list) {
+        if (slot && Array.isArray(slot.students)) {
+          const matchInSlot = slot.students.find((s) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith("Seat ") && !String(s.name).startsWith("Student ") && !String(s.name).startsWith("Participant"));
+          if (matchInSlot?.name) {
+            candidateName = matchInSlot.name;
+            break;
+          }
+        }
+      }
+      if (candidateName && candidateName !== "Participant" && !candidateName.startsWith("Student ")) break;
     }
   }
   if (!candidateName || candidateName === "participants") {
@@ -9372,15 +9386,10 @@ io.on("connection", (socket) => {
     if (micActive !== void 0) peer.micActive = micActive;
     if (cameraActive !== void 0) peer.cameraActive = cameraActive;
     if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
-      peer.lastSpokeAt = Date.now();
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
-      room.facilitatorSpeakingUntil = 0;
       if (room.turnTimer) {
         clearTimeout(room.turnTimer);
         room.turnTimer = void 0;
       }
-      room.waitingForParticipantId = void 0;
     }
     const activelySpeakingPeers = Array.from(room.peers.values()).filter(
       (p) => p.role === "student" && p.isSpeaking && p.micActive

@@ -121,6 +121,8 @@ export function useWebRTCRoom({
   const [connected, setConnected] = useState(false);
   const [assignedSeat, setAssignedSeat] = useState<number>(currentUser && 'seatNumber' in currentUser ? (currentUser as any).seatNumber || 1 : 1);
   const [peers, setPeers] = useState<LivePeer[]>([]);
+  const peersRef = useRef<LivePeer[]>(peers);
+  peersRef.current = peers;
   const [peerStreams, setPeerStreams] = useState<Map<string, MediaStream>>(new Map());
   const [aiParticipants, setAiParticipants] = useState<any[]>([]);
   const [simulationMode, setSimulationMode] = useState(false);
