@@ -10251,6 +10251,8 @@ io.on('connection', (socket) => {
     room.silenceInterventionCount = 0;
     room.askedQuestions = new Set<string>();
     syncAiParticipants(room);
+
+    // Notify all participants and global observers that session is now active
     io.to(`room-${safeSlotId}`).emit('session-started', {
       slotId: safeSlotId,
       status: 'active',
@@ -10263,7 +10265,47 @@ io.on('connection', (socket) => {
       status: 'active',
       topic: room.topic || targetSlot?.topic,
     });
-    // Client initiates the welcome speech on session start; do NOT schedule an artificial duplicate turn
+
+    // IMMEDIATELY generate and broadcast opening welcome & candidate invitation so AI speaks at exact start!
+    const studentPeers = Array.from(room.peers.values()).filter((p) => p.role === 'student');
+    const firstStudent = studentPeers[0];
+    const candidateName = firstStudent?.name || (targetSlot?.students?.[0]?.name) || 'participants';
+    const candidateFirstName = candidateName.split(' ')[0];
+    const seatStr = firstStudent?.seatNumber ? `Seat ${firstStudent.seatNumber}` : 'your seat';
+
+    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} from ${seatStr}. ${candidateFirstName}, please share your opening thoughts on "${room.topic}".`;
+
+    const openingTranscript: BackendTranscript = {
+      id: `t-facilitator-opening-${Date.now()}`,
+      sessionId: safeSlotId,
+      speakerId: 'facilitator',
+      speakerName: 'AI Facilitator (ERUS)',
+      seatNumber: null,
+      isFacilitator: true,
+      timestamp: '00:00',
+      timestampSeconds: Date.now(),
+      text: welcomePrompt,
+      type: 'intro',
+      sentiment: 'positive',
+    };
+
+    room.transcripts.push(openingTranscript);
+    persistTranscriptToMongoDB(openingTranscript);
+    room.askedQuestions.add(welcomePrompt);
+
+    const openWordCount = welcomePrompt.split(/\s+/).filter(Boolean).length;
+    room.facilitatorSpeakingUntil = Date.now() + Math.max(6000, openWordCount * 450);
+    room.silenceTimerSeconds = 0;
+    room.silenceStage = 0;
+
+    // Broadcast opening welcome to ALL peers in room immediately
+    io.to(`room-${safeSlotId}`).emit('facilitator-intervention', {
+      text: welcomePrompt,
+      action: 'opening',
+      targetUserId: firstStudent?.userId,
+      targetSeatNumber: firstStudent?.seatNumber,
+      transcript: openingTranscript,
+    });
   });
 
   // 1.55 Notification that AI Facilitator speech audio concluded on client

@@ -723,9 +723,9 @@ export function useWebRTCRoom({
           const effectiveIsSpeaking = isAiSpeakingNow ? false : (isSpeakingLiveRef.current || (normVol >= 15 && !isMicMutedRef.current));
           const effectiveVol = isAiSpeakingNow ? 0 : normVol;
 
-          // Outgoing audio tracks are ducked/disabled during AI speech to eliminate speaker-to-mic acoustic echo feedback!
+          // Outgoing audio tracks are ALWAYS enabled unless the participant manually muted their mic
           if (localStreamRef.current) {
-            const shouldBeEnabled = !isMicMutedRef.current && !isAiSpeakingNow;
+            const shouldBeEnabled = !isMicMutedRef.current;
             localStreamRef.current.getAudioTracks().forEach((track) => {
               if (track.enabled !== shouldBeEnabled) {
                 track.enabled = shouldBeEnabled;
@@ -762,38 +762,14 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
-  // Global listener for AI voice events: duck outgoing WebRTC tracks on start to stop echo,
-  // then restore 350ms after AI finishes speaking to let room reverb die out
+  // Keep microphone tracks always active so speech recognition and participant audio are never blocked
   useEffect(() => {
-    let unblockTimer: any = null;
-    const handleVoiceStart = () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      if (localStreamRef.current) {
-        localStreamRef.current.getAudioTracks().forEach((t) => {
-          t.enabled = false;
-        });
-      }
-    };
-
-    const handleVoiceEnd = () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      unblockTimer = setTimeout(() => {
-        if (localStreamRef.current && !isMicMutedRef.current) {
-          localStreamRef.current.getAudioTracks().forEach((t) => {
-            t.enabled = true;
-          });
-        }
-      }, 350);
-    };
-
-    window.addEventListener('erus-ai-voice-start', handleVoiceStart);
-    window.addEventListener('erus-ai-voice-end', handleVoiceEnd);
-    return () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      window.removeEventListener('erus-ai-voice-start', handleVoiceStart);
-      window.removeEventListener('erus-ai-voice-end', handleVoiceEnd);
-    };
-  }, []);
+    if (localStreamRef.current && !isMicMutedRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = true;
+      });
+    }
+  }, [isMicMuted]);
 
   const initLocalMicrophoneRef = useRef(initLocalMicrophone);
   initLocalMicrophoneRef.current = initLocalMicrophone;

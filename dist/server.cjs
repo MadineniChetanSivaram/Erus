@@ -9279,6 +9279,39 @@ io.on("connection", (socket) => {
       status: "active",
       topic: room.topic || targetSlot?.topic
     });
+    const studentPeers = Array.from(room.peers.values()).filter((p) => p.role === "student");
+    const firstStudent = studentPeers[0];
+    const candidateName = firstStudent?.name || targetSlot?.students?.[0]?.name || "participants";
+    const candidateFirstName = candidateName.split(" ")[0];
+    const seatStr = firstStudent?.seatNumber ? `Seat ${firstStudent.seatNumber}` : "your seat";
+    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} from ${seatStr}. ${candidateFirstName}, please share your opening thoughts on "${room.topic}".`;
+    const openingTranscript = {
+      id: `t-facilitator-opening-${Date.now()}`,
+      sessionId: safeSlotId,
+      speakerId: "facilitator",
+      speakerName: "AI Facilitator (ERUS)",
+      seatNumber: null,
+      isFacilitator: true,
+      timestamp: "00:00",
+      timestampSeconds: Date.now(),
+      text: welcomePrompt,
+      type: "intro",
+      sentiment: "positive"
+    };
+    room.transcripts.push(openingTranscript);
+    persistTranscriptToMongoDB(openingTranscript);
+    room.askedQuestions.add(welcomePrompt);
+    const openWordCount = welcomePrompt.split(/\s+/).filter(Boolean).length;
+    room.facilitatorSpeakingUntil = Date.now() + Math.max(6e3, openWordCount * 450);
+    room.silenceTimerSeconds = 0;
+    room.silenceStage = 0;
+    io.to(`room-${safeSlotId}`).emit("facilitator-intervention", {
+      text: welcomePrompt,
+      action: "opening",
+      targetUserId: firstStudent?.userId,
+      targetSeatNumber: firstStudent?.seatNumber,
+      transcript: openingTranscript
+    });
   });
   socket.on("facilitator-speech-ended", ({ slotId }) => {
     const safeSlotId = slotId || "session-101";
