@@ -6055,8 +6055,11 @@ if (
 
 async function generateWithGeminiFallback(params) {
   if (!ai) throw new Error('Gemini AI client not initialized');
+  const configuredModel = process.env.GEMINI_MODEL;
+  // If configuredModel is unset or points to deprecated 2.5-flash, omit it
+  const validConfiguredModel = (configuredModel && !configuredModel.includes('2.5-flash')) ? configuredModel : null;
   const models = [
-    process.env.GEMINI_MODEL,
+    validConfiguredModel,
     'gemini-3.8-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
@@ -10139,8 +10142,8 @@ io.on('connection', (socket) => {
       college: user?.college || 'Campus Participant',
       seatNumber,
       isSpeaking: false,
-      micActive: !isObserver && Boolean(user?.micActive),
-      cameraActive: !isObserver && Boolean(user?.cameraActive),
+      micActive: !isObserver && (user?.micActive !== false),
+      cameraActive: !isObserver && (user?.cameraActive !== false),
       speakingDurationSeconds: prevDuration,
       speakingTurns: prevTurns,
       interruptionCount: prevInterruption,

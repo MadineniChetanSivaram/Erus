@@ -1149,14 +1149,11 @@ export function useWebRTCRoom({
     socket.on('peer-speaking-updated', ({ socketId: peerSockId, isSpeaking, micActive, cameraActive, volumeLevel: peerVol }) => {
       if (!active) return;
       const audioEl = audioElementsRef.current.get(peerSockId);
-      const isMuted = micActive === false;
       if (audioEl) {
-        audioEl.muted = isMuted;
-        audioEl.volume = isMuted ? 0 : 1.0;
-        if (!isMuted) {
-          audioEl.play().catch(() => {});
-        }
-      } else if (!isMuted) {
+        audioEl.muted = false;
+        audioEl.volume = 1.0;
+        audioEl.play().catch(() => {});
+      } else {
         const pc = peerConnectionsRef.current.get(peerSockId);
         if (pc) {
           updatePeerStreamFromReceiversRef.current(peerSockId, pc);

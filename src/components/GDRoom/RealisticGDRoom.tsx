@@ -600,6 +600,20 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [rtcFloorSpeakerId, session.currentSpeakerId, setSession]);
 
+  // Proactively unlock browser audio playback on initial mount and user interactions
+  useEffect(() => {
+    rtcResumeAudioPlayback();
+    const handleUserGesture = () => {
+      rtcResumeAudioPlayback();
+    };
+    window.addEventListener('click', handleUserGesture, { passive: true });
+    window.addEventListener('keydown', handleUserGesture, { passive: true });
+    return () => {
+      window.removeEventListener('click', handleUserGesture);
+      window.removeEventListener('keydown', handleUserGesture);
+    };
+  }, [rtcResumeAudioPlayback]);
+
   // Continuous local silence stopwatch fallback to ensure 3s triggers even during socket network lag
   const [localSilenceSeconds, setLocalSilenceSeconds] = useState(0);
 
@@ -917,7 +931,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
       const hasActiveRemoteVideo = Boolean(
         remoteStream &&
-        remoteStream.getVideoTracks().some((t) => t.readyState === 'live' && t.enabled && !t.muted)
+        remoteStream.getVideoTracks().some((t) => t.readyState !== 'ended')
       );
       const matchingSessionStudent = session.students.find(
         (s) =>
@@ -944,7 +958,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         isEmptySeat: false,
         isSpeaking: !!peer.isSpeaking,
         micActive: !!peer.micActive,
-        cameraActive: Boolean(peer.cameraActive !== undefined ? peer.cameraActive : hasActiveRemoteVideo),
+        cameraActive: Boolean(hasActiveRemoteVideo || peer.cameraActive !== false),
         speakingTurns: effectiveTurns,
         speakingDurationSeconds: effectiveDuration,
         volumeLevel: peer.volumeLevel || 0,
@@ -4982,11 +4996,11 @@ export const StudentVideoFrame: React.FC<{
   const hasRemoteVideoTrack =
     !isUser &&
     !!effectiveStream &&
-    effectiveStream.getVideoTracks().some((t) => t.readyState === 'live' && t.enabled && !t.muted);
+    effectiveStream.getVideoTracks().some((t) => t.readyState !== 'ended');
   const isCameraEnabled = isUser ? isUserCameraOn : Boolean(student.cameraActive || hasRemoteVideoTrack);
   const isLiveWebcam =
     (isUser && isUserCameraOn && !!videoStream) ||
-    (!isUser && !!effectiveStream && Boolean(student.cameraActive) && hasRemoteVideoTrack);
+    (!isUser && !!effectiveStream && hasRemoteVideoTrack);
   const isMicLive = isUser ? isListeningMic : (isCurrentSpeaker || student.isSpeaking);
 
   // Clear human face portrait avatar fallback (using SVG Avataaars portraits seeded by name)
