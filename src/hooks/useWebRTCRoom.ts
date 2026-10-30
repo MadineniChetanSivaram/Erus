@@ -1540,9 +1540,9 @@ export function useWebRTCRoom({
   }, [slotId]);
 
   // Start GD Session (emits start-session to server)
-  const startSession = useCallback((topicOverride?: string) => {
+  const startSession = useCallback((topicOverride?: string, activityTypeOverride?: string) => {
     if (socketRef.current) {
-      socketRef.current.emit('start-session', { slotId, topic: topicOverride });
+      socketRef.current.emit('start-session', { slotId, topic: topicOverride, activityType: activityTypeOverride });
     }
   }, [slotId]);
 

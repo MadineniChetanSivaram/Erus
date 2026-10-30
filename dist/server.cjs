@@ -9270,7 +9270,7 @@ io.on("connection", (socket) => {
       peer
     });
   });
-  socket.on("start-session", ({ slotId, topic }) => {
+  socket.on("start-session", ({ slotId, topic, activityType }) => {
     const safeSlotId = slotId || "session-101";
     const room = getOrCreateLiveRoom(safeSlotId, topic);
     const peer = room.peers.get(socket.id);
@@ -9307,18 +9307,26 @@ io.on("connection", (socket) => {
     room.silenceInterventionCount = 0;
     room.askedQuestions = /* @__PURE__ */ new Set();
     syncAiParticipants(room);
+    const isPresentation = activityType === "presentation" || targetSlot?.activityType === "presentation" || targetSlot?.roomLayout === "classroom";
     io.to(`room-${safeSlotId}`).emit("session-started", {
       slotId: safeSlotId,
       status: "active",
       topic: room.topic || targetSlot?.topic,
+      activityType: isPresentation ? "presentation" : "gd",
+      roomLayout: isPresentation ? "classroom" : "round_table",
       simulationMode: room.simulationMode,
       aiParticipants: Array.from(room.aiParticipants.values())
     });
     io.emit("session-started", {
       slotId: safeSlotId,
       status: "active",
-      topic: room.topic || targetSlot?.topic
+      topic: room.topic || targetSlot?.topic,
+      activityType: isPresentation ? "presentation" : "gd",
+      roomLayout: isPresentation ? "classroom" : "round_table"
     });
+    if (isPresentation) {
+      return;
+    }
     const studentPeers = Array.from(room.peers.values()).filter((p) => p.role === "student");
     const firstStudent = studentPeers[0];
     const candidateName = firstStudent?.name || targetSlot?.students?.[0]?.name || "participants";

@@ -10266,7 +10266,7 @@ io.on('connection', (socket) => {
   });
 
   // 1.5 Start Discussion Session
-  socket.on('start-session', ({ slotId, topic }: { slotId: string; topic?: string }) => {
+  socket.on('start-session', ({ slotId, topic, activityType }: { slotId: string; topic?: string; activityType?: string }) => {
     const safeSlotId = slotId || 'session-101';
     const room = getOrCreateLiveRoom(safeSlotId, topic);
     const peer = room.peers.get(socket.id);
@@ -10302,11 +10302,18 @@ io.on('connection', (socket) => {
     room.askedQuestions = new Set<string>();
     syncAiParticipants(room);
 
+    const isPresentation =
+      activityType === 'presentation' ||
+      targetSlot?.activityType === 'presentation' ||
+      targetSlot?.roomLayout === 'classroom';
+
     // Notify all participants and global observers that session is now active
     io.to(`room-${safeSlotId}`).emit('session-started', {
       slotId: safeSlotId,
       status: 'active',
       topic: room.topic || targetSlot?.topic,
+      activityType: isPresentation ? 'presentation' : 'gd',
+      roomLayout: isPresentation ? 'classroom' : 'round_table',
       simulationMode: room.simulationMode,
       aiParticipants: Array.from(room.aiParticipants.values()),
     });
@@ -10314,7 +10321,14 @@ io.on('connection', (socket) => {
       slotId: safeSlotId,
       status: 'active',
       topic: room.topic || targetSlot?.topic,
+      activityType: isPresentation ? 'presentation' : 'gd',
+      roomLayout: isPresentation ? 'classroom' : 'round_table',
     });
+
+    // For classroom presentations, the client-side presentation engine conducts the opening and turns
+    if (isPresentation) {
+      return;
+    }
 
     // IMMEDIATELY generate and broadcast opening welcome & candidate invitation so AI speaks at exact start!
     const studentPeers = Array.from(room.peers.values()).filter((p) => p.role === 'student');

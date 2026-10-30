@@ -236,7 +236,8 @@ function GDAppContent() {
               ...INITIAL_SESSION,
               id: s.id,
               collegeCode: normalizeClientCollegeCode(s.collegeCode || collegeCode),
-              activityType: s.activityType || 'gd',
+              activityType: (s.activityType === 'presentation' || s.roomLayout === 'classroom') ? 'presentation' : (s.activityType || 'gd'),
+              roomLayout: (s.activityType === 'presentation' || s.roomLayout === 'classroom') ? 'classroom' : (s.roomLayout || 'round_table'),
               presentationTopics: s.presentationTopics || undefined,
               topic: cleanTopic,
               description: s.description || '',
@@ -379,14 +380,27 @@ function GDAppContent() {
       if (targetSlot?.status === 'completed') return;
       const alreadyActive = session?.id === slotId && session.status === 'active';
 
+      const isPresentation =
+        data?.activityType === 'presentation' ||
+        targetSlot?.activityType === 'presentation' ||
+        targetSlot?.roomLayout === 'classroom' ||
+        (session?.id === slotId && (session?.activityType === 'presentation' || session?.roomLayout === 'classroom'));
+
       setAvailableSlots((prev) =>
-        prev.map((slot) => slot.id === slotId ? { ...slot, status: 'active' } : slot)
+        prev.map((slot) => slot.id === slotId ? { 
+          ...slot, 
+          status: 'active',
+          activityType: isPresentation ? 'presentation' : (slot.activityType || 'gd'),
+          roomLayout: isPresentation ? 'classroom' : (slot.roomLayout || 'round_table'),
+        } : slot)
       );
       setSession((prev) => {
         const base = prev.id === slotId ? prev : (targetSlot || { ...prev, id: slotId });
         return {
           ...base,
           id: slotId,
+          activityType: isPresentation ? 'presentation' : (base.activityType || 'gd'),
+          roomLayout: isPresentation ? 'classroom' : (base.roomLayout || 'round_table'),
           status: 'active',
           startedAt: base.startedAt || Date.now(),
         };
@@ -534,7 +548,8 @@ function GDAppContent() {
             ...INITIAL_SESSION,
             id: s.id,
             collegeCode: normalizeClientCollegeCode(s.collegeCode || collegeCode),
-            activityType: s.activityType || 'gd',
+            activityType: (s.activityType === 'presentation' || s.roomLayout === 'classroom') ? 'presentation' : (s.activityType || 'gd'),
+            roomLayout: (s.activityType === 'presentation' || s.roomLayout === 'classroom') ? 'classroom' : (s.roomLayout || 'round_table'),
             presentationTopics: s.presentationTopics || undefined,
             topic: cleanTopic,
             description: s.description || '',
@@ -727,10 +742,14 @@ function GDAppContent() {
     }
     const sessionStartTime = (isAlreadyActive && session.startedAt) ? session.startedAt : Date.now();
 
-    const isPresentation = targetSlot.activityType === 'presentation' || targetSlot.roomLayout === 'classroom';
+    const isPresentation =
+      session.activityType === 'presentation' ||
+      session.roomLayout === 'classroom' ||
+      targetSlot.activityType === 'presentation' ||
+      targetSlot.roomLayout === 'classroom';
     const welcomeIntroText = isPresentation
-      ? `Welcome participants to today's classroom presentation on "${targetSlot.topic || 'the assigned topic'}". The session has commenced. Each presenter will deliver their topic followed by peer Q&A. Let us begin.`
-      : `Welcome participants to today's group discussion on "${targetSlot.topic || 'the assigned topic'}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
+      ? `Welcome participants to today's classroom presentation on "${targetSlot.topic || session.topic || 'the assigned topic'}". The session has commenced. Each presenter will deliver their topic followed by peer Q&A. Let us begin.`
+      : `Welcome participants to today's group discussion on "${targetSlot.topic || session.topic || 'the assigned topic'}". The discussion has now officially commenced. Each participant will get an opportunity to present their perspectives. Please respect others and avoid interruptions. Let us begin. Who would like to open the discussion?`;
 
     sessionQuestionTracker.clear();
 
@@ -738,7 +757,7 @@ function GDAppContent() {
       ? targetSlot.students
       : (targetSlot.id === session.id && session.students && session.students.length > 0)
       ? session.students
-      : generateSlotParticipants(8);
+      : generateSlotParticipants(isPresentation ? 6 : 8);
 
     const activeSlot: GDSession = {
       ...(targetSlot.id === session.id ? session : targetSlot),
@@ -1575,7 +1594,10 @@ function GDAppContent() {
       ? 'completed'
       : (targetSlot.status === 'active' ? 'active' : 'waiting');
 
-    const isPresentation = targetSlot.activityType === 'presentation' || targetSlot.roomLayout === 'classroom';
+    const isPresentation =
+      targetSlot.activityType === 'presentation' ||
+      targetSlot.roomLayout === 'classroom' ||
+      (slotId === session.id && (session.activityType === 'presentation' || session.roomLayout === 'classroom'));
     const activeSlot: GDSession = {
       ...targetSlot,
       activityType: isPresentation ? 'presentation' : 'gd',
@@ -2044,6 +2066,20 @@ function GDAppContent() {
                 } else {
                   setCurrentTab('topics');
                 }
+              }}
+              onUpdateLayout={(newLayout) => {
+                setSession((prev) => ({
+                  ...prev,
+                  roomLayout: newLayout,
+                  activityType: newLayout === 'classroom' ? 'presentation' : 'gd',
+                }));
+                setAvailableSlots((prev) =>
+                  prev.map((s) => (s.id === session.id ? {
+                    ...s,
+                    roomLayout: newLayout,
+                    activityType: newLayout === 'classroom' ? 'presentation' : 'gd',
+                  } : s))
+                );
               }}
             />
           ) : (

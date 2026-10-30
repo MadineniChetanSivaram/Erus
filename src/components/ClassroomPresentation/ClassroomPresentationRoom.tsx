@@ -44,6 +44,7 @@ export interface ClassroomPresentationRoomProps {
   currentUser?: AuthUser | null;
   bookedSlotId?: string | null;
   onBackToDashboard?: () => void;
+  onUpdateLayout?: (layout: GDRoomLayoutType) => void;
 }
 
 // Isolated, Memoized Video Stream Player (Prevents React re-renders from restarting/glitching webcam)
@@ -123,6 +124,7 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
   onSelectSlot,
   currentUser,
   onBackToDashboard,
+  onUpdateLayout,
 }) => {
   const isFaculty = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin';
 
@@ -149,6 +151,7 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
     toggleMute: rtcToggleMute,
     setMicEnabled: rtcSetMicEnabled,
     localAudioStream: rtcLocalAudioStream,
+    startSession: rtcStartSession,
   } = useWebRTCRoom({
     slotId: session.id || session.slotId || 'slot-presentation-1',
     currentUser,
@@ -190,6 +193,9 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
       }
     },
   });
+
+  const hasFacultyPeer = (rtcPeers || []).some((p) => p && (p.role === 'faculty' || p.role === 'college_admin'));
+  const canStartPresentation = isFaculty || !hasFacultyPeer;
 
   // 6 Real Presentation Slot Participants (No fake AI audience bots - similar to GD)
   const presentationStudents: Student[] = useMemo(() => {
@@ -701,9 +707,14 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
   const handleFacultyStartPresentation = () => {
     setSession((prev) => ({
       ...prev,
+      activityType: 'presentation',
+      roomLayout: 'classroom',
       status: 'active',
       startedAt: prev.startedAt || Date.now(),
     }));
+    if (rtcStartSession) {
+      rtcStartSession(session.topic, 'presentation');
+    }
     onStartSession?.(session.id);
     startOpeningSequence();
   };
@@ -970,7 +981,7 @@ export const ClassroomPresentationRoom: React.FC<ClassroomPresentationRoomProps>
         {/* Global Controls & Faculty Actions */}
         <div className="flex items-center gap-2">
           {session.status !== 'active' ? (
-            isFaculty ? (
+            canStartPresentation ? (
               <button
                 onClick={handleFacultyStartPresentation}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 transition-all hover:scale-105 active:scale-95 cursor-pointer"

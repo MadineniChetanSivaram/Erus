@@ -276,9 +276,13 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   }, [isCameraOn, isFaculty, setSession]);
 
   const handleLayoutChange = (newLayout: GDRoomLayoutType) => {
-    const targetLayout: GDRoomLayoutType = newLayout === 'speaker_center' ? 'speaker_center' : 'round_table';
+    const targetLayout: GDRoomLayoutType = newLayout === 'speaker_center' ? 'speaker_center' : (newLayout === 'classroom' ? 'classroom' : 'round_table');
     setCurrentLayout(targetLayout);
-    setSession((prev) => ({ ...prev, roomLayout: targetLayout }));
+    setSession((prev) => ({
+      ...prev,
+      roomLayout: targetLayout,
+      activityType: targetLayout === 'classroom' ? 'presentation' : prev.activityType,
+    }));
     if (onUpdateLayout) {
       onUpdateLayout(targetLayout);
     }
@@ -3301,6 +3305,21 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   <Target className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">2. Speaker in Middle</span>
                   <span className="sm:hidden">Speaker Center</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleLayoutChange('classroom')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    currentLayout === 'classroom'
+                      ? 'bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 shadow-xs border border-slate-200 dark:border-slate-700 font-semibold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                  title="3. Classroom Presentation: Presenter stands front & center at podium before whiteboard; class seated in audience rows"
+                >
+                  <Presentation className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">3. Classroom Presentation</span>
+                  <span className="sm:hidden">Classroom</span>
                 </button>
               </div>
             </div>
