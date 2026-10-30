@@ -1972,6 +1972,18 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [isFaculty, rtcIsMicMuted, rtcSetMicEnabled]);
 
+  // Auto-activate webcam for student participants on initial room entry
+  const hasAutoStartedCameraRef = useRef(false);
+  useEffect(() => {
+    if (isFaculty) return;
+    if (!hasAutoStartedCameraRef.current && !isCameraOn) {
+      hasAutoStartedCameraRef.current = true;
+      toggleCamera().catch((err) => {
+        console.warn('[Auto-start webcam non-fatal]:', err);
+      });
+    }
+  }, [isFaculty, isCameraOn, toggleCamera]);
+
   // Auto-activate continuous open microphone for participants
   useEffect(() => {
     if (!isFaculty) {
@@ -4853,29 +4865,41 @@ const VideoStreamPlayer: React.FC<{
   isUser?: boolean;
   avatarFallback?: string;
   studentName?: string;
-}> = React.memo(({ stream, className, muted = true, participantId, seatNumber, isUser, avatarFallback, studentName }) => {
+}> = React.memo(({ stream, className, muted, participantId, seatNumber, isUser, avatarFallback, studentName }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isVideoLoaded, setIsVideoLoaded] = useState(true);
+
+  const isSelf = Boolean(isUser);
+  const shouldMute = isSelf || (muted !== undefined ? muted : false);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !stream) return;
 
-    // Direct DOM property enforcement required for browser WebRTC autoplay compliance
-    video.muted = true;
-    video.defaultMuted = true;
+    video.muted = shouldMute;
+    video.defaultMuted = shouldMute;
     video.playsInline = true;
+    if (!shouldMute) {
+      video.volume = 1.0;
+    }
     try {
-      video.setAttribute('muted', '');
+      if (shouldMute) {
+        video.setAttribute('muted', '');
+      } else {
+        video.removeAttribute('muted');
+      }
       video.setAttribute('playsinline', '');
       video.setAttribute('autoplay', '');
     } catch {}
 
     const incomingVideoTrack = stream.getVideoTracks().find((t) => t.readyState !== 'ended');
-    if (!incomingVideoTrack) return;
-
-    // Ensure the incoming video track is enabled
-    try { incomingVideoTrack.enabled = true; } catch {}
+    const incomingAudioTrack = stream.getAudioTracks().find((t) => t.readyState !== 'ended');
+    if (incomingVideoTrack) {
+      try { incomingVideoTrack.enabled = true; } catch {}
+    }
+    if (incomingAudioTrack && !shouldMute) {
+      try { incomingAudioTrack.enabled = true; } catch {}
+    }
 
     // Attach stream directly to video element only when different
     if (video.srcObject !== stream) {
@@ -4884,18 +4908,29 @@ const VideoStreamPlayer: React.FC<{
 
     const checkVideoRender = () => {
       if (!video) return;
-      video.muted = true;
-      video.defaultMuted = true;
+      video.muted = shouldMute;
+      video.defaultMuted = shouldMute;
       video.playsInline = true;
+      if (!shouldMute) {
+        video.volume = 1.0;
+      }
       if (video.paused) {
-        video.play().catch(() => {});
+        video.play().catch((err: any) => {
+          if (!shouldMute && err.name === 'NotAllowedError') {
+            // Browser autoplay restrictions: start muted temporarily, will unmute on interaction
+            video.muted = true;
+            video.play().catch(() => {});
+          }
+        });
       }
       setIsVideoLoaded(true);
     };
 
     checkVideoRender();
 
-    incomingVideoTrack.addEventListener('unmute', checkVideoRender);
+    if (incomingVideoTrack) {
+      incomingVideoTrack.addEventListener('unmute', checkVideoRender);
+    }
     video.addEventListener('loadedmetadata', checkVideoRender);
     video.addEventListener('loadeddata', checkVideoRender);
     video.addEventListener('canplay', checkVideoRender);
@@ -4909,13 +4944,15 @@ const VideoStreamPlayer: React.FC<{
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
-      incomingVideoTrack.removeEventListener('unmute', checkVideoRender);
+      if (incomingVideoTrack) {
+        incomingVideoTrack.removeEventListener('unmute', checkVideoRender);
+      }
       video.removeEventListener('loadedmetadata', checkVideoRender);
       video.removeEventListener('loadeddata', checkVideoRender);
       video.removeEventListener('canplay', checkVideoRender);
       video.removeEventListener('playing', checkVideoRender);
     };
-  }, [stream]);
+  }, [stream, shouldMute]);
 
   return (
     <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-800">
@@ -4937,17 +4974,34 @@ const VideoStreamPlayer: React.FC<{
         ref={videoRef}
         autoPlay
         playsInline
-        muted
+        muted={shouldMute}
+        data-is-user-self={isSelf ? 'true' : undefined}
         onLoadedMetadata={(e) => {
           const v = e.currentTarget;
-          v.muted = true;
-          if (v.paused) v.play().catch(() => {});
+          v.muted = shouldMute;
+          if (!shouldMute) v.volume = 1.0;
+          if (v.paused) {
+            v.play().catch((err: any) => {
+              if (!shouldMute && err.name === 'NotAllowedError') {
+                v.muted = true;
+                v.play().catch(() => {});
+              }
+            });
+          }
           setIsVideoLoaded(true);
         }}
         onCanPlay={(e) => {
           const v = e.currentTarget;
-          v.muted = true;
-          if (v.paused) v.play().catch(() => {});
+          v.muted = shouldMute;
+          if (!shouldMute) v.volume = 1.0;
+          if (v.paused) {
+            v.play().catch((err: any) => {
+              if (!shouldMute && err.name === 'NotAllowedError') {
+                v.muted = true;
+                v.play().catch(() => {});
+              }
+            });
+          }
           setIsVideoLoaded(true);
         }}
         onPlaying={() => setIsVideoLoaded(true)}
@@ -5039,7 +5093,7 @@ export const StudentVideoFrame: React.FC<{
         <VideoStreamPlayer 
           key={student.socketId || student.id || `seat-${student.seatNumber}`}
           stream={effectiveStream} 
-          muted={true}
+          muted={isUser}
           participantId={student.id}
           seatNumber={student.seatNumber}
           isUser={isUser}

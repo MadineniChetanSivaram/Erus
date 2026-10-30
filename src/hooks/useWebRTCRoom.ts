@@ -284,24 +284,24 @@ export function useWebRTCRoom({
   const syncTracksToPeerConnection = useCallback(async (pc: RTCPeerConnection) => {
     const isFacultyUser = currentUserRef.current?.role === 'faculty' || currentUserRef.current?.role === 'college_admin' || currentUserRef.current?.role === 'super_admin';
     if (isFacultyUser) {
-      // Ensure transceivers exist with direction 'recvonly' so faculty/observer reliably receives remote audio and video
+      // Ensure symmetric 'sendrecv' transceivers exist so faculty/observer reliably receives remote audio and video without direction mismatch
       const transceivers = pc.getTransceivers();
       const audioTransceiver = transceivers.find(
         (t) => t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio'
       );
       if (!audioTransceiver) {
-        try { pc.addTransceiver('audio', { direction: 'recvonly' }); } catch {}
+        try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
       } else {
-        try { audioTransceiver.direction = 'recvonly'; } catch {}
+        try { audioTransceiver.direction = 'sendrecv'; } catch {}
       }
 
       const videoTransceiver = transceivers.find(
         (t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video'
       );
       if (!videoTransceiver) {
-        try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch {}
+        try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
       } else {
-        try { videoTransceiver.direction = 'recvonly'; } catch {}
+        try { videoTransceiver.direction = 'sendrecv'; } catch {}
       }
       return;
     }
@@ -448,11 +448,9 @@ export function useWebRTCRoom({
         if (audioTrack) {
           pc.addTransceiver(audioTrack, { direction: 'sendrecv', streams: localStreamRef.current ? [localStreamRef.current] : [] });
         } else {
-          pc.addTransceiver('audio', { direction: isFacultyUser ? 'recvonly' : 'sendrecv' });
+          pc.addTransceiver('audio', { direction: 'sendrecv' });
         }
       } catch {}
-    } else if (isFacultyUser) {
-      try { audioTransceiver.direction = 'recvonly'; } catch {}
     } else {
       try { audioTransceiver.direction = 'sendrecv'; } catch {}
     }
@@ -466,11 +464,9 @@ export function useWebRTCRoom({
         if (videoTrack) {
           pc.addTransceiver(videoTrack, { direction: 'sendrecv', streams: videoStreamRef.current ? [videoStreamRef.current] : [] });
         } else {
-          pc.addTransceiver('video', { direction: isFacultyUser ? 'recvonly' : 'sendrecv' });
+          pc.addTransceiver('video', { direction: 'sendrecv' });
         }
       } catch {}
-    } else if (isFacultyUser) {
-      try { videoTransceiver.direction = 'recvonly'; } catch {}
     } else {
       try { videoTransceiver.direction = 'sendrecv'; } catch {}
     }
@@ -1038,11 +1034,13 @@ export function useWebRTCRoom({
         return [...filtered, peer];
       });
 
-      // Self-healing mesh: if after 1200ms no active WebRTC connection exists, initiate offer to ensure full mesh
+      // Self-healing mesh: if after 1500ms no active WebRTC connection exists, tie-break by socket.id to prevent offer collision
       setTimeout(async () => {
         if (!active || !socketRef.current) return;
         const pc = getOrCreatePeerConnectionRef.current(peer.socketId);
         if (pc.connectionState !== 'connected' && pc.connectionState !== 'connecting' && pc.signalingState === 'stable') {
+          // Tie-break: only the peer with lower socket ID initiates auto-heal offer to avoid double offers
+          if ((socketRef.current.id || '') > peer.socketId) return;
           try {
             ensureTransceiversForOfferRef.current(pc);
             await syncTracksToPeerConnectionRef.current(pc);
@@ -1060,7 +1058,7 @@ export function useWebRTCRoom({
             console.warn('[WebRTC auto-heal mesh offer notice]:', e);
           }
         }
-      }, 1200);
+      }, 1500);
     });
 
     // WebRTC Signaling Relay Received (Offer, Answer, ICE Candidate)
@@ -1610,6 +1608,15 @@ export function useWebRTCRoom({
         el.play().catch(() => {});
       }
     });
+    if (typeof document !== 'undefined') {
+      document.querySelectorAll('video').forEach((v) => {
+        if (!v.dataset.isUserSelf && (v.muted || v.paused)) {
+          v.muted = false;
+          v.volume = 1.0;
+          v.play().catch(() => {});
+        }
+      });
+    }
     setIsAudioAutoplayBlocked(false);
   }, []);
 
