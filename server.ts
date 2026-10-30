@@ -10270,7 +10270,8 @@ io.on('connection', (socket) => {
     const safeSlotId = slotId || 'session-101';
     const room = getOrCreateLiveRoom(safeSlotId, topic);
     const peer = room.peers.get(socket.id);
-    const isAuthorized = !peer || peer.role === 'faculty' || peer.role === 'college_admin' || peer.role === 'super_admin';
+    const hasFacultyInRoom = Array.from(room.peers.values()).some((p) => p.role === 'faculty' || p.role === 'college_admin');
+    const isAuthorized = !peer || peer.role === 'faculty' || peer.role === 'college_admin' || peer.role === 'super_admin' || !hasFacultyInRoom;
     if (!isAuthorized) {
       console.warn(`[start-session] Unauthorized attempt to start GD slot ${safeSlotId} by non-faculty peer ${peer?.name} (${peer?.role})`);
       return;

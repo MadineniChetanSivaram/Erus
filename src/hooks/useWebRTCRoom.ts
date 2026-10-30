@@ -718,9 +718,9 @@ export function useWebRTCRoom({
             typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 2500))
           );
 
-          // Distinguish genuine vocalization (normVol >= 28 or active speech recognition) from background room noise
-          const isVocalizing = normVol >= 28 && !isMicMutedRef.current;
-          const effectiveIsSpeaking = isAiSpeakingNow ? false : Boolean(isSpeakingLiveRef.current || isVocalizing);
+          // ONLY consider speaking if genuine speech is recognized by Web Speech API
+          // Ambient microphone noise, fan, or breath MUST NOT lock the floor or prevent facilitator speech!
+          const effectiveIsSpeaking = isAiSpeakingNow ? false : Boolean(isSpeakingLiveRef.current);
           const effectiveVol = isAiSpeakingNow ? 0 : normVol;
 
           // Outgoing audio tracks are ALWAYS enabled unless the participant manually muted their mic

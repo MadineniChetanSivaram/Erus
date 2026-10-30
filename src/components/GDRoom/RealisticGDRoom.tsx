@@ -115,8 +115,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   }, [transcripts]);
 
   const isFaculty = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
+  const hasFacultyPeer = (rtcPeers || []).some((p) => p && (p.role === 'faculty' || p.role === 'college_admin'));
   const isFacultyOrAdmin = isFaculty;
-  const canStartSession = isFacultyOrAdmin;
+  const canStartSession = isFacultyOrAdmin || !hasFacultyPeer;
   const isStudent = currentUser?.role === 'student';
 
   const [liveSpeechTranscript, setLiveSpeechTranscript] = useState('');
@@ -451,6 +452,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const normNew = normalizePrompt(intText);
       const normLast = normalizePrompt(lastFacilitatorInterventionTextRef.current || '');
       const isExemptDeduplication =
+        isOpeningAction ||
         intervention.action === 'silence_instruction_1' ||
         intervention.action === 'silence_instruction_2' ||
         intervention.action === 'deadlock_intervention' ||
@@ -2554,8 +2556,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If no one speaks initially, AI Facilitator calls upon a student or welcomes the room
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
-    // Strict Faculty Authority: Students can NEVER trigger or start GD opening speech!
-    if (isStudent || !isFacultyOrAdmin) return;
+    // Strict Faculty Authority: Students can only start GD if practicing alone without faculty in room
+    if (!canStartSession) return;
     if (!force) {
       if (hasInitiatedOpeningRef.current) {
         return;
@@ -2583,8 +2585,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       ? liveCandidates
       : (session.students && session.students.length > 0 ? session.students.filter((s) => !s.isEmptySeat) : []);
     const openingCandidate = rawCandidates[0] || null;
+    const candidateName = openingCandidate?.name || 'participants';
+    const candidateFirstName = candidateName.split(' ')[0];
 
-    const initiationPrompt = `Welcome participants to today's group discussion on "${session.topic}". The floor is now officially open for discussion. Please feel free to share your opening thoughts.`;
+    const initiationPrompt = `Welcome participants to today's group discussion on "${session.topic}". The floor is now officially open for discussion. To begin, let us hear from ${candidateName}. ${candidateFirstName}, what are your opening thoughts on this topic?`;
 
     // Broadcast over socket so all connected peers receive the opening facilitator prompt
     if (rtcBroadcastFacilitatorSpeech && isSocketConnected) {
@@ -3084,7 +3088,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                   if (onStartSession) {
                     onStartSession(session.id);
                   }
-                  handleInitiateOpeningSpeaker(true);
+                  if (!isSocketConnected) {
+                    handleInitiateOpeningSpeaker(true);
+                  }
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-700/30 transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse ring-2 ring-emerald-400/50"
               >
@@ -3116,7 +3122,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                       if (onStartSession) {
                         onStartSession(session.id);
                       }
-                      handleInitiateOpeningSpeaker(true);
+                      if (!isSocketConnected) {
+                        handleInitiateOpeningSpeaker(true);
+                      }
                     }}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white shadow-md transition-all active:scale-95 cursor-pointer border border-emerald-500/50"
                     title="Restart discussion from beginning and deliver opening speech"
@@ -3762,8 +3770,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     </button>
                   )}
 
-                  {/* 5.5 Start / Restart GD Call (Green Pill Button - Faculty & Admin only) */}
-                  {session.status !== 'completed' && isFacultyOrAdmin && !isStudent && (
+                  {/* 5.5 Start / Restart GD Call (Green Pill Button - Faculty & Admin only, or student practicing alone) */}
+                  {session.status !== 'completed' && canStartSession && (
                     <button
                       id="dock-start-gd-btn"
                       onClick={() => {
@@ -3780,7 +3788,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                         if (onStartSession) {
                           onStartSession(session.id);
                         }
-                        handleInitiateOpeningSpeaker(true);
+                        if (!isSocketConnected) {
+                          handleInitiateOpeningSpeaker(true);
+                        }
                       }}
                       className={`px-4 py-2.5 rounded-full font-bold text-xs text-white shadow-lg flex items-center gap-2 cursor-pointer transition-all ml-1 sm:ml-2 ${
                         !isSessionActive
@@ -3803,8 +3813,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                     </button>
                   )}
 
-                  {/* Waiting badge for students when session not active */}
-                  {session.status !== 'completed' && !isSessionActive && (isStudent || !isFacultyOrAdmin) && (
+                  {/* Waiting badge for students when session not active and faculty is present to start it */}
+                  {session.status !== 'completed' && !isSessionActive && !canStartSession && (
                     <div className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-slate-800/90 border border-slate-700 text-[11px] text-amber-300 font-semibold shadow-sm ml-1 sm:ml-2">
                       <Clock className="w-3.5 h-3.5 animate-spin text-amber-400" />
                       <span className="hidden sm:inline">Waiting for Faculty to start GD</span>
@@ -3885,7 +3895,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
                             if (onStartSession) {
                               onStartSession(session.id);
                             }
-                            handleInitiateOpeningSpeaker(true);
+                            if (!isSocketConnected) {
+                              handleInitiateOpeningSpeaker(true);
+                            }
                           }}
                           className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95 ${
                             !isSessionActive

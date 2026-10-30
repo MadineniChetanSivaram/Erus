@@ -422,11 +422,31 @@ class RoomVoiceEngine {
             advance();
           };
 
+          let hasRetriedWithDefaultVoice = false;
           utterance.onerror = (e: any) => {
             if (e?.error === 'canceled' || e?.error === 'interrupted') {
               if (genId !== this.speechGenerationId) return;
             }
             console.warn('[AI Facilitator Voice Notice]: chunk event:', e?.error);
+            // If the selected voice failed (e.g. network/cloud voice unavailable or error), retry once with local OS voice
+            if (!hasRetriedWithDefaultVoice && (e?.error === 'voice-unavailable' || e?.error === 'network' || e?.error === 'audio-busy' || e?.error === 'synthesis-failed')) {
+              hasRetriedWithDefaultVoice = true;
+              console.log('[AI Facilitator Voice] Retrying sentence with local system default voice...');
+              try {
+                const fallbackUtterance = new SpeechSynthesisUtterance(sentence);
+                fallbackUtterance.lang = 'en-US';
+                fallbackUtterance.rate = 0.96;
+                fallbackUtterance.volume = 1.0;
+                fallbackUtterance.onstart = () => { didStartSpeaking = true; };
+                fallbackUtterance.onend = () => { advance(); };
+                fallbackUtterance.onerror = () => { advance(); };
+                this.activeUtterances.add(fallbackUtterance);
+                window.speechSynthesis.speak(fallbackUtterance);
+                return;
+              } catch (retryErr) {
+                console.warn('[AI Facilitator Voice] Fallback retry failed:', retryErr);
+              }
+            }
             advance();
           };
 
