@@ -8747,8 +8747,8 @@ function broadcastFacilitatorSilencePrompt(
   action: 'silence_instruction_1' | 'silence_instruction_2'
 ) {
   const checkNow = Date.now();
-  // Human-First Guard: Don't speak if any participant actually transcribed real speech in the last 2.5s
-  if (Array.from(room.peers.values()).some((p) => p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)) {
+  // Human-First Guard: Don't speak if any participant is actively speaking or spoke in the last 5 seconds!
+  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && ((p.isSpeaking && p.micActive) || (p.lastSpokeAt && checkNow - p.lastSpokeAt < 5000)))) {
     return;
   }
 
@@ -8847,17 +8847,18 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         }
       }
 
-      // Auto-clear stale isSpeaking if a peer hasn't emitted speech in >3000ms
+      // Auto-clear stale isSpeaking only if a peer hasn't emitted speech in >4500ms
       const checkNow = Date.now();
       for (const p of room.peers.values()) {
-        if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 3000)) {
+        if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 4500)) {
           p.isSpeaking = false;
         }
       }
 
-      // Check if any peer has recently uttered real speech words (only genuine speech, not ambient mic volume!)
+      // Check if any peer is actively speaking into mic OR spoke within the last 5 seconds
       const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-        (p) => p.role !== 'faculty' && p.role !== 'college_admin' && Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
+        (p) => p.role !== 'faculty' && p.role !== 'college_admin' &&
+          ((p.isSpeaking && p.micActive) || Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 5000))
       );
 
       const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
@@ -10050,9 +10051,9 @@ Do not mention AI.`,
     room.askedQuestions.add(deadlockQuestion);
   }
 
-  // Strict Human Priority: Abort if anyone began transcribing speech while generating deadlock question
+  // Strict Human Priority: Abort if anyone is speaking or spoke in the last 5 seconds
   const checkAfterAi = Date.now();
-  if (Array.from(room.peers.values()).some((p) => p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 2500)) {
+  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && ((p.isSpeaking && p.micActive) || (p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 5000)))) {
     return;
   }
 
@@ -10461,8 +10462,12 @@ io.on('connection', (socket) => {
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
 
-    // If participant is actively speaking into their mic, immediately cancel AI facilitator speech (barge-in)
+    // If participant is actively speaking into their mic, keep silence timers at zero and cancel any active facilitator speech
     if (peer.isSpeaking && peer.micActive && peer.role !== 'faculty' && peer.role !== 'college_admin') {
+      peer.lastSpokeAt = Date.now();
+      room.silenceTimerSeconds = 0;
+      room.silenceStage = 0;
+      room.waitingForParticipantId = undefined;
       if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
         room.facilitatorSpeakingUntil = 0;
         io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
@@ -10697,14 +10702,15 @@ io.on('connection', (socket) => {
     const substantiveWords = cleanWords.filter((w) => !fillerTokens.has(w.toLowerCase().replace(/[^a-z0-9]/g, '')));
     const isGoodPoint = cleanWords.length >= 3 && substantiveWords.length >= 2;
 
+    peer.lastSpokeAt = Date.now();
+    room.silenceTimerSeconds = 0;
+    room.silenceStage = 0;
+    room.waitingForParticipantId = undefined;
     if (isGoodPoint) {
       peer.speakingTurns = (peer.speakingTurns || 0) + 1;
       const turnSeconds = Math.max(3, Math.round(cleanWords.length / 2.1));
       peer.speakingDurationSeconds = (peer.speakingDurationSeconds || 0) + turnSeconds;
-      peer.lastSpokeAt = Date.now();
     }
-    room.silenceTimerSeconds = 0;
-    room.silenceStage = 0;
 
     const mins = Math.floor((elapsedSeconds || 0) / 60).toString().padStart(2, '0');
     const secs = ((elapsedSeconds || 0) % 60).toString().padStart(2, '0');

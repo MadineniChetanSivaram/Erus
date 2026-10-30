@@ -733,10 +733,11 @@ export function useWebRTCRoom({
             });
           }
 
-          // Broadcast volume level for UI visualizers without falsely declaring speaking turns from ambient noise
+          // Broadcast speaking state immediately on change, and maintain an 800ms heartbeat while actively speaking so AI never intervenes in the middle!
           const timeSinceEmit = now - lastSpeakingEmitTimestampRef.current;
           const speakingStateChanged = effectiveIsSpeaking !== lastSpeakingStateEmittedRef.current;
-          if (socketRef.current && (speakingStateChanged || (timeSinceEmit >= 450 && Math.abs(normVol - lastVolumeStateEmittedRef.current) >= 14))) {
+          const shouldHeartbeat = effectiveIsSpeaking && timeSinceEmit >= 800;
+          if (socketRef.current && (speakingStateChanged || shouldHeartbeat || (timeSinceEmit >= 450 && Math.abs(normVol - lastVolumeStateEmittedRef.current) >= 14))) {
             lastSpeakingStateEmittedRef.current = effectiveIsSpeaking;
             lastSpeakingEmitTimestampRef.current = now;
             socketRef.current.emit('peer-speaking-state', {
