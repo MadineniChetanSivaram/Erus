@@ -8860,6 +8860,17 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         )
       );
 
+      const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
+      if (isFacilitatorSpeaking) {
+        room.silenceTimerSeconds = 0;
+        io.to(`room-${slotId}`).emit('silence-timer-tick', {
+          silenceTimerSeconds: 0,
+          silenceStage: room.silenceStage,
+          maxSilence: 15,
+        });
+        return;
+      }
+
       if (!anyPeerActivelySpeaking) {
         // Floor is silent (microphones may be open, but no candidate is uttering points)
         if (room.currentSpeakerId && (!room.lastSpeakerTranscriptAt || checkNow - room.lastSpeakerTranscriptAt > 2500)) {
@@ -8895,18 +8906,14 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
           const momentumText = 'The floor is open. Anyone who has not spoken yet, please share your perspective.';
           broadcastFacilitatorSilencePrompt(room, momentumText, 'silence_instruction_2');
         }
-        // Stage 2 -> 3: At 24s silence (8s after Warning 2) -> AI specifically calls upon the candidate who has spoken least
+        // Stage 2 -> Question: At 15s silence -> AI specifically calls candidate with targeted question
         else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
-          room.silenceStage = 3;
+          room.silenceStage = 0;
+          room.silenceTimerSeconds = 0;
           room.lastDeadlockAt = Date.now();
           room.deadlockCount = (room.deadlockCount || 0) + 1;
           room.waitingForParticipantId = undefined;
           await triggerDeadlockIntervention(room);
-        }
-        // Stage 3: Question was asked; give candidate 25 seconds to answer before cycling to next candidate
-        else if (room.silenceStage === 3 && room.silenceTimerSeconds >= 30) {
-          room.silenceStage = 2;
-          room.silenceTimerSeconds = 10;
         }
       } else {
         // Someone is actively speaking -> floor is active, reset silence and stage immediately!
@@ -10043,8 +10050,10 @@ Do not mention AI.`,
   persistTranscriptToMongoDB(interventionTranscript);
 
   const dlWordCount = (deadlockQuestion || '').split(/\s+/).filter(Boolean).length;
-  // Reset silence timer to 0 so stage 3 counts up to 20s while candidate answers
+  // Reset silence timer to 0 and stage to 0: after asking question, wait exactly 5 seconds before warnings
   room.silenceTimerSeconds = 0;
+  room.silenceStage = 0;
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(3500, dlWordCount * 400);
 
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text: deadlockQuestion,
@@ -10225,6 +10234,8 @@ io.on('connection', (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
+      room.silenceTimerSeconds = 0;
+      room.silenceStage = 0;
     }
   });
 

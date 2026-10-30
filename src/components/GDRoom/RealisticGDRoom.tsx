@@ -468,7 +468,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       } else if (intervention.action === 'silence_instruction_2') {
         clientSilenceStageRef.current = 2;
       } else if (intervention.action === 'deadlock_intervention' || intervention.action === 'targeted_question_student') {
-        clientSilenceStageRef.current = 3;
+        clientSilenceStageRef.current = 0;
+        setLocalSilenceSeconds(0);
       }
 
       // Record question in sessionQuestionTracker so local fallback never repeats it
@@ -541,6 +542,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
           lastFacilitatorInterventionTimeRef.current = Date.now();
           if (!isSilenceInstruction) {
             setLocalSilenceSeconds(0);
+            clientSilenceStageRef.current = 0;
           }
           setSession((prev) => ({
             ...prev,
@@ -2575,6 +2577,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       rtcBroadcastFacilitatorSpeech(targetedQuestion, 'targeted_question_student');
     }
 
+    clientSilenceStageRef.current = 0;
+    setLocalSilenceSeconds(0);
     speakFacilitator(targetedQuestion, 'targeted_question_student', 'probing', () => {
       if (targetStudent?.isUser) {
         setInvitedStudentPrompt({

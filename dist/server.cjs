@@ -8080,6 +8080,16 @@ function getOrCreateLiveRoom(slotId, topic) {
     const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
       (p) => p.role !== "faculty" && p.role !== "college_admin" && (room.currentSpeakerId && room.currentSpeakerId === (p.userId || p.id) || p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
     );
+    const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
+    if (isFacilitatorSpeaking) {
+      room.silenceTimerSeconds = 0;
+      io.to(`room-${slotId}`).emit("silence-timer-tick", {
+        silenceTimerSeconds: 0,
+        silenceStage: room.silenceStage,
+        maxSilence: 15
+      });
+      return;
+    }
     if (!anyPeerActivelySpeaking) {
       if (room.currentSpeakerId && (!room.lastSpeakerTranscriptAt || checkNow - room.lastSpeakerTranscriptAt > 2500)) {
         room.currentSpeakerId = null;
@@ -8106,14 +8116,12 @@ function getOrCreateLiveRoom(slotId, topic) {
         const momentumText = "The floor is open. Anyone who has not spoken yet, please share your perspective.";
         broadcastFacilitatorSilencePrompt(room, momentumText, "silence_instruction_2");
       } else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
-        room.silenceStage = 3;
+        room.silenceStage = 0;
+        room.silenceTimerSeconds = 0;
         room.lastDeadlockAt = Date.now();
         room.deadlockCount = (room.deadlockCount || 0) + 1;
         room.waitingForParticipantId = void 0;
         await triggerDeadlockIntervention(room);
-      } else if (room.silenceStage === 3 && room.silenceTimerSeconds >= 30) {
-        room.silenceStage = 2;
-        room.silenceTimerSeconds = 10;
       }
     } else {
       room.silenceTimerSeconds = 0;
@@ -9075,6 +9083,8 @@ Do not mention AI.`
   persistTranscriptToMongoDB(interventionTranscript);
   const dlWordCount = (deadlockQuestion || "").split(/\s+/).filter(Boolean).length;
   room.silenceTimerSeconds = 0;
+  room.silenceStage = 0;
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(3500, dlWordCount * 400);
   io.to(`room-${room.slotId}`).emit("facilitator-intervention", {
     text: deadlockQuestion,
     action: "deadlock_intervention",
@@ -9236,6 +9246,8 @@ io.on("connection", (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
+      room.silenceTimerSeconds = 0;
+      room.silenceStage = 0;
     }
   });
   socket.on("finish-session", ({ slotId }) => {
