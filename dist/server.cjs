@@ -9274,6 +9274,14 @@ io.on("connection", (socket) => {
       room.facilitatorSpeakingUntil = 0;
     }
   });
+  socket.on("interrupt-facilitator", ({ slotId }) => {
+    const safeSlotId = slotId || "session-101";
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (room) {
+      room.facilitatorSpeakingUntil = 0;
+      io.to(`room-${safeSlotId}`).emit("facilitator-cancelled");
+    }
+  });
   socket.on("finish-session", ({ slotId }) => {
     const safeSlotId = slotId || "session-101";
     let targetSlot = null;
@@ -9385,6 +9393,12 @@ io.on("connection", (socket) => {
     peer.isSpeaking = !!isSpeaking;
     if (micActive !== void 0) peer.micActive = micActive;
     if (cameraActive !== void 0) peer.cameraActive = cameraActive;
+    if (peer.isSpeaking && peer.micActive && peer.role !== "faculty" && peer.role !== "college_admin") {
+      if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
+        room.facilitatorSpeakingUntil = 0;
+        io.to(`room-${safeSlotId}`).emit("facilitator-cancelled");
+      }
+    }
     if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
       if (room.turnTimer) {
         clearTimeout(room.turnTimer);
@@ -9554,6 +9568,10 @@ io.on("connection", (socket) => {
     if (room.currentSpeakerId !== peer.userId) {
       room.currentSpeakerId = peer.userId;
       room.currentSpeakerSocketId = socket.id;
+    }
+    if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
+      room.facilitatorSpeakingUntil = 0;
+      io.to(`room-${safeSlotId}`).emit("facilitator-cancelled");
     }
     if (!room.currentSpeakerId) {
       room.currentSpeakerId = peer.userId;

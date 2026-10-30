@@ -306,6 +306,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     startSession: rtcStartSession,
     finishSession: rtcFinishSession,
     notifyFacilitatorSpeechEnded: rtcNotifyFacilitatorSpeechEnded,
+    interruptFacilitator: rtcInterruptFacilitator,
     requestAiIntervention: rtcRequestAiIntervention,
     broadcastFacilitatorSpeech: rtcBroadcastFacilitatorSpeech,
     notifySpeakingStarted: rtcNotifySpeakingStarted,
@@ -1233,15 +1234,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         aiVoiceResumeTimerRef.current = null;
       }
 
-      // Immediately abort recognition and clear live buffers to prevent AI voice from leaking into candidate transcript
+      // Keep recognition actively listening so participant barge-in is instantly caught!
       committedResultIndexRef.current = -1;
       liveTranscriptRef.current = '';
       setLiveSpeechTranscript('');
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {}
-      }
 
       // Absolute max pause timeout: safety net in case audio hangs indefinitely
       const maxTimer = setTimeout(() => {
@@ -1665,15 +1661,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             return;
           }
 
-          // While AI facilitator voice is actively playing, discard echo feedback
-          const isAiSpeakingNow = aiVoicePausedMicRef.current ||
-                                  roomVoice.isSpeaking() ||
-                                  Boolean(sessionRef.current?.isFacilitatorSpeaking);
+          // BARGE-IN: If participant starts speaking while AI is speaking, AUTOMATICALLY STOP THE AI IMMEDIATELY!
+          const isAiSpeakingNow = roomVoice.isSpeaking() || Boolean(sessionRef.current?.isFacilitatorSpeaking);
           if (isAiSpeakingNow) {
-            liveTranscriptRef.current = '';
-            setLiveSpeechTranscript('');
-            committedResultIndexRef.current = event.results.length - 1;
-            return;
+            console.log('[Facilitator Barge-in] Participant started speaking, immediately halting AI speech.');
+            roomVoice.stop();
+            aiVoicePausedMicRef.current = false;
+            setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
+            if (rtcInterruptFacilitator) {
+              rtcInterruptFacilitator();
+            }
           }
 
           let interimTranscript = '';
@@ -2051,11 +2048,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // Flush any live candidate transcript so AI speech is not captured by candidate mic
     liveTranscriptRef.current = '';
     setLiveSpeechTranscript('');
-    try {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-    } catch {}
+// Recognition remains active for seamless candidate speaking & barge-in
 
     setSession((prev) => ({
       ...prev,

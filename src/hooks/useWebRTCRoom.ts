@@ -713,16 +713,32 @@ export function useWebRTCRoom({
             setLocalVolume(normVol);
           }
 
-          // Suppress acoustic feedback when AI voice is playing over speakers
+          // Detect if AI voice is currently playing
           const isAiSpeakingNow = Boolean(
             typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 600))
           );
-          const effectiveIsSpeaking = isAiSpeakingNow ? false : isSpeakingLiveRef.current;
-          const effectiveVol = isAiSpeakingNow ? 0 : normVol;
 
-          // Dynamically duck outgoing audio tracks during AI speech to eliminate speaker-to-mic echo feedback
+          // BARGE-IN: If participant starts speaking into microphone (normVol >= 15) while AI is vocalizing,
+          // IMMEDIATELY STOP the AI facilitator voice so the participant can speak freely!
+          if (isAiSpeakingNow && normVol >= 15 && !isMicMutedRef.current) {
+            try {
+              roomVoice.stop();
+              if (typeof window !== 'undefined') {
+                (window as any).__erusIsAiSpeaking = false;
+                window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
+              }
+              if (socketRef.current) {
+                socketRef.current.emit('interrupt-facilitator', { slotId });
+              }
+            } catch (err) {}
+          }
+
+          const effectiveIsSpeaking = isSpeakingLiveRef.current || (normVol >= 15 && !isMicMutedRef.current);
+          const effectiveVol = normVol;
+
+          // Outgoing audio tracks are ALWAYS enabled for participants unless manually muted
           if (localStreamRef.current) {
-            const shouldBeEnabled = !isMicMutedRef.current && !isAiSpeakingNow;
+            const shouldBeEnabled = !isMicMutedRef.current;
             localStreamRef.current.getAudioTracks().forEach((track) => {
               if (track.enabled !== shouldBeEnabled) {
                 track.enabled = shouldBeEnabled;
@@ -759,38 +775,14 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
-  // Global listener for AI voice events: instantly mute outgoing WebRTC tracks on start,
-  // then restore 500ms after AI finishes speaking to let room reverb die out
+  // Keep microphone always active for seamless participant speaking and instant barge-in
   useEffect(() => {
-    let unblockTimer: any = null;
-    const handleVoiceStart = () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      if (localStreamRef.current) {
-        localStreamRef.current.getAudioTracks().forEach((t) => {
-          t.enabled = false;
-        });
-      }
-    };
-
-    const handleVoiceEnd = () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      unblockTimer = setTimeout(() => {
-        if (localStreamRef.current && !isMicMutedRef.current) {
-          localStreamRef.current.getAudioTracks().forEach((t) => {
-            t.enabled = true;
-          });
-        }
-      }, 500);
-    };
-
-    window.addEventListener('erus-ai-voice-start', handleVoiceStart);
-    window.addEventListener('erus-ai-voice-end', handleVoiceEnd);
-    return () => {
-      if (unblockTimer) clearTimeout(unblockTimer);
-      window.removeEventListener('erus-ai-voice-start', handleVoiceStart);
-      window.removeEventListener('erus-ai-voice-end', handleVoiceEnd);
-    };
-  }, []);
+    if (localStreamRef.current && !isMicMutedRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = true;
+      });
+    }
+  }, [isMicMuted]);
 
   const initLocalMicrophoneRef = useRef(initLocalMicrophone);
   initLocalMicrophoneRef.current = initLocalMicrophone;
@@ -1302,6 +1294,18 @@ export function useWebRTCRoom({
       }
     });
 
+    // Participant started speaking or server cancelled facilitator speech (Barge-in)
+    socket.on('facilitator-cancelled', () => {
+      if (!active) return;
+      try {
+        roomVoice.stop();
+        if (typeof window !== 'undefined') {
+          (window as any).__erusIsAiSpeaking = false;
+          window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
+        }
+      } catch {}
+    });
+
     socket.on('floor-busy', ({ message }) => {
       if (!active) return;
       if (message) {
@@ -1600,6 +1604,19 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
+  const interruptFacilitator = useCallback(() => {
+    try {
+      roomVoice.stop();
+      if (typeof window !== 'undefined') {
+        (window as any).__erusIsAiSpeaking = false;
+        window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
+      }
+      if (socketRef.current) {
+        socketRef.current.emit('interrupt-facilitator', { slotId });
+      }
+    } catch {}
+  }, [slotId]);
+
   const getLocalAudioStream = useCallback(() => localStreamRef.current, []);
 
   // Explicit audio unblocker for browser autoplay policies
@@ -1645,6 +1662,7 @@ export function useWebRTCRoom({
     startSession,
     finishSession,
     notifyFacilitatorSpeechEnded,
+    interruptFacilitator,
     requestAiIntervention,
     broadcastFacilitatorSpeech,
     notifySpeakingStarted,

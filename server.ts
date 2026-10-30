@@ -10258,7 +10258,16 @@ io.on('connection', (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
-      // Do not reset silenceStage or silenceTimerSeconds here so 5s -> Warning 1 -> 10s -> Warning 2 -> 15s -> Question progression is preserved
+    }
+  });
+
+  // Participant Barge-in: when any participant starts speaking, immediately stop facilitator speech on all clients
+  socket.on('interrupt-facilitator', ({ slotId }: { slotId?: string }) => {
+    const safeSlotId = slotId || 'session-101';
+    const room = LIVE_ROOMS.get(safeSlotId);
+    if (room) {
+      room.facilitatorSpeakingUntil = 0;
+      io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
     }
   });
 
@@ -10394,7 +10403,14 @@ io.on('connection', (socket) => {
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
 
-    // Raw microphone volume activity does NOT reset silence timer; only substantive transcribed speech resets silence!
+    // If participant is actively speaking into their mic, immediately cancel AI facilitator speech (barge-in)
+    if (peer.isSpeaking && peer.micActive && peer.role !== 'faculty' && peer.role !== 'college_admin') {
+      if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
+        room.facilitatorSpeakingUntil = 0;
+        io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
+      }
+    }
+
     if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
       if (room.turnTimer) {
         clearTimeout(room.turnTimer);
@@ -10593,6 +10609,12 @@ io.on('connection', (socket) => {
 
     // A quick statement can arrive before VAD claims the floor. In that case,
     // atomically grant the floor to this socket before accepting the transcript.
+    // Cancel facilitator speech if peer transcribed words
+    if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
+      room.facilitatorSpeakingUntil = 0;
+      io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
+    }
+
     if (!room.currentSpeakerId) {
       room.currentSpeakerId = peer.userId;
       room.currentSpeakerSocketId = socket.id;
