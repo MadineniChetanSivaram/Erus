@@ -115,9 +115,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   }, [transcripts]);
 
   const isFaculty = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
-  const hasFacultyPeer = (rtcPeers || []).some((p) => p && (p.role === 'faculty' || p.role === 'college_admin'));
   const isFacultyOrAdmin = isFaculty;
-  const canStartSession = isFacultyOrAdmin || !hasFacultyPeer;
   const isStudent = currentUser?.role === 'student';
 
   const [liveSpeechTranscript, setLiveSpeechTranscript] = useState('');
@@ -577,6 +575,9 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   notifyFacilitatorSpeechEndedRef.current = rtcNotifyFacilitatorSpeechEnded;
   const rtcNotifySpeakingStartedRef = useRef(rtcNotifySpeakingStarted);
   rtcNotifySpeakingStartedRef.current = rtcNotifySpeakingStarted;
+
+  const hasFacultyPeer = (rtcPeers || []).some((p) => p && (p.role === 'faculty' || p.role === 'college_admin'));
+  const canStartSession = isFacultyOrAdmin || !hasFacultyPeer;
 
   // Synchronized GD termination watch: if session status changes to 'completed', upload recording first then finish GD
   useEffect(() => {
