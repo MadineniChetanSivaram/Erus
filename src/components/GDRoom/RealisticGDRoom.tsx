@@ -143,7 +143,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   const lastFacilitatorInterventionTimeRef = useRef<number>(0);
   const lastFacilitatorInterventionTextRef = useRef<string>('');
   const clientSilenceStageRef = useRef<number>(0);
-  const isSessionActive = session.status === 'active' || Boolean(session.startedAt && session.status !== 'completed');
+  const isSessionActive = session.status === 'active';
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [hasVideoTrackModal, setHasVideoTrackModal] = useState(true);
   // Faculty Live Observation Notes State (Enhancement 4)
@@ -2487,6 +2487,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
   // If no one speaks initially, AI Facilitator calls upon a student or welcomes the room
   const handleInitiateOpeningSpeaker = (force: boolean = false) => {
     if (rtcSimulationMode) return;
+    // Strict Faculty Authority: Students can NEVER trigger or start GD opening speech!
+    if (isStudent || !isFacultyOrAdmin) return;
     if (!force) {
       if (hasInitiatedOpeningRef.current) {
         return;
@@ -2665,22 +2667,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
   }, [session.id]);
 
-  // Trigger opening speaker when session becomes active if not already initiated
-  useEffect(() => {
-    if (session.status === 'active') {
-      const hasWelcomeInTranscripts = transcripts.some(
-        (t) => t.isFacilitator && (t.type === 'intro' || String(t.text || '').toLowerCase().includes('welcome'))
-      );
-      if (!hasInitiatedOpeningRef.current && !hasWelcomeInTranscripts) {
-        const timer = setTimeout(() => {
-          if (!hasInitiatedOpeningRef.current) {
-            handleInitiateOpeningSpeaker(true);
-          }
-        }, 500);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [session.status, session.id]);
+  // Automatic initiation removed: GD only starts when Faculty explicitly clicks Start GD
 
   const handleRaiseHandToggle = () => {
     const userStudent = (session?.students || []).find((s) => s.isUser) || session?.students?.[0];

@@ -9274,6 +9274,12 @@ io.on("connection", (socket) => {
     const safeSlotId = slotId || "session-101";
     const room = LIVE_ROOMS.get(safeSlotId);
     if (!room || !text?.trim()) return;
+    const senderPeer = room.peers.get(socket.id);
+    const isSenderAuthorized = !senderPeer || senderPeer.role === "faculty" || senderPeer.role === "college_admin" || senderPeer.role === "super_admin";
+    if (!isSenderAuthorized) {
+      console.warn("[broadcast-facilitator-speech] Blocked unauthorized broadcast attempt by student:", senderPeer?.name);
+      return;
+    }
     const transcript = {
       id: `t-facilitator-${Date.now()}`,
       sessionId: safeSlotId,

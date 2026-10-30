@@ -10270,6 +10270,14 @@ io.on('connection', (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (!room || !text?.trim()) return;
 
+    // Security Guard: Non-faculty peers cannot broadcast facilitator speech or auto-start opening
+    const senderPeer = room.peers.get(socket.id);
+    const isSenderAuthorized = !senderPeer || senderPeer.role === 'faculty' || senderPeer.role === 'college_admin' || senderPeer.role === 'super_admin';
+    if (!isSenderAuthorized) {
+      console.warn('[broadcast-facilitator-speech] Blocked unauthorized broadcast attempt by student:', senderPeer?.name);
+      return;
+    }
+
     const transcript: BackendTranscript = {
       id: `t-facilitator-${Date.now()}`,
       sessionId: safeSlotId,

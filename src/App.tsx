@@ -698,7 +698,7 @@ function GDAppContent() {
 
   // Main session elapsed timer (Strictly active only when room is live; silence moderation is handled by RealisticGDRoom & server)
   useEffect(() => {
-    const isLive = session.status === 'active' || Boolean(session.startedAt && session.status !== 'completed');
+    const isLive = session.status === 'active';
     if (!currentUser || currentTab !== 'room' || !isLive) return;
 
     const tickTimer = () => {
