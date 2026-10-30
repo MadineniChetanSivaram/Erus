@@ -9854,7 +9854,18 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
       (a.lastSpokeAt || 0) - (b.lastSpokeAt || 0)
   )[0];
 
-  const candidateName = quietPeer?.name || 'participants';
+  let candidateName = quietPeer?.name;
+  if (!candidateName || candidateName === 'participants' || candidateName === 'Student Participant' || candidateName.startsWith('Student ')) {
+    if (targetSlot && Array.isArray(targetSlot.students)) {
+      const matchInSlot = targetSlot.students.find((s: any) => s && !s.isEmptySeat && s.name && !String(s.name).startsWith('Seat ') && !String(s.name).startsWith('Student '));
+      if (matchInSlot?.name) {
+        candidateName = matchInSlot.name;
+      }
+    }
+  }
+  if (!candidateName || candidateName === 'participants') {
+    candidateName = 'Participant';
+  }
   const seatStr = quietPeer?.seatNumber ? `from Seat ${quietPeer.seatNumber}` : '';
   const firstName = candidateName.split(' ')[0];
   if (quietPeer) {
