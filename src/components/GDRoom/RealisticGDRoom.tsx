@@ -548,7 +548,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             silenceTimerSeconds: isSilenceInstruction ? prev.silenceTimerSeconds : 0,
           }));
           notifyFacilitatorSpeechEndedRef.current();
-        }, isOpeningAction);
+        }, true);
       } else {
         setTimeout(() => {
           setSession((prev) => ({
@@ -629,10 +629,10 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       const curSession = sessionRef.current;
 
       // Check if AI facilitator or peer voice is playing or recently finished (acoustic buffer)
-      const isAiActive = roomVoice.isSpeakingOrRecentlyFinished(2200) ||
+      const isAiActive = roomVoice.isSpeakingOrRecentlyFinished(500) ||
                          Boolean(curSession.isFacilitatorSpeaking) ||
                          Boolean((window as any).__erusIsAiSpeaking) ||
-                         (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 2200);
+                         (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 500);
 
       // Crucial: Only consider talking if recognized words are actively being uttered
       // Ambient microphone noise, fan, or breath MUST NOT reset silence!
@@ -1999,11 +1999,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     force: boolean = false
   ) => {
     roomVoice.unlock();
-    const isEssentialDirective = force || phase === 'intro' || phase === 'conclusion' || actionType === 'welcome' || actionType === 'conclusion';
+    const isEssentialDirective = force || phase === 'intro' || phase === 'conclusion' || actionType === 'welcome' || actionType === 'conclusion' || actionType === 'silence_instruction_1' || actionType === 'silence_instruction_2' || actionType === 'targeted_question_student' || actionType === 'deadlock_intervention' || actionType === 'initiate_opening_speaker';
 
     // Do NOT interrupt or speak over any student actively talking
     const isSomeoneSpeaking = Boolean(
-      rtcPeers.some((p) => p.isSpeaking && p.role !== 'faculty') ||
+      rtcPeers.some((p) => p.isSpeaking && p.role !== 'faculty' && p.speakingTurns && (Date.now() - (p.lastSpokeAt || 0) < 2000)) ||
       rtcIsSpeakingLive ||
       isUserSpeakingLive ||
       Boolean(liveSpeechTranscript) ||
@@ -2515,9 +2515,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       : (session.students && session.students.length > 0 ? session.students.filter((s) => !s.isEmptySeat) : []);
     const openingCandidate = rawCandidates[0] || null;
 
-    const initiationPrompt = openingCandidate
-      ? generateInitiationPrompt(openingCandidate, session.topic)
-      : `Welcome participants to today's group discussion on "${session.topic}". The discussion has now officially commenced. Each candidate will have the opportunity to present their views. Please unmute your microphone and share your opening thoughts on "${session.topic}".`;
+    const initiationPrompt = `Welcome participants to today's group discussion on "${session.topic}". The floor is now officially open for discussion. Please feel free to share your opening thoughts.`;
 
     // Broadcast over socket so all connected peers receive the opening facilitator prompt
     if (rtcBroadcastFacilitatorSpeech && isSocketConnected) {
@@ -2601,7 +2599,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     // 1. Opening silence (if no one speaks within 8 seconds of commencing and facilitator has not already spoken)
     const hasAnyFacilitatorSpeech = transcripts.some((t) => t.isFacilitator);
     if (studentTranscripts.length === 0 && !hasInitiatedOpeningRef.current && !hasAnyFacilitatorSpeech) {
-      if (rtcSilenceTimer >= 8 || session.silenceTimerSeconds >= 8 || elapsedSeconds >= 8) {
+      if (rtcSilenceTimer >= 5 || session.silenceTimerSeconds >= 5 || elapsedSeconds >= 5) {
         if (!isSocketConnected) {
           handleInitiateOpeningSpeaker();
           return;
@@ -2630,7 +2628,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
         } else if (clientSilenceStageRef.current === 1 && currentSilence >= 10) {
           clientSilenceStageRef.current = 2;
           speakFacilitator(
-            'The floor is open. Let us keep the momentum going—anyone who has not spoken yet, please share your perspective on this topic.',
+            'The floor is open. Anyone who has not spoken yet, please share your perspective.',
             'silence_instruction_2',
             'moderation'
           );

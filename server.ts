@@ -8852,9 +8852,12 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         }
       }
 
-      // Check if any peer has recently uttered real speech words OR is speaking actively
+      // Check if any peer has recently uttered real speech words OR is the active speaker
       const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-        (p) => p.role !== 'faculty' && p.role !== 'college_admin' && (p.isSpeaking || (p.lastSpokeAt && checkNow - p.lastSpokeAt < 3000))
+        (p) => p.role !== 'faculty' && p.role !== 'college_admin' && (
+          (room.currentSpeakerId && room.currentSpeakerId === (p.userId || p.id)) ||
+          (p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
+        )
       );
 
       if (!anyPeerActivelySpeaking) {
@@ -8889,7 +8892,7 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         // Stage 1 -> 2: At 16s silence (8s after Stage 1) -> AI encourages quieter participants (Warning 2)
         else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
           room.silenceStage = 2;
-          const momentumText = 'The floor is open. Let us keep the momentum going—anyone who has not spoken yet, please share your perspective on this topic.';
+          const momentumText = 'The floor is open. Anyone who has not spoken yet, please share your perspective.';
           broadcastFacilitatorSilencePrompt(room, momentumText, 'silence_instruction_2');
         }
         // Stage 2 -> 3: At 24s silence (8s after Warning 2) -> AI specifically calls upon the candidate who has spoken least
@@ -9622,7 +9625,8 @@ CRITICAL RULES:
 - Address both ${speakerFirstName} from ${speakerSeat} and ${targetReal.name} from ${seatStr}.
 - Maximum 40 words total. Plain text only. Natural spoken moderator cadence.`;
 
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4500));
+          // Fast response: 600ms max so question delivers at exact 15s without lag
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 600));
           const aiPromise = generateWithGeminiFallback({
             contents: promptInstruction,
           });
@@ -9969,7 +9973,8 @@ async function triggerDeadlockIntervention(room: LiveGDRoomState) {
   if (ai) {
     try {
       const priorQuestionsList = Array.from(room.askedQuestions || []).slice(-8).map((q) => `- ${q}`).join('\n');
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4500));
+      // Immediate zero-latency delivery: 500ms max so question delivers at exact 15s mark without stalling the room
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 500));
       const aiPromise = generateWithGeminiFallback({
         contents: `You are the live moderator of an Indian collegiate Group Discussion.
 Topic: "${room.topic}"
@@ -10347,7 +10352,8 @@ io.on('connection', (socket) => {
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
 
-    if (peer.isSpeaking) {
+    // Only genuine speech or claimed floor resets the silence timer; ambient microphone volume must not reset silence!
+    if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
       peer.lastSpokeAt = Date.now();
       room.silenceTimerSeconds = 0;
       room.silenceStage = 0;

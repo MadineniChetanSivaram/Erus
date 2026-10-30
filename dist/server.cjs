@@ -8078,7 +8078,7 @@ function getOrCreateLiveRoom(slotId, topic) {
       }
     }
     const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-      (p) => p.role !== "faculty" && p.role !== "college_admin" && (p.isSpeaking || p.lastSpokeAt && checkNow - p.lastSpokeAt < 3e3)
+      (p) => p.role !== "faculty" && p.role !== "college_admin" && (room.currentSpeakerId && room.currentSpeakerId === (p.userId || p.id) || p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)
     );
     if (!anyPeerActivelySpeaking) {
       if (room.currentSpeakerId && (!room.lastSpeakerTranscriptAt || checkNow - room.lastSpeakerTranscriptAt > 2500)) {
@@ -8103,7 +8103,7 @@ function getOrCreateLiveRoom(slotId, topic) {
         broadcastFacilitatorSilencePrompt(room, openFloorText, "silence_instruction_1");
       } else if (room.silenceStage === 1 && room.silenceTimerSeconds >= 10) {
         room.silenceStage = 2;
-        const momentumText = "The floor is open. Let us keep the momentum going\u2014anyone who has not spoken yet, please share your perspective on this topic.";
+        const momentumText = "The floor is open. Anyone who has not spoken yet, please share your perspective.";
         broadcastFacilitatorSilencePrompt(room, momentumText, "silence_instruction_2");
       } else if (room.silenceStage === 2 && room.silenceTimerSeconds >= 15) {
         room.silenceStage = 3;
@@ -8721,7 +8721,7 @@ CRITICAL RULES:
 - CRITICAL: DO NOT REPEAT ANY OF THE PREVIOUSLY ASKED QUESTIONS OR THEMES. ASK ABOUT A COMPLETELY NEW, UNTOUCHED ASPECT OF "${room.topic}".
 - Address both ${speakerFirstName} from ${speakerSeat} and ${targetReal.name} from ${seatStr}.
 - Maximum 40 words total. Plain text only. Natural spoken moderator cadence.`;
-          const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 4500));
+          const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 600));
           const aiPromise = generateWithGeminiFallback({
             contents: promptInstruction
           });
@@ -9012,7 +9012,7 @@ async function triggerDeadlockIntervention(room) {
   if (ai) {
     try {
       const priorQuestionsList = Array.from(room.askedQuestions || []).slice(-8).map((q) => `- ${q}`).join("\n");
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 4500));
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 500));
       const aiPromise = generateWithGeminiFallback({
         contents: `You are the live moderator of an Indian collegiate Group Discussion.
 Topic: "${room.topic}"
@@ -9343,7 +9343,7 @@ io.on("connection", (socket) => {
     peer.isSpeaking = !!isSpeaking;
     if (micActive !== void 0) peer.micActive = micActive;
     if (cameraActive !== void 0) peer.cameraActive = cameraActive;
-    if (peer.isSpeaking) {
+    if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {
       peer.lastSpokeAt = Date.now();
       room.silenceTimerSeconds = 0;
       room.silenceStage = 0;
