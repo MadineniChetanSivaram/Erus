@@ -528,7 +528,8 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       // Audibly speak AI intervention using roomVoice with guaranteed state cleanup
       if (!voiceMuted && !isRoomAudioMuted) {
         roomVoice.unlock();
-        const estSecs = Math.max(8, Math.ceil(intervention.text.split(/\s+/).length * 0.9 + 4));
+        const wordCount = intervention.text.split(/\s+/).filter(Boolean).length;
+        const estSecs = Math.max(14, Math.ceil(wordCount * 0.95 + 6));
         const safetyTimeout = setTimeout(() => {
           setSession((prev) => ({
             ...prev,
@@ -1690,16 +1691,11 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
             return;
           }
 
-          // BARGE-IN: If participant starts speaking while AI is speaking, AUTOMATICALLY STOP THE AI IMMEDIATELY!
+          // If AI is currently vocalizing its short prompt or question, let it complete clearly without speaker echo cutting it off
           const isAiSpeakingNow = roomVoice.isSpeaking() || Boolean(sessionRef.current?.isFacilitatorSpeaking);
           if (isAiSpeakingNow) {
-            console.log('[Facilitator Barge-in] Participant started speaking, immediately halting AI speech.');
-            roomVoice.stop();
-            aiVoicePausedMicRef.current = false;
-            setSession((prev) => ({ ...prev, isFacilitatorSpeaking: false }));
-            if (rtcInterruptFacilitator) {
-              rtcInterruptFacilitator();
-            }
+            // Discard speech recognition frames picked up from the laptop speakers
+            return;
           }
 
           let interimTranscript = '';

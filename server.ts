@@ -8747,8 +8747,8 @@ function broadcastFacilitatorSilencePrompt(
   action: 'silence_instruction_1' | 'silence_instruction_2'
 ) {
   const checkNow = Date.now();
-  // Human-First Guard: Don't speak if any participant is actively speaking or spoke in the last 5 seconds!
-  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && ((p.isSpeaking && p.micActive) || (p.lastSpokeAt && checkNow - p.lastSpokeAt < 5000)))) {
+  // Human-First Guard: Don't speak if a candidate actually submitted a transcript in the last 2.5s
+  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)) {
     return;
   }
 
@@ -8847,18 +8847,18 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
         }
       }
 
-      // Auto-clear stale isSpeaking only if a peer hasn't emitted speech in >4500ms
       const checkNow = Date.now();
+      // Auto-clear stale isSpeaking after 2500ms of no vocal activity
       for (const p of room.peers.values()) {
-        if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 4500)) {
+        if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 2500)) {
           p.isSpeaking = false;
         }
       }
 
-      // Check if any peer is actively speaking into mic OR spoke within the last 5 seconds
+      // Check if any peer is actively vocalizing speech OR recently spoke
       const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
         (p) => p.role !== 'faculty' && p.role !== 'college_admin' &&
-          ((p.isSpeaking && p.micActive) || Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 5000))
+          ((p.isSpeaking && p.micActive) || Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500))
       );
 
       const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
@@ -10051,9 +10051,9 @@ Do not mention AI.`,
     room.askedQuestions.add(deadlockQuestion);
   }
 
-  // Strict Human Priority: Abort if anyone is speaking or spoke in the last 5 seconds
+  // Strict Human Priority: Abort only if a candidate actively submitted a real transcript statement in the last 2.5s
   const checkAfterAi = Date.now();
-  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && ((p.isSpeaking && p.micActive) || (p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 5000)))) {
+  if (Array.from(room.peers.values()).some((p) => p.role === 'student' && p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 2500)) {
     return;
   }
 
@@ -10078,7 +10078,8 @@ Do not mention AI.`,
   // Reset silence timer to 0 and stage to 0: after asking question, wait exactly 5 seconds before warnings
   room.silenceTimerSeconds = 0;
   room.silenceStage = 0;
-  room.facilitatorSpeakingUntil = Date.now() + Math.max(3500, dlWordCount * 400);
+  // Generous speaking window so the complete question is spoken cleanly without cut-off
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(9000, dlWordCount * 650);
 
   io.to(`room-${room.slotId}`).emit('facilitator-intervention', {
     text: deadlockQuestion,
@@ -10462,15 +10463,14 @@ io.on('connection', (socket) => {
     if (micActive !== undefined) peer.micActive = micActive;
     if (cameraActive !== undefined) peer.cameraActive = cameraActive;
 
-    // If participant is actively speaking into their mic, keep silence timers at zero and cancel any active facilitator speech
+    // When participant is actively speaking outside facilitator speech, maintain active turn
     if (peer.isSpeaking && peer.micActive && peer.role !== 'faculty' && peer.role !== 'college_admin') {
-      peer.lastSpokeAt = Date.now();
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
-      room.waitingForParticipantId = undefined;
-      if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
-        room.facilitatorSpeakingUntil = 0;
-        io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
+      const isAiSpeakingNow = Boolean(room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil);
+      if (!isAiSpeakingNow) {
+        peer.lastSpokeAt = Date.now();
+        room.silenceTimerSeconds = 0;
+        room.silenceStage = 0;
+        room.waitingForParticipantId = undefined;
       }
     }
 

@@ -7983,7 +7983,7 @@ function syncAiParticipants(room) {
 }
 function broadcastFacilitatorSilencePrompt(room, text, action) {
   const checkNow = Date.now();
-  if (Array.from(room.peers.values()).some((p) => p.role === "student" && (p.isSpeaking && p.micActive || p.lastSpokeAt && checkNow - p.lastSpokeAt < 5e3))) {
+  if (Array.from(room.peers.values()).some((p) => p.role === "student" && p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500)) {
     return;
   }
   const promptTranscript = {
@@ -8075,12 +8075,12 @@ function getOrCreateLiveRoom(slotId, topic) {
     }
     const checkNow = Date.now();
     for (const p of room.peers.values()) {
-      if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 4500)) {
+      if (p.isSpeaking && (!p.lastSpokeAt || checkNow - p.lastSpokeAt > 2500)) {
         p.isSpeaking = false;
       }
     }
     const anyPeerActivelySpeaking = Array.from(room.peers.values()).some(
-      (p) => p.role !== "faculty" && p.role !== "college_admin" && (p.isSpeaking && p.micActive || Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 5e3))
+      (p) => p.role !== "faculty" && p.role !== "college_admin" && (p.isSpeaking && p.micActive || Boolean(p.lastSpokeAt && checkNow - p.lastSpokeAt < 2500))
     );
     const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
     if (isFacilitatorSpeaking) {
@@ -9089,7 +9089,7 @@ Do not mention AI.`
     room.askedQuestions.add(deadlockQuestion);
   }
   const checkAfterAi = Date.now();
-  if (Array.from(room.peers.values()).some((p) => p.role === "student" && (p.isSpeaking && p.micActive || p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 5e3))) {
+  if (Array.from(room.peers.values()).some((p) => p.role === "student" && p.lastSpokeAt && checkAfterAi - p.lastSpokeAt < 2500)) {
     return;
   }
   const interventionTranscript = {
@@ -9110,7 +9110,7 @@ Do not mention AI.`
   const dlWordCount = (deadlockQuestion || "").split(/\s+/).filter(Boolean).length;
   room.silenceTimerSeconds = 0;
   room.silenceStage = 0;
-  room.facilitatorSpeakingUntil = Date.now() + Math.max(3500, dlWordCount * 400);
+  room.facilitatorSpeakingUntil = Date.now() + Math.max(9e3, dlWordCount * 650);
   io.to(`room-${room.slotId}`).emit("facilitator-intervention", {
     text: deadlockQuestion,
     action: "deadlock_intervention",
@@ -9442,13 +9442,12 @@ io.on("connection", (socket) => {
     if (micActive !== void 0) peer.micActive = micActive;
     if (cameraActive !== void 0) peer.cameraActive = cameraActive;
     if (peer.isSpeaking && peer.micActive && peer.role !== "faculty" && peer.role !== "college_admin") {
-      peer.lastSpokeAt = Date.now();
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
-      room.waitingForParticipantId = void 0;
-      if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
-        room.facilitatorSpeakingUntil = 0;
-        io.to(`room-${safeSlotId}`).emit("facilitator-cancelled");
+      const isAiSpeakingNow = Boolean(room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil);
+      if (!isAiSpeakingNow) {
+        peer.lastSpokeAt = Date.now();
+        room.silenceTimerSeconds = 0;
+        room.silenceStage = 0;
+        room.waitingForParticipantId = void 0;
       }
     }
     if (peer.isSpeaking && room.currentSpeakerId === (peer.userId || socket.id)) {

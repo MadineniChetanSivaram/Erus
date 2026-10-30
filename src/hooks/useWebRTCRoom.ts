@@ -718,9 +718,9 @@ export function useWebRTCRoom({
             typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 600))
           );
 
-          // During AI speech, do not treat laptop speaker audio picked up by the mic as human speech!
-          // Barge-in occurs when genuine speech recognition words are detected (in RealisticGDRoom).
-          const effectiveIsSpeaking = isAiSpeakingNow ? false : (isSpeakingLiveRef.current || (normVol >= 15 && !isMicMutedRef.current));
+          // Distinguish genuine vocalization (normVol >= 28 or active speech recognition) from background room noise
+          const isVocalizing = normVol >= 28 && !isMicMutedRef.current;
+          const effectiveIsSpeaking = isAiSpeakingNow ? false : Boolean(isSpeakingLiveRef.current || isVocalizing);
           const effectiveVol = isAiSpeakingNow ? 0 : normVol;
 
           // Outgoing audio tracks are ALWAYS enabled unless the participant manually muted their mic
