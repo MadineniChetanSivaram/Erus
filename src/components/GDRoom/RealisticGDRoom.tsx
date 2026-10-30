@@ -778,10 +778,26 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       }
 
       // 2. Synchronize active student peers connected over WebRTC (rtcPeers)
-      const validPeers = (rtcPeers || []).filter(
-        (p) => p && p.role !== 'faculty' && p.role !== 'college_admin' && p.role !== 'super_admin'
-      );
-      validPeers.forEach((peer) => {
+      const myId = currentUser?.id;
+      const myName = (currentUser?.name || '').trim().toLowerCase();
+      const validPeers = (rtcPeers || []).filter((p) => {
+        if (!p || p.role === 'faculty' || p.role === 'college_admin' || p.role === 'super_admin') return false;
+        if (isStudentUser) {
+          if (myId && (p.userId === myId || p.socketId === myId)) return false;
+          if (myName && p.name && p.name.trim().toLowerCase() === myName) return false;
+        }
+        return true;
+      });
+      const uniquePeers: typeof validPeers = [];
+      const seenPeerKeys = new Set<string>();
+      for (const p of validPeers) {
+        const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
+        if (key && !seenPeerKeys.has(key)) {
+          seenPeerKeys.add(key);
+          uniquePeers.push(p);
+        }
+      }
+      uniquePeers.forEach((peer) => {
         let desiredSeat = Number(peer.seatNumber);
         if (!desiredSeat || isNaN(desiredSeat) || desiredSeat < 1 || desiredSeat > capacity || usedSeats.has(desiredSeat)) {
           desiredSeat = 1;
@@ -888,13 +904,26 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     }
 
     // 2. Filter valid student peers from rtcPeers (strictly students; ignore faculty/admin observers)
-    const validStudentPeers = (rtcPeers || []).filter(
-      (p) =>
-        p &&
-        p.role !== 'faculty' &&
-        p.role !== 'college_admin' &&
-        p.role !== 'super_admin'
-    );
+    const myId = currentUser?.id;
+    const myName = (currentUser?.name || '').trim().toLowerCase();
+    const rawStudentPeers = (rtcPeers || []).filter((p) => {
+      if (!p || p.role === 'faculty' || p.role === 'college_admin' || p.role === 'super_admin') return false;
+      if (isStudentUser) {
+        if (myId && (p.userId === myId || p.socketId === myId)) return false;
+        if (myName && p.name && p.name.trim().toLowerCase() === myName) return false;
+      }
+      return true;
+    });
+
+    const validStudentPeers: typeof rawStudentPeers = [];
+    const seenDisplayKeys = new Set<string>();
+    for (const p of rawStudentPeers) {
+      const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
+      if (key && !seenDisplayKeys.has(key)) {
+        seenDisplayKeys.add(key);
+        validStudentPeers.push(p);
+      }
+    }
 
     // 3. Place each live student peer at their assigned seatNumber (or first available free seat)
     validStudentPeers.forEach((peer) => {
@@ -4863,7 +4892,9 @@ const VideoStreamPlayer: React.FC<{
   const [isVideoLoaded, setIsVideoLoaded] = useState(true);
 
   const isSelf = Boolean(isUser);
-  const shouldMute = isSelf || (muted !== undefined ? muted : false);
+  // WebRTC audio is handled exclusively by useWebRTCRoom dedicated <audio> elements.
+  // Video player elements must ALWAYS remain strictly muted to prevent duplicate audio playback and echo!
+  const shouldMute = true;
 
   useEffect(() => {
     const video = videoRef.current;

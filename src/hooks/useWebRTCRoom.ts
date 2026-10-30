@@ -718,27 +718,14 @@ export function useWebRTCRoom({
             typeof window !== 'undefined' && ((window as any).__erusIsAiSpeaking || (Date.now() - ((window as any).__erusLastAiSpeechTime || 0) < 600))
           );
 
-          // BARGE-IN: If participant starts speaking into microphone (normVol >= 15) while AI is vocalizing,
-          // IMMEDIATELY STOP the AI facilitator voice so the participant can speak freely!
-          if (isAiSpeakingNow && normVol >= 15 && !isMicMutedRef.current) {
-            try {
-              roomVoice.stop();
-              if (typeof window !== 'undefined') {
-                (window as any).__erusIsAiSpeaking = false;
-                window.dispatchEvent(new CustomEvent('erus-ai-voice-end'));
-              }
-              if (socketRef.current) {
-                socketRef.current.emit('interrupt-facilitator', { slotId });
-              }
-            } catch (err) {}
-          }
+          // During AI speech, do not treat laptop speaker audio picked up by the mic as human speech!
+          // Barge-in occurs when genuine speech recognition words are detected (in RealisticGDRoom).
+          const effectiveIsSpeaking = isAiSpeakingNow ? false : (isSpeakingLiveRef.current || (normVol >= 15 && !isMicMutedRef.current));
+          const effectiveVol = isAiSpeakingNow ? 0 : normVol;
 
-          const effectiveIsSpeaking = isSpeakingLiveRef.current || (normVol >= 15 && !isMicMutedRef.current);
-          const effectiveVol = normVol;
-
-          // Outgoing audio tracks are ALWAYS enabled for participants unless manually muted
+          // Outgoing audio tracks are ducked/disabled during AI speech to eliminate speaker-to-mic acoustic echo feedback!
           if (localStreamRef.current) {
-            const shouldBeEnabled = !isMicMutedRef.current;
+            const shouldBeEnabled = !isMicMutedRef.current && !isAiSpeakingNow;
             localStreamRef.current.getAudioTracks().forEach((track) => {
               if (track.enabled !== shouldBeEnabled) {
                 track.enabled = shouldBeEnabled;
@@ -775,14 +762,38 @@ export function useWebRTCRoom({
     }
   }, [slotId]);
 
-  // Keep microphone always active for seamless participant speaking and instant barge-in
+  // Global listener for AI voice events: duck outgoing WebRTC tracks on start to stop echo,
+  // then restore 350ms after AI finishes speaking to let room reverb die out
   useEffect(() => {
-    if (localStreamRef.current && !isMicMutedRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((t) => {
-        t.enabled = true;
-      });
-    }
-  }, [isMicMuted]);
+    let unblockTimer: any = null;
+    const handleVoiceStart = () => {
+      if (unblockTimer) clearTimeout(unblockTimer);
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach((t) => {
+          t.enabled = false;
+        });
+      }
+    };
+
+    const handleVoiceEnd = () => {
+      if (unblockTimer) clearTimeout(unblockTimer);
+      unblockTimer = setTimeout(() => {
+        if (localStreamRef.current && !isMicMutedRef.current) {
+          localStreamRef.current.getAudioTracks().forEach((t) => {
+            t.enabled = true;
+          });
+        }
+      }, 350);
+    };
+
+    window.addEventListener('erus-ai-voice-start', handleVoiceStart);
+    window.addEventListener('erus-ai-voice-end', handleVoiceEnd);
+    return () => {
+      if (unblockTimer) clearTimeout(unblockTimer);
+      window.removeEventListener('erus-ai-voice-start', handleVoiceStart);
+      window.removeEventListener('erus-ai-voice-end', handleVoiceEnd);
+    };
+  }, []);
 
   const initLocalMicrophoneRef = useRef(initLocalMicrophone);
   initLocalMicrophoneRef.current = initLocalMicrophone;
@@ -985,7 +996,16 @@ export function useWebRTCRoom({
     }: any) => {
       if (!active) return;
       setAssignedSeat(mySeat);
-      setPeers(existingPeers || []);
+      const uniquePeers: LiveRoomPeer[] = [];
+      const seenPeerKeys = new Set<string>();
+      for (const p of (existingPeers || [])) {
+        const key = (p.userId || p.name || p.socketId || '').trim().toLowerCase();
+        if (key && !seenPeerKeys.has(key)) {
+          seenPeerKeys.add(key);
+          uniquePeers.push(p);
+        }
+      }
+      setPeers(uniquePeers);
       setAiParticipants(Array.isArray(initialAiParticipants) ? initialAiParticipants : []);
       setSimulationMode(Boolean(initialSimulationMode));
       setSilenceTimerSeconds(initialSilence || 0);
@@ -1028,7 +1048,13 @@ export function useWebRTCRoom({
     socket.on('peer-joined', async ({ peer }) => {
       if (!active) return;
       setPeers((prev) => {
-        const filtered = prev.filter((p) => p.socketId !== peer.socketId);
+        const pName = (peer.name || '').trim().toLowerCase();
+        const filtered = prev.filter((p) => {
+          if (p.socketId === peer.socketId) return false;
+          if (p.userId && peer.userId && p.userId === peer.userId) return false;
+          if (pName && p.name && p.name.trim().toLowerCase() === pName) return false;
+          return true;
+        });
         return [...filtered, peer];
       });
 

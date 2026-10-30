@@ -9151,14 +9151,27 @@ io.on("connection", (socket) => {
     let prevInterruption = 0;
     if (!isObserver) {
       const targetUserId = user?.id || socket.id;
+      const targetName = user?.name ? user.name.trim().toLowerCase() : "";
       for (const [existingSockId, existingPeer] of room.peers.entries()) {
-        const isStillConnected = io.sockets.sockets.get(existingSockId)?.connected;
-        if (existingSockId === socket.id || !isStillConnected && (existingPeer.userId === targetUserId || existingPeer.name && user?.name && existingPeer.name.toLowerCase() === user.name.toLowerCase())) {
+        const isSame = existingSockId === socket.id || existingPeer.userId && existingPeer.userId === targetUserId || targetName && existingPeer.name && existingPeer.name.trim().toLowerCase() === targetName;
+        if (isSame) {
           seatNumber = existingPeer.seatNumber;
           prevDuration = existingPeer.speakingDurationSeconds || 0;
           prevTurns = existingPeer.speakingTurns || 0;
           prevInterruption = existingPeer.interruptionCount || 0;
-          room.peers.delete(existingSockId);
+          if (existingSockId !== socket.id) {
+            room.peers.delete(existingSockId);
+            io.to(`room-${safeSlotId}`).emit("peer-left", {
+              socketId: existingSockId,
+              userId: existingPeer.userId,
+              seatNumber: existingPeer.seatNumber
+            });
+            try {
+              const oldSock = io.sockets.sockets.get(existingSockId);
+              if (oldSock) oldSock.leave(`room-${safeSlotId}`);
+            } catch {
+            }
+          }
           if (seatNumber) room.assignedSeats.set(seatNumber, socket.id);
           break;
         }
@@ -9272,6 +9285,8 @@ io.on("connection", (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
+      room.silenceTimerSeconds = 0;
+      room.silenceStage = 0;
     }
   });
   socket.on("interrupt-facilitator", ({ slotId }) => {
@@ -9694,7 +9709,7 @@ io.on("connection", (socket) => {
           const realStudentPeers = Array.from(room.peers.values()).filter(
             (p) => p.role === "student"
           );
-          if (realStudentPeers.length >= 2 && !room.simulationMode) {
+          if (realStudentPeers.length >= 1 && !room.simulationMode) {
             return;
           }
           scheduleNextTurn(room, peer.userId);
