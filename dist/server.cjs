@@ -8944,7 +8944,7 @@ async function triggerDeadlockIntervention(room) {
   }
   const recentHistory = room.transcripts.filter((t) => !t.isFacilitator).slice(-8).map((t) => `${t.speakerName}: ${t.text}`).join("\n");
   const deadlockDomain = detectTopicDomain(room.topic);
-  const domainDeadlockQuestions = {
+  const domainDeadlockQuestions2 = {
     cinema_media: [
       `${candidateName} ${seatStr}, since the floor is quiet, do you believe cinema has an obligation to challenge deep-rooted social problems, or should it remain purely commercial entertainment?`,
       `${candidateName} ${seatStr}, ${firstName}, how is the rapid rise of OTT streaming altering regional storytelling, theatre survival, and community viewing in "${room.topic}"?`,
@@ -9004,8 +9004,8 @@ async function triggerDeadlockIntervention(room) {
       `${candidateName} ${seatStr}, ${firstName}, how would you balance the economic demands against ethical responsibilities in "${room.topic}"?`
     ]
   };
-  const primaryPool = domainDeadlockQuestions[deadlockDomain] || domainDeadlockQuestions.general;
-  const combinedPool = [...primaryPool, ...domainDeadlockQuestions.general];
+  const primaryPool = domainDeadlockQuestions2[deadlockDomain] || domainDeadlockQuestions2.general;
+  const combinedPool = [...primaryPool, ...domainDeadlockQuestions2.general];
   if (!room.askedQuestions) room.askedQuestions = /* @__PURE__ */ new Set();
   room.deadlockCount = (room.deadlockCount || 0) + 1;
   const getQuestionStem = (q) => {
@@ -9284,7 +9284,11 @@ io.on("connection", (socket) => {
     const candidateName = firstStudent?.name || targetSlot?.students?.[0]?.name || "participants";
     const candidateFirstName = candidateName.split(" ")[0];
     const seatStr = firstStudent?.seatNumber ? `Seat ${firstStudent.seatNumber}` : "your seat";
-    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} from ${seatStr}. ${candidateFirstName}, please share your opening thoughts on "${room.topic}".`;
+    const roomDomain = detectTopicDomain(room.topic);
+    const domainQuestions = domainDeadlockQuestions[roomDomain] || domainDeadlockQuestions.general;
+    let starterQuestion = domainQuestions[0] || `what is your perspective on "${room.topic}"?`;
+    starterQuestion = starterQuestion.replace(/^[^,]+,\s*/, "").trim();
+    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} ${seatStr}. ${candidateFirstName}, ${starterQuestion}`;
     const openingTranscript = {
       id: `t-facilitator-opening-${Date.now()}`,
       sessionId: safeSlotId,
@@ -9619,10 +9623,6 @@ io.on("connection", (socket) => {
     if (room.currentSpeakerId !== peer.userId) {
       room.currentSpeakerId = peer.userId;
       room.currentSpeakerSocketId = socket.id;
-    }
-    if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
-      room.facilitatorSpeakingUntil = 0;
-      io.to(`room-${safeSlotId}`).emit("facilitator-cancelled");
     }
     if (!room.currentSpeakerId) {
       room.currentSpeakerId = peer.userId;

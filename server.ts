@@ -10275,7 +10275,12 @@ io.on('connection', (socket) => {
     const candidateFirstName = candidateName.split(' ')[0];
     const seatStr = firstStudent?.seatNumber ? `Seat ${firstStudent.seatNumber}` : 'your seat';
 
-    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} from ${seatStr}. ${candidateFirstName}, please share your opening thoughts on "${room.topic}".`;
+    const roomDomain = detectTopicDomain(room.topic);
+    const domainQuestions = domainDeadlockQuestions[roomDomain] || domainDeadlockQuestions.general;
+    let starterQuestion = domainQuestions[0] || `what is your perspective on "${room.topic}"?`;
+    starterQuestion = starterQuestion.replace(/^[^,]+,\s*/, '').trim();
+
+    const welcomePrompt = `Welcome participants to today's group discussion on "${room.topic}". The discussion has now officially commenced. To begin, let us invite ${candidateName} ${seatStr}. ${candidateFirstName}, ${starterQuestion}`;
 
     const openingTranscript: BackendTranscript = {
       id: `t-facilitator-opening-${Date.now()}`,
@@ -10672,11 +10677,6 @@ io.on('connection', (socket) => {
 
     // A quick statement can arrive before VAD claims the floor. In that case,
     // atomically grant the floor to this socket before accepting the transcript.
-    // Cancel facilitator speech if peer transcribed words
-    if (room.facilitatorSpeakingUntil && Date.now() < room.facilitatorSpeakingUntil) {
-      room.facilitatorSpeakingUntil = 0;
-      io.to(`room-${safeSlotId}`).emit('facilitator-cancelled');
-    }
 
     if (!room.currentSpeakerId) {
       room.currentSpeakerId = peer.userId;

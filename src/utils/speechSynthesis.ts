@@ -21,44 +21,12 @@ class RoomVoiceEngine {
   private lastSpokenAt: number = 0;
 
   private splitIntoSentences(text: string): string[] {
-    let safeText = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    if (!safeText.trim()) return [];
+    let safeText = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\s+/g, ' ').trim();
+    if (!safeText) return [];
 
-    // 1. Replace list numerals like "1. ", "2. ", "3. " with "Point 1: ", "Point 2: "
-    // This prevents "1." from matching as an isolated sentence ending with a period
-    safeText = safeText.replace(/(?:^|\n|\s)(\d+)\.\s+/g, ' Point $1: ');
-
-    // 2. Protect common abbreviations with periods so they don't break sentences in half
-    safeText = safeText
-      .replace(/\b(e\.g|i\.e|etc|vs|dr|mr|mrs|ms|prof)\./gi, '$1_DOT_')
-      .replace(/\b(v\d+)\.(\d+)\b/gi, '$1_DOT_$2');
-
-    // 3. Normalize multiple whitespace
-    safeText = safeText.replace(/\s+/g, ' ').trim();
-
-    // 4. Split on sentence terminal marks (. ! ?)
-    const rawMatches = safeText.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
-    if (!rawMatches || rawMatches.length === 0) return [safeText.replace(/_DOT_/g, '.')];
-
-    const rawSentences = rawMatches
-      .map((s) => String(s || '').replace(/_DOT_/g, '.').trim())
-      .filter((s) => s.length > 0);
-
-    // 5. Group into natural, moderate chunks (~120-150 chars) so browser engines never stall or drop words
-    const grouped: string[] = [];
-    let current = '';
-    for (const s of rawSentences) {
-      if (!current) {
-        current = s;
-      } else if ((current + ' ' + s).length <= 140) {
-        current = `${current} ${s}`;
-      } else {
-        grouped.push(current);
-        current = s;
-      }
-    }
-    if (current) grouped.push(current);
-    return grouped;
+    // For facilitator prompts (which are under 300 words), speak as ONE unified utterance!
+    // Chained micro-chunks cause Chromium on Windows to stop after the first chunk and drop subsequent sentences.
+    return [safeText];
   }
 
   constructor() {

@@ -529,7 +529,7 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
       if (!voiceMuted && !isRoomAudioMuted) {
         roomVoice.unlock();
         const wordCount = intervention.text.split(/\s+/).filter(Boolean).length;
-        const estSecs = Math.max(14, Math.ceil(wordCount * 0.95 + 6));
+        const estSecs = Math.max(18, Math.ceil(wordCount * 1.3 + 8));
         const safetyTimeout = setTimeout(() => {
           setSession((prev) => ({
             ...prev,
