@@ -8865,9 +8865,8 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
 
       const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
       if (isFacilitatorSpeaking) {
-        room.silenceTimerSeconds = 0;
         io.to(`room-${slotId}`).emit('silence-timer-tick', {
-          silenceTimerSeconds: 0,
+          silenceTimerSeconds: room.silenceTimerSeconds,
           silenceStage: room.silenceStage,
           maxSilence: 15,
         });
@@ -10237,8 +10236,7 @@ io.on('connection', (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
+      // Do not reset silenceStage or silenceTimerSeconds here so 5s -> Warning 1 -> 10s -> Warning 2 -> 15s -> Question progression is preserved
     }
   });
 

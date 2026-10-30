@@ -5051,10 +5051,14 @@ export const StudentVideoFrame: React.FC<{
     !isUser &&
     !!effectiveStream &&
     effectiveStream.getVideoTracks().some((t) => t.readyState !== 'ended');
+  const hasRemoteAudioTrack =
+    !isUser &&
+    !!effectiveStream &&
+    effectiveStream.getAudioTracks().some((t) => t.readyState !== 'ended');
   const isCameraEnabled = isUser ? isUserCameraOn : Boolean(student.cameraActive || hasRemoteVideoTrack);
   const isLiveWebcam =
     (isUser && isUserCameraOn && !!videoStream) ||
-    (!isUser && !!effectiveStream && hasRemoteVideoTrack);
+    (!isUser && !!effectiveStream && (hasRemoteVideoTrack || hasRemoteAudioTrack || student.isRealPeer));
   const isMicLive = isUser ? isListeningMic : (isCurrentSpeaker || student.isSpeaking);
 
   // Clear human face portrait avatar fallback (using SVG Avataaars portraits seeded by name)

@@ -8084,9 +8084,8 @@ function getOrCreateLiveRoom(slotId, topic) {
     );
     const isFacilitatorSpeaking = Boolean(room.facilitatorSpeakingUntil && checkNow < room.facilitatorSpeakingUntil);
     if (isFacilitatorSpeaking) {
-      room.silenceTimerSeconds = 0;
       io.to(`room-${slotId}`).emit("silence-timer-tick", {
-        silenceTimerSeconds: 0,
+        silenceTimerSeconds: room.silenceTimerSeconds,
         silenceStage: room.silenceStage,
         maxSilence: 15
       });
@@ -9248,8 +9247,6 @@ io.on("connection", (socket) => {
     const room = LIVE_ROOMS.get(safeSlotId);
     if (room) {
       room.facilitatorSpeakingUntil = 0;
-      room.silenceTimerSeconds = 0;
-      room.silenceStage = 0;
     }
   });
   socket.on("finish-session", ({ slotId }) => {

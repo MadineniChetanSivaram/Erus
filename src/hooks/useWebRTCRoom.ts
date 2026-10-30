@@ -423,6 +423,10 @@ export function useWebRTCRoom({
       // Clean MediaStream with the selected active tracks
       const updatedStream = new MediaStream(tracksToUse);
       peerStreamsRef.current.set(peerSocketId, updatedStream);
+      const peerObj = peersRef.current.find((p) => p.socketId === peerSocketId);
+      if (peerObj?.userId) {
+        peerStreamsRef.current.set(peerObj.userId, updatedStream);
+      }
       setPeerStreams(new Map(peerStreamsRef.current));
 
       if (audioTrackToUse) {
