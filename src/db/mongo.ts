@@ -438,6 +438,7 @@ export interface IGDSession extends Document {
   enrolledCount: number;
   collegeCode: string;
   activityType?: 'gd' | 'presentation';
+  roomLayout?: 'round_table' | 'speaker_center' | 'classroom';
   presentationTopics?: string[];
   assignedFacultyId?: string;
   assignedFacultyName?: string;
@@ -465,6 +466,7 @@ const GDSessionSchema = new Schema<IGDSession>(
     topic: { type: String, required: true, index: true },
     description: { type: String, default: '' },
     activityType: { type: String, enum: ['gd', 'presentation'], default: 'gd' },
+    roomLayout: { type: String, enum: ['round_table', 'speaker_center', 'classroom'], default: 'round_table' },
     presentationTopics: { type: [String], default: [] },
     slotTiming: { type: String, default: '10:00 AM - 10:30 AM' },
     slotDate: { type: String, default: 'Today' },

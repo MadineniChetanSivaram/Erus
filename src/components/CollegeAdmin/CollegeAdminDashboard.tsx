@@ -529,6 +529,7 @@ export const CollegeAdminDashboard: React.FC<CollegeAdminDashboardProps> = ({
 
     const payload = {
       activityType: allotForm.activityType,
+      roomLayout: isPresentation ? 'classroom' : 'round_table',
       topic: chosenTopic,
       description: chosenDescription,
       slotName: newSlotName,

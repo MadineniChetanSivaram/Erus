@@ -354,6 +354,7 @@ var GDSessionSchema = new import_mongoose.Schema(
     topic: { type: String, required: true, index: true },
     description: { type: String, default: "" },
     activityType: { type: String, enum: ["gd", "presentation"], default: "gd" },
+    roomLayout: { type: String, enum: ["round_table", "speaker_center", "classroom"], default: "round_table" },
     presentationTopics: { type: [String], default: [] },
     slotTiming: { type: String, default: "10:00 AM - 10:30 AM" },
     slotDate: { type: String, default: "Today" },
@@ -1731,6 +1732,7 @@ async function persistSlotToMongoDB(slot) {
         status: slot.status || "scheduled",
         durationMinutes: slot.durationMinutes || 25,
         activityType: slot.activityType || "gd",
+        roomLayout: slot.roomLayout || (slot.activityType === "presentation" ? "classroom" : "round_table"),
         presentationTopics: slot.presentationTopics || [],
         enrolledCount: slot.enrolledCount || 0,
         maxCapacity: slot.maxCapacity || 15,
@@ -2423,6 +2425,9 @@ async function addSlotsToCollegeAndPersist(col, body) {
         if (s && s.id && !deletedSet.has(s.id) && !slotMap.has(s.id)) {
           slotMap.set(s.id, {
             id: s.id,
+            activityType: s.activityType || (s.maxCapacity === 6 ? "presentation" : "gd"),
+            roomLayout: s.roomLayout || (s.activityType === "presentation" || s.maxCapacity === 6 ? "classroom" : "round_table"),
+            presentationTopics: s.presentationTopics || [],
             slotName: s.slotName || s.topic || "Slot",
             topic: s.topic || "",
             description: s.description || "",
@@ -3662,6 +3667,9 @@ app.get("/api/college/slots", async (req, res) => {
         slotMap.set(s.id, {
           ...existing,
           id: s.id,
+          activityType: s.activityType || existing.activityType || (s.maxCapacity === 6 ? "presentation" : "gd"),
+          roomLayout: s.roomLayout || existing.roomLayout || (s.activityType === "presentation" || s.maxCapacity === 6 ? "classroom" : "round_table"),
+          presentationTopics: s.presentationTopics || existing.presentationTopics || [],
           slotName: existing.slotName || s.slotName || resolvedTopic || "Slot",
           topic: resolvedTopic,
           description: existing.description || s.description || "",
@@ -3701,6 +3709,9 @@ app.get("/api/college/slots", async (req, res) => {
         slotMap.set(s.id, {
           ...existing,
           id: s.id,
+          activityType: s.activityType || existing.activityType || (s.maxCapacity === 6 ? "presentation" : "gd"),
+          roomLayout: s.roomLayout || existing.roomLayout || (s.activityType === "presentation" || s.maxCapacity === 6 ? "classroom" : "round_table"),
+          presentationTopics: s.presentationTopics || existing.presentationTopics || [],
           topic: s.topic,
           description: s.description || "",
           durationMinutes: s.durationMinutes,
@@ -4069,6 +4080,7 @@ var handleSlotAllotment = async (req, res) => {
   }
   if (activityType !== void 0) {
     targetSlot.activityType = activityType;
+    targetSlot.roomLayout = activityType === "presentation" ? "classroom" : "round_table";
   }
   if (presentationTopics !== void 0) {
     targetSlot.presentationTopics = presentationTopics;
@@ -8043,6 +8055,8 @@ function getOrCreateLiveRoom(slotId, topic) {
     return room;
   }
   let resolvedTopic = topic;
+  let resolvedActivityType = "gd";
+  let resolvedRoomLayout = "round_table";
   let slotStatus = "waiting";
   for (const slots of Object.values(persistentState.slots)) {
     const slot = slots.find((s) => s.id === slotId);
@@ -8050,6 +8064,10 @@ function getOrCreateLiveRoom(slotId, topic) {
       if (!resolvedTopic && slot.topic) resolvedTopic = slot.topic;
       if (slot.status === "active") slotStatus = "active";
       else if (slot.status === "completed") slotStatus = "completed";
+      if (slot.activityType === "presentation" || slot.roomLayout === "classroom" || slot.maxCapacity === 6) {
+        resolvedActivityType = "presentation";
+        resolvedRoomLayout = "classroom";
+      }
       break;
     }
   }
@@ -8065,6 +8083,8 @@ function getOrCreateLiveRoom(slotId, topic) {
     silenceStage: 0,
     status: slotStatus,
     topic: resolvedTopic,
+    activityType: resolvedActivityType,
+    roomLayout: resolvedRoomLayout,
     transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
     deadlockCount: 0,
     silenceInterventionCount: 0,
@@ -9264,6 +9284,8 @@ io.on("connection", (socket) => {
       simulationMode: room.simulationMode,
       transcripts: room.transcripts,
       topic: room.topic,
+      activityType: room.activityType || "gd",
+      roomLayout: room.roomLayout || (room.activityType === "presentation" ? "classroom" : "round_table"),
       silenceTimerSeconds: room.silenceTimerSeconds,
       currentSpeakerId: room.currentSpeakerId,
       status: room.status,

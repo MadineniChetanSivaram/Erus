@@ -971,7 +971,8 @@ export async function fetchCollegeSlots(collegeCode: string = 'DIT'): Promise<an
         assignedFacultyName: hasBFac ? b.assignedFacultyName : (hasLFac ? l.assignedFacultyName : b.assignedFacultyName),
         assignedFacultyDept: hasBFac ? b.assignedFacultyDept : (hasLFac ? l.assignedFacultyDept : b.assignedFacultyDept),
         assignedFacultyEmail: hasBFac ? b.assignedFacultyEmail : (hasLFac ? l.assignedFacultyEmail : b.assignedFacultyEmail),
-        activityType: b.activityType || l.activityType || 'gd',
+        activityType: (b.activityType === 'presentation' || l.activityType === 'presentation' || b.roomLayout === 'classroom' || l.roomLayout === 'classroom' || b.maxCapacity === 6 || l.maxCapacity === 6) ? 'presentation' : (b.activityType || l.activityType || 'gd'),
+        roomLayout: (b.activityType === 'presentation' || l.activityType === 'presentation' || b.roomLayout === 'classroom' || l.roomLayout === 'classroom' || b.maxCapacity === 6 || l.maxCapacity === 6) ? 'classroom' : (b.roomLayout || l.roomLayout || 'round_table'),
       };
     });
     saveLocalSlots(code, merged);
@@ -1267,7 +1268,8 @@ export async function allotSlotTopicAndFaculty(
           return {
             ...s,
             ...data,
-            activityType: data.activityType || s.activityType || 'gd',
+            activityType: (data.activityType === 'presentation' || isPresentation || s.activityType === 'presentation' || s.roomLayout === 'classroom') ? 'presentation' : (data.activityType || s.activityType || 'gd'),
+            roomLayout: isPresentation ? 'classroom' : (data.roomLayout || s.roomLayout || 'round_table'),
             maxCapacity: capacity,
             durationMinutes: data.durationMinutes || s.durationMinutes || (isPresentation ? 60 : 15),
             enrolledCount: Math.min(students.length || capacity, capacity),
@@ -1290,7 +1292,8 @@ export async function allotSlotTopicAndFaculty(
         {
           id: slotId,
           ...data,
-          activityType: data.activityType || 'gd',
+          activityType: isPresentation ? 'presentation' : (data.activityType || 'gd'),
+          roomLayout: isPresentation ? 'classroom' : (data.roomLayout || 'round_table'),
           maxCapacity: capacity,
           durationMinutes: data.durationMinutes || (isPresentation ? 60 : 15),
           enrolledCount: 0,

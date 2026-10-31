@@ -340,7 +340,8 @@ function GDAppContent() {
               ...prev,
               ...fresh,
               status: resolvedStatus,
-              roomLayout: prev.roomLayout || fresh.roomLayout || 'round_table',
+              activityType: (fresh.activityType === 'presentation' || fresh.roomLayout === 'classroom' || fresh.maxCapacity === 6) ? 'presentation' : (fresh.activityType || prev.activityType || 'gd'),
+              roomLayout: (fresh.activityType === 'presentation' || fresh.roomLayout === 'classroom' || fresh.maxCapacity === 6) ? 'classroom' : (fresh.roomLayout || prev.roomLayout || 'round_table'),
               students: (prev.students && prev.students.length > 0) ? prev.students : (fresh.students && fresh.students.length > 0 ? fresh.students : generateSlotParticipants(8)),
             };
           });
@@ -1527,7 +1528,17 @@ function GDAppContent() {
       }
     }
 
-    if (slotId === session.id && session.students && session.students.length > 0) return; // already in this slot with active participants
+    const targetIsPres = Boolean(targetSlot.activityType === 'presentation' || targetSlot.roomLayout === 'classroom' || targetSlot.maxCapacity === 6);
+    if (slotId === session.id && session.students && session.students.length > 0) {
+      if ((targetIsPres && (session.activityType !== 'presentation' || session.roomLayout !== 'classroom')) || (!targetIsPres && session.activityType === 'presentation')) {
+        setSession((prev) => ({
+          ...prev,
+          activityType: targetIsPres ? 'presentation' : 'gd',
+          roomLayout: targetIsPres ? 'classroom' : 'round_table',
+        }));
+      }
+      return;
+    }
 
     const targetMaxCap = targetSlot.maxCapacity || 15;
     const targetCurrentEnrolled = targetSlot.enrolledCount ?? targetSlot.students?.length ?? 0;
@@ -1597,6 +1608,7 @@ function GDAppContent() {
     const isPresentation =
       targetSlot.activityType === 'presentation' ||
       targetSlot.roomLayout === 'classroom' ||
+      targetSlot.maxCapacity === 6 ||
       (slotId === session.id && (session.activityType === 'presentation' || session.roomLayout === 'classroom'));
     const activeSlot: GDSession = {
       ...targetSlot,
@@ -1878,8 +1890,11 @@ function GDAppContent() {
       }));
     }
 
+    const isPresBooking = Boolean(targetSlot.activityType === 'presentation' || targetSlot.roomLayout === 'classroom' || targetSlot.maxCapacity === 6);
     const updatedSlot: GDSession = {
       ...targetSlot,
+      activityType: isPresBooking ? 'presentation' : (targetSlot.activityType || 'gd'),
+      roomLayout: isPresBooking ? 'classroom' : (targetSlot.roomLayout || 'round_table'),
       enrolledCount: Math.min(maxCap, currentEnrolled + 1),
       students: updatedTargetStudents,
     };
@@ -1994,6 +2009,7 @@ function GDAppContent() {
         currentUser={currentUser}
         onLogout={handleLogout}
         bookedSlotId={studentBookedSlotId}
+        availableSlots={availableSlots}
       />
 
       {/* Main Responsive Application Viewport */}
@@ -2041,7 +2057,16 @@ function GDAppContent() {
         )}
 
         {currentTab === 'room' && currentUser?.role !== 'college_admin' && currentUser?.role !== 'super_admin' && session.status !== 'completed' && !isSlotCompletedLocally(session.id) && (
-          (session.activityType === 'presentation' || session.roomLayout === 'classroom') ? (
+          (() => {
+            const currentSlot = availableSlots.find((s) => s.id === session.id || (studentBookedSlotId && s.id === studentBookedSlotId));
+            const isPresentation = Boolean(
+              session.activityType === 'presentation' ||
+              session.roomLayout === 'classroom' ||
+              currentSlot?.activityType === 'presentation' ||
+              currentSlot?.roomLayout === 'classroom' ||
+              currentSlot?.maxCapacity === 6
+            );
+            return isPresentation ? (
             <ClassroomPresentationRoom
               session={session}
               setSession={setSession}
@@ -2115,7 +2140,8 @@ function GDAppContent() {
                 );
               }}
             />
-          )
+            );
+          })()
         )}
 
         {currentTab === 'report' && (

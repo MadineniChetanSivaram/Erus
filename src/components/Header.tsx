@@ -181,7 +181,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Radio className={`w-3.5 h-3.5 shrink-0 ${currentTab === 'room' ? 'text-white animate-pulse' : 'text-emerald-500 dark:text-emerald-400'}`} />
-              <span>{session?.activityType === 'presentation' || session?.roomLayout === 'classroom' ? 'Live Presentation' : 'Live GD Room'}</span>
+              <span>{isPresentationMode ? 'Live Presentation' : 'Live GD Room'}</span>
             </button>
           )}
 
@@ -193,7 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/20"
             >
               <Radio className="w-3.5 h-3.5 shrink-0 text-white animate-pulse" />
-              <span>{session?.activityType === 'presentation' || session?.roomLayout === 'classroom' ? 'Live Presentation' : 'Live GD Room'}</span>
+              <span>{isPresentationMode ? 'Live Presentation' : 'Live GD Room'}</span>
             </button>
           )}
 

@@ -274,6 +274,7 @@ interface BackendCollegeSlotItem {
   collegeCode: string;
   createdAt: string;
   activityType?: 'gd' | 'presentation';
+  roomLayout?: 'round_table' | 'speaker_center' | 'classroom';
   presentationTopics?: string[];
   students?: any[];
   recordingUrl?: string;
@@ -1238,6 +1239,7 @@ async function persistSlotToMongoDB(slot: BackendCollegeSlotItem) {
         status: (slot.status as any) || 'scheduled',
         durationMinutes: slot.durationMinutes || 25,
         activityType: slot.activityType || 'gd',
+        roomLayout: slot.roomLayout || (slot.activityType === 'presentation' ? 'classroom' : 'round_table'),
         presentationTopics: slot.presentationTopics || [],
         enrolledCount: slot.enrolledCount || 0,
         maxCapacity: slot.maxCapacity || 15,
@@ -2020,6 +2022,9 @@ async function addSlotsToCollegeAndPersist(col: BackendCollege, body: any) {
         if (s && s.id && !deletedSet.has(s.id) && !slotMap.has(s.id)) {
           slotMap.set(s.id, {
             id: s.id,
+            activityType: (s as any).activityType || (s.maxCapacity === 6 ? 'presentation' : 'gd'),
+            roomLayout: (s as any).roomLayout || ((s as any).activityType === 'presentation' || s.maxCapacity === 6 ? 'classroom' : 'round_table'),
+            presentationTopics: (s as any).presentationTopics || [],
             slotName: s.slotName || s.topic || 'Slot',
             topic: s.topic || '',
             description: s.description || '',
@@ -3510,6 +3515,9 @@ app.get('/api/college/slots', async (req, res) => {
         slotMap.set(s.id, {
           ...existing,
           id: s.id,
+          activityType: (s as any).activityType || existing.activityType || (s.maxCapacity === 6 ? 'presentation' : 'gd'),
+          roomLayout: (s as any).roomLayout || existing.roomLayout || ((s as any).activityType === 'presentation' || s.maxCapacity === 6 ? 'classroom' : 'round_table'),
+          presentationTopics: (s as any).presentationTopics || existing.presentationTopics || [],
           slotName: existing.slotName || s.slotName || resolvedTopic || 'Slot',
           topic: resolvedTopic,
           description: existing.description || s.description || '',
@@ -3552,6 +3560,9 @@ app.get('/api/college/slots', async (req, res) => {
         slotMap.set(s.id, {
           ...existing,
           id: s.id,
+          activityType: (s as any).activityType || existing.activityType || (s.maxCapacity === 6 ? 'presentation' : 'gd'),
+          roomLayout: (s as any).roomLayout || existing.roomLayout || ((s as any).activityType === 'presentation' || s.maxCapacity === 6 ? 'classroom' : 'round_table'),
+          presentationTopics: (s as any).presentationTopics || existing.presentationTopics || [],
           topic: s.topic,
           description: s.description || '',
           durationMinutes: s.durationMinutes,
@@ -4013,6 +4024,7 @@ const handleSlotAllotment = async (req: express.Request, res: express.Response) 
 
   if (activityType !== undefined) {
     targetSlot.activityType = activityType;
+    targetSlot.roomLayout = activityType === 'presentation' ? 'classroom' : 'round_table';
   }
   if (presentationTopics !== undefined) {
     targetSlot.presentationTopics = presentationTopics;
@@ -8674,6 +8686,8 @@ interface LiveGDRoomState {
   silenceTimerSeconds: number;
   silenceStage: number; // 0: initial, 1: instruction1 given, 2: instruction2 given, 3: question asked
   status: 'active' | 'paused' | 'completed' | 'waiting' | 'scheduled';
+  activityType?: 'gd' | 'presentation';
+  roomLayout?: string;
   topic: string;
   transcripts: BackendTranscript[];
   silenceInterval?: NodeJS.Timeout;
@@ -8825,6 +8839,8 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
     return room;
   }
   let resolvedTopic = topic;
+  let resolvedActivityType: 'gd' | 'presentation' = 'gd';
+  let resolvedRoomLayout = 'round_table';
   let slotStatus: 'waiting' | 'active' | 'completed' = 'waiting';
   for (const slots of Object.values(persistentState.slots)) {
     const slot = slots.find((s) => s.id === slotId);
@@ -8832,6 +8848,10 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       if (!resolvedTopic && slot.topic) resolvedTopic = slot.topic;
       if (slot.status === 'active') slotStatus = 'active';
       else if (slot.status === 'completed') slotStatus = 'completed';
+      if (slot.activityType === 'presentation' || (slot as any).roomLayout === 'classroom' || slot.maxCapacity === 6) {
+        resolvedActivityType = 'presentation';
+        resolvedRoomLayout = 'classroom';
+      }
       break;
     }
   }
@@ -8847,6 +8867,8 @@ function getOrCreateLiveRoom(slotId: string, topic?: string): LiveGDRoomState {
       silenceStage: 0,
       status: slotStatus,
       topic: resolvedTopic,
+      activityType: resolvedActivityType,
+      roomLayout: resolvedRoomLayout,
       transcripts: liveTranscripts.filter((t) => t.sessionId === slotId),
       deadlockCount: 0,
       silenceInterventionCount: 0,
@@ -10258,6 +10280,8 @@ io.on('connection', (socket) => {
       simulationMode: room.simulationMode,
       transcripts: room.transcripts,
       topic: room.topic,
+      activityType: room.activityType || 'gd',
+      roomLayout: room.roomLayout || (room.activityType === 'presentation' ? 'classroom' : 'round_table'),
       silenceTimerSeconds: room.silenceTimerSeconds,
       currentSpeakerId: room.currentSpeakerId,
       status: room.status,

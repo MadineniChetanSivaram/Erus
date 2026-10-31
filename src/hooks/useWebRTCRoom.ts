@@ -969,6 +969,8 @@ export function useWebRTCRoom({
       transcripts: initialTranscripts,
       status: roomStatus,
       topic: roomTopic,
+      activityType: roomActivityType,
+      roomLayout: roomLayoutType,
       openingStarted: isOpeningStarted,
     }: any) => {
       if (!active) return;
@@ -997,6 +999,8 @@ export function useWebRTCRoom({
           transcripts: initialTranscripts,
           status: roomStatus,
           topic: roomTopic,
+          activityType: roomActivityType,
+          roomLayout: roomLayoutType,
           openingStarted: isOpeningStarted,
           silenceTimerSeconds: initialSilence,
         });

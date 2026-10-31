@@ -114,6 +114,15 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     });
   }, [transcripts]);
 
+    // Guard: If session was marked presentation, ensure layout switches to classroom
+  useEffect(() => {
+    if (session.activityType === 'presentation' || session.roomLayout === 'classroom') {
+      if (onUpdateLayout) {
+        onUpdateLayout('classroom');
+      }
+    }
+  }, [session.activityType, session.roomLayout, onUpdateLayout]);
+
   const isFaculty = currentUser?.role === 'faculty' || currentUser?.role === 'college_admin' || currentUser?.role === 'super_admin';
   const isFacultyOrAdmin = isFaculty;
   const isStudent = currentUser?.role === 'student';
@@ -329,6 +338,16 @@ export const RealisticGDRoom: React.FC<RealisticGDRoomProps> = ({
     videoStream,
     isCameraOn,
     onRoomJoined: (roomData) => {
+      if (roomData.activityType === 'presentation' || roomData.roomLayout === 'classroom') {
+        setSession((prev) => ({
+          ...prev,
+          activityType: 'presentation',
+          roomLayout: 'classroom',
+        }));
+        if (onUpdateLayout) {
+          onUpdateLayout('classroom');
+        }
+      }
       if (roomData.status === 'active') {
         setSession((prev) => ({
           ...prev,
